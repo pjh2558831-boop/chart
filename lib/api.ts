@@ -8,12 +8,12 @@ function apiUrl(path: string) {
   return `${API_BASE_URL}${path}`;
 }
 
-async function parseError(response: Response) {
+async function parseError(response: Response): Promise<never> {
   let message = "요청 처리 중 오류가 발생했습니다.";
 
   try {
-    const body = (await response.json()) as { detail?: string; error?: string };
-    message = body.detail || body.error || message;
+    const body = (await response.json()) as { detail?: string; error?: string; message?: string };
+    message = body.detail || body.error || body.message || message;
   } catch {
     message = response.statusText || message;
   }
@@ -31,7 +31,7 @@ export async function analyzeChartImage(file: File): Promise<AnalysisResponse> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(apiUrl("/api/analyze-chart"), {
+  const response = await fetch(apiUrl("/api/analyze"), {
     method: "POST",
     headers: createUserHeaders(),
     body: formData,

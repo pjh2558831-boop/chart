@@ -28,7 +28,6 @@ export default function ImageUploader({
 
     const objectUrl = URL.createObjectURL(file);
     setPreviewUrl(objectUrl);
-
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
 
@@ -44,9 +43,7 @@ export default function ImageUploader({
       onFileSelect(selectedFile);
     } catch (error) {
       onFileSelect(null);
-      setValidationError(
-        error instanceof Error ? error.message : "이미지 검증 중 오류가 발생했습니다.",
-      );
+      setValidationError(error instanceof Error ? error.message : "이미지 검증 중 오류가 발생했습니다.");
     }
   };
 

@@ -1,21 +1,26 @@
-import type { ReactNode } from "react";
+"use client";
 
+import { useState } from "react";
+
+import { submitFeedback } from "../lib/api";
 import {
+  formatBreakoutDirection,
   formatConfidence,
+  formatNumber,
+  formatPatternCategory,
   formatPrice,
   formatPriceRange,
+  formatRiskLevel,
   formatScore,
   formatSignalLabel,
   formatStatus,
+  getBreakoutTone,
   getConfidenceTone,
+  getPatternCategoryTone,
+  getRiskTone,
+  getStatusTone,
 } from "../lib/formatters";
-import type {
-  ActionParameter,
-  AnalysisResponse,
-  SummarySignal,
-  TradeSignal,
-  VisualZone,
-} from "../types/analysis";
+import type { AnalysisResponse, PatternCandidate, TradeSignal, VisualZone } from "../types/analysis";
 import MetricCard from "./MetricCard";
 import ResultSection from "./ResultSection";
 import StatusBadge from "./StatusBadge";
@@ -28,7 +33,6 @@ function fallback(value?: string | number | null) {
   if (value === null || value === undefined || value === "") {
     return "-";
   }
-
   return String(value);
 }
 
@@ -36,25 +40,8 @@ function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-function EmptyState({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-      {children}
-    </div>
-  );
-}
-
-function WarningBox({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
-      {children}
-    </div>
-  );
-}
-
 function BasisList({ items }: { items?: string[] }) {
   const safeItems = items ?? [];
-
   if (safeItems.length === 0) {
     return <p className="mt-3 text-sm text-slate-600">근거 정보가 충분하지 않습니다.</p>;
   }
@@ -72,36 +59,30 @@ function ZoneList({
   title,
   zones,
   emptyText,
-  tone,
 }: {
   title: string;
   zones?: VisualZone[];
   emptyText: string;
-  tone: "emerald" | "orange";
 }) {
   const safeZones = zones ?? [];
-  const toneClasses =
-    tone === "emerald"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
-      : "border-orange-200 bg-orange-50 text-orange-950";
 
   return (
-    <article className={`rounded-lg border p-4 ${toneClasses}`}>
-      <h3 className="font-bold">{title}</h3>
+    <article className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <h3 className="font-bold text-slate-900">{title}</h3>
       {safeZones.length === 0 ? (
-        <p className="mt-3 text-sm opacity-80">{emptyText}</p>
+        <p className="mt-3 text-sm text-slate-500">{emptyText}</p>
       ) : (
         <ul className="mt-3 space-y-3">
           {safeZones.map((zone, index) => (
-            <li key={`${zone.label}-${index}`} className="rounded-lg bg-white/70 p-3">
+            <li key={`${zone.label}-${index}`} className="rounded-lg bg-white p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="font-semibold">{fallback(zone.label)}</p>
+                <p className="font-semibold text-slate-900">{fallback(zone.label)}</p>
                 <StatusBadge
                   label={formatConfidence(zone.confidence)}
                   tone={getConfidenceTone(zone.confidence)}
                 />
               </div>
-              <p className="mt-1 text-sm leading-6 opacity-80">{fallback(zone.note)}</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">{fallback(zone.note)}</p>
             </li>
           ))}
         </ul>
@@ -146,99 +127,163 @@ function scoreRowClasses(group: string) {
   };
 }
 
-function getSignalTone(action: ActionParameter): "success" | "warning" | "danger" | "neutral" {
-  switch (action) {
-    case "buy_candidate":
-      return "success";
-    case "sell_candidate":
-      return "danger";
-    case "hold_candidate":
-    case "neutral":
-      return "neutral";
-    case "insufficient_data":
-      return "warning";
-    default:
-      return "neutral";
-  }
+function PatternCandidateCard({ candidate }: { candidate: PatternCandidate }) {
+  const evidenceText =
+    candidate.evidence?.length ? candidate.evidence.join(" / ") : "근거 없음";
+
+  return (
+    <article className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">패턴 후보</p>
+          <h4 className="mt-1 text-lg font-bold text-slate-950">{fallback(candidate.label)}</h4>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <StatusBadge
+            label={formatPatternCategory(candidate.category)}
+            tone={getPatternCategoryTone(candidate.category)}
+          />
+          <StatusBadge
+            label={formatConfidence(candidate.confidence)}
+            tone={getConfidenceTone(candidate.confidence)}
+          />
+          <StatusBadge
+            label={formatBreakoutDirection(candidate.breakoutDirection)}
+            tone={getBreakoutTone(candidate.breakoutDirection)}
+          />
+          <StatusBadge
+            label={`리스크 ${formatRiskLevel(candidate.riskLevel)}`}
+            tone={getRiskTone(candidate.riskLevel)}
+          />
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-4 text-sm leading-6 text-slate-700">
+        <div>
+          <p className="font-semibold text-slate-900">근거</p>
+          <p className="mt-1">{evidenceText}</p>
+        </div>
+        <div>
+          <p className="font-semibold text-slate-900">확인 조건</p>
+          <p className="mt-1">{fallback(candidate.confirmationCondition)}</p>
+        </div>
+        <div>
+          <p className="font-semibold text-slate-900">무효화 조건</p>
+          <p className="mt-1">{fallback(candidate.invalidationCondition)}</p>
+        </div>
+        <div>
+          <p className="font-semibold text-slate-900">진입 후보 조건</p>
+          <p className="mt-1">{fallback(candidate.entryLogic)}</p>
+        </div>
+      </div>
+    </article>
+  );
 }
 
-function buildSummarySignal(tradeSignal?: TradeSignal | null): SummarySignal {
-  const finalSignal = tradeSignal?.finalSignal ?? "insufficient_data";
+function FeedbackSection({ analysisId }: { analysisId?: number }) {
+  const [rating, setRating] = useState<number>(5);
+  const [correctSignal, setCorrectSignal] = useState("buy_candidate");
+  const [correctPattern, setCorrectPattern] = useState("");
+  const [comment, setComment] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  if (
-    finalSignal === "strong_buy_candidate" ||
-    finalSignal === "buy_candidate" ||
-    finalSignal === "weak_buy_candidate"
-  ) {
-    return {
-      actionParameter: "buy_candidate",
-      actionLabel: "매수 후보",
-      entryPriceCandidate: {
-        from: tradeSignal?.buyZone?.priceRange?.from,
-        to: tradeSignal?.buyZone?.priceRange?.to,
-        basis: tradeSignal?.buyZone?.basis?.[0] ?? null,
-      },
-      targetPriceCandidate: {
-        primary: tradeSignal?.targetPriceCandidate?.primary,
-        secondary: tradeSignal?.targetPriceCandidate?.secondary,
-        basis: tradeSignal?.targetPriceCandidate?.basis ?? null,
-      },
-    };
+  if (!analysisId) {
+    return null;
   }
 
-  if (
-    finalSignal === "strong_sell_candidate" ||
-    finalSignal === "sell_candidate" ||
-    finalSignal === "weak_sell_candidate"
-  ) {
-    return {
-      actionParameter: "sell_candidate",
-      actionLabel: "매도 후보",
-      entryPriceCandidate: {
-        from: tradeSignal?.sellZone?.priceRange?.from,
-        to: tradeSignal?.sellZone?.priceRange?.to,
-        basis: tradeSignal?.sellZone?.basis?.[0] ?? null,
-      },
-      targetPriceCandidate: {
-        primary: tradeSignal?.targetPriceCandidate?.primary,
-        secondary: tradeSignal?.targetPriceCandidate?.secondary,
-        basis: tradeSignal?.targetPriceCandidate?.basis ?? null,
-      },
-    };
-  }
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    setMessage(null);
+    setError(null);
 
-  if (finalSignal === "neutral") {
-    const current = tradeSignal?.currentPriceEstimate?.value;
-    return {
-      actionParameter: "hold_candidate",
-      actionLabel: "보유 후보",
-      entryPriceCandidate: {
-        from: current ?? null,
-        to: current ?? null,
-        basis: "현재 기술적 조건 점수가 비슷해 중립 또는 보유 후보 구간으로 해석했습니다.",
-      },
-      targetPriceCandidate: {
-        primary: tradeSignal?.targetPriceCandidate?.primary,
-        secondary: tradeSignal?.targetPriceCandidate?.secondary,
-        basis: tradeSignal?.targetPriceCandidate?.basis ?? null,
-      },
-    };
-  }
-
-  return {
-    actionParameter: "insufficient_data",
-    actionLabel: "데이터 부족",
-    entryPriceCandidate: {
-      from: null,
-      to: null,
-      basis: "진입가 후보를 계산할 수 있는 정보가 부족합니다.",
-    },
-    targetPriceCandidate: {
-      primary: tradeSignal?.targetPriceCandidate?.primary,
-      secondary: tradeSignal?.targetPriceCandidate?.secondary,
-      basis: tradeSignal?.targetPriceCandidate?.basis ?? null,
-    },
+    try {
+      await submitFeedback({
+        analysisId,
+        rating,
+        correctSignal,
+        correctPattern: correctPattern || null,
+        comment: comment || null,
+      });
+      setMessage("피드백이 저장되었습니다.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error ? requestError.message : "피드백 저장 중 오류가 발생했습니다.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  return (
+    <ResultSection title="피드백" tone="green">
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="text-sm text-slate-700">
+          <span className="mb-2 block font-semibold text-slate-900">별점</span>
+          <select
+            value={rating}
+            onChange={(event) => setRating(Number(event.target.value))}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2"
+          >
+            {[1, 2, 3, 4, 5].map((value) => (
+              <option key={value} value={value}>
+                {value}점
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+          <span className="mb-2 block font-semibold text-slate-900">올바른 신호</span>
+          <select
+            value={correctSignal}
+            onChange={(event) => setCorrectSignal(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2"
+          >
+            {["buy_candidate", "sell_candidate", "hold_candidate", "neutral", "wrong"].map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+          <span className="mb-2 block font-semibold text-slate-900">올바른 패턴</span>
+          <input
+            value={correctPattern}
+            onChange={(event) => setCorrectPattern(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2"
+            placeholder="예: ascending_triangle"
+          />
+        </label>
+
+        <label className="text-sm text-slate-700">
+          <span className="mb-2 block font-semibold text-slate-900">코멘트</span>
+          <textarea
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+            className="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2"
+            placeholder="분석이 맞았는지, 보완이 필요한 점이 있었는지 남겨주세요."
+          />
+        </label>
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={isSubmitting}
+          className="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          {isSubmitting ? "저장 중..." : "피드백 제출"}
+        </button>
+        {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
+        {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      </div>
+    </ResultSection>
+  );
 }
 
 export default function AnalysisResult({ result }: AnalysisResultProps) {
@@ -248,7 +293,6 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
 
   const ai = result.aiAnalysis;
   const tradeSignal = result.tradeSignal;
-  const summarySignal = tradeSignal?.summarySignal ?? buildSummarySignal(tradeSignal);
   const patterns = ai?.patternCandidates ?? [];
   const indicators = ai?.visibleIndicators ?? [];
   const riskNotes = unique([...(ai?.riskNotes ?? []), ...(tradeSignal?.warnings ?? [])]);
@@ -257,159 +301,49 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
     <div className="mx-auto max-w-[1100px] space-y-6">
       <ResultSection title="AI 차트 요약" tone="blue">
         <div className="space-y-5">
-          <div className="grid gap-4 md:grid-cols-3">
-            <MetricCard
-              title="기술적 신호"
-              value={summarySignal.actionLabel}
-              badge={
-                <StatusBadge
-                  label={summarySignal.actionLabel}
-                  tone={getSignalTone(summarySignal.actionParameter)}
-                />
-              }
-            />
-            <MetricCard
-              title="진입가 후보"
-              value={
-                summarySignal.entryPriceCandidate?.from == null &&
-                summarySignal.entryPriceCandidate?.to == null
-                  ? "확인 불가"
-                  : formatPriceRange(
-                      summarySignal.entryPriceCandidate?.from,
-                      summarySignal.entryPriceCandidate?.to,
-                    )
-              }
-              description={fallback(summarySignal.entryPriceCandidate?.basis)}
-            />
-            <MetricCard
-              title="목표가 후보"
-              value={
-                summarySignal.targetPriceCandidate?.primary == null &&
-                summarySignal.targetPriceCandidate?.secondary == null
-                  ? "확인 불가"
-                  : `1차 ${formatPrice(summarySignal.targetPriceCandidate?.primary)} / 2차 ${formatPrice(
-                      summarySignal.targetPriceCandidate?.secondary,
-                    )}`
-              }
-              description={fallback(summarySignal.targetPriceCandidate?.basis)}
-            />
-          </div>
-
-          <p className="text-base leading-7 text-slate-800">{fallback(ai?.summary)}</p>
-
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
+            <MetricCard title="분석 ID" value={fallback(result.analysisId)} />
             <MetricCard title="차트 형태" value={fallback(ai?.chartType)} />
             <MetricCard title="시간봉 추정" value={fallback(ai?.timeframeEstimate)} />
             <MetricCard title="시각적 추세" value={fallback(ai?.visualTrend)} />
           </div>
-
-          <div>
-            <h3 className="mb-3 text-sm font-bold text-slate-900">보조지표 인식 결과</h3>
+          <p className="text-base leading-7 text-slate-800">{fallback(ai?.summary)}</p>
+          <div className="flex flex-wrap gap-2">
             {indicators.length === 0 ? (
-              <EmptyState>확인된 보조지표가 없습니다.</EmptyState>
+              <span className="text-sm text-slate-500">확인된 보조지표가 없습니다.</span>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {indicators.map((item) => (
-                  <StatusBadge key={item} label={item} tone="info" />
-                ))}
-              </div>
+              indicators.map((item) => <StatusBadge key={item} label={item} tone="info" />)
             )}
           </div>
         </div>
       </ResultSection>
 
-      <ResultSection title="시각적 기술 분석 요약" tone="blue">
-        <div className="space-y-5">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              title="현재가 추정"
-              value={formatPrice(tradeSignal?.currentPriceEstimate?.value)}
-              badge={
-                <StatusBadge
-                  label={formatConfidence(tradeSignal?.currentPriceEstimate?.confidence)}
-                  tone={getConfidenceTone(tradeSignal?.currentPriceEstimate?.confidence)}
-                />
-              }
-              description="이미지 기반 추정 가격"
-            />
-            <MetricCard
-              title="RSI 판독"
-              value={formatStatus(ai?.indicatorReadings?.rsi?.status)}
-              badge={
-                <StatusBadge
-                  label={formatConfidence(ai?.indicatorReadings?.rsi?.confidence)}
-                  tone={getConfidenceTone(ai?.indicatorReadings?.rsi?.confidence)}
-                />
-              }
-              description={ai?.indicatorReadings?.rsi?.visible ? "보이는 패널 기준 추정" : "확인 불가"}
-            />
-            <MetricCard
-              title="MACD 판독"
-              value={formatStatus(ai?.indicatorReadings?.macd?.status)}
-              badge={
-                <StatusBadge
-                  label={formatConfidence(ai?.indicatorReadings?.macd?.confidence)}
-                  tone={getConfidenceTone(ai?.indicatorReadings?.macd?.confidence)}
-                />
-              }
-              description={ai?.indicatorReadings?.macd?.visible ? "교차 후보 중심 판독" : "확인 불가"}
-            />
-            <MetricCard
-              title="거래량 관찰"
-              value={formatStatus(ai?.indicatorReadings?.volume?.status)}
-              badge={
-                <StatusBadge
-                  label={formatConfidence(ai?.indicatorReadings?.volume?.confidence)}
-                  tone={getConfidenceTone(ai?.indicatorReadings?.volume?.confidence)}
-                />
-              }
-              description={fallback(ai?.volumeObservation)}
-            />
+      <ResultSection title="패턴 후보" tone="blue">
+        {patterns.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+            명확한 패턴 후보가 없습니다.
           </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ZoneList
-              title="시각적 지지 후보"
-              zones={ai?.visualSupportZones}
-              emptyText="시각적 지지 구간 후보를 확인하지 못했습니다."
-              tone="emerald"
-            />
-            <ZoneList
-              title="시각적 저항 후보"
-              zones={ai?.visualResistanceZones}
-              emptyText="시각적 저항 구간 후보를 확인하지 못했습니다."
-              tone="orange"
-            />
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-2">
+            {patterns.map((pattern, index) => (
+              <PatternCandidateCard key={`${pattern.name}-${index}`} candidate={pattern} />
+            ))}
           </div>
+        )}
+      </ResultSection>
 
-          {patterns.length > 0 ? (
-            <div>
-              <h3 className="mb-3 text-sm font-bold text-slate-900">패턴 후보</h3>
-              <div className="grid gap-4 md:grid-cols-2">
-                {patterns.map((pattern, index) => (
-                  <article
-                    key={`${pattern.name}-${index}`}
-                    className="rounded-lg border border-slate-200 bg-white p-4"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h4 className="font-semibold text-slate-950">{fallback(pattern.name)}</h4>
-                      <StatusBadge
-                        label={formatConfidence(pattern.confidence)}
-                        tone={getConfidenceTone(pattern.confidence)}
-                      />
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{fallback(pattern.reason)}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <EmptyState>명확한 패턴 후보는 보이지 않습니다.</EmptyState>
-          )}
-
-          <p className="text-xs text-slate-500">
-            실제 OHLCV 기반 정량 분석은 제공되지 않았습니다.
-          </p>
+      <ResultSection title="시각적 지지·저항 후보" tone="blue">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ZoneList
+            title="시각적 지지 후보"
+            zones={ai?.visualSupportZones}
+            emptyText="시각적 지지 후보를 확인하지 못했습니다."
+          />
+          <ZoneList
+            title="시각적 저항 후보"
+            zones={ai?.visualResistanceZones}
+            emptyText="시각적 저항 후보를 확인하지 못했습니다."
+          />
         </div>
       </ResultSection>
 
@@ -432,7 +366,12 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
             <MetricCard
               title="현재가 추정"
               value={formatPrice(tradeSignal?.currentPriceEstimate?.value)}
-              description="이미지 기반 추정 가격"
+              badge={
+                <StatusBadge
+                  label={formatConfidence(tradeSignal?.currentPriceEstimate?.confidence)}
+                  tone={getConfidenceTone(tradeSignal?.currentPriceEstimate?.confidence)}
+                />
+              }
             />
           </div>
 
@@ -464,14 +403,14 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
             </article>
 
             <article className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <h3 className="font-bold text-blue-950">목표가 후보</h3>
+              <h3 className="font-bold text-blue-950">목표 가격 후보</h3>
               <div className="mt-3 space-y-2 text-sm text-blue-900">
                 <p>
-                  <span className="font-semibold">1차 후보:</span>{" "}
+                  <span className="font-semibold">1차 목표 후보:</span>{" "}
                   {formatPrice(tradeSignal?.targetPriceCandidate?.primary)}
                 </p>
                 <p>
-                  <span className="font-semibold">2차 후보:</span>{" "}
+                  <span className="font-semibold">2차 목표 후보:</span>{" "}
                   {formatPrice(tradeSignal?.targetPriceCandidate?.secondary)}
                 </p>
                 <p>
@@ -497,40 +436,74 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {scoreRows(tradeSignal).map((row) => {
                     const classes = scoreRowClasses(row.group);
-
                     return (
-                    <tr key={`${row.group}-${row.label}`} className={classes.background}>
-                      <td className={`px-4 py-3 font-medium ${classes.group}`}>{row.group}</td>
-                      <td className={`px-4 py-3 ${classes.label}`}>{row.label}</td>
-                      <td className={`px-4 py-3 font-semibold ${classes.score}`}>{formatScore(row.score)}</td>
-                    </tr>
+                      <tr key={`${row.group}-${row.label}`} className={classes.background}>
+                        <td className={`px-4 py-3 font-medium ${classes.group}`}>{row.group}</td>
+                        <td className={`px-4 py-3 ${classes.label}`}>{row.label}</td>
+                        <td className={`px-4 py-3 font-semibold ${classes.score}`}>{formatScore(row.score)}</td>
+                      </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {result.technicalAnalysis ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard title="실제 종가" value={formatPrice(result.technicalAnalysis.latestClose)} />
+              <MetricCard
+                title="RSI"
+                value={formatNumber(result.technicalAnalysis.rsi.value)}
+                badge={
+                  <StatusBadge
+                    label={formatStatus(result.technicalAnalysis.rsi.status)}
+                    tone={getStatusTone(result.technicalAnalysis.rsi.status)}
+                  />
+                }
+              />
+              <MetricCard
+                title="MACD"
+                value={formatNumber(result.technicalAnalysis.macd.macd)}
+                badge={
+                  <StatusBadge
+                    label={formatStatus(result.technicalAnalysis.macd.status)}
+                    tone={getStatusTone(result.technicalAnalysis.macd.status)}
+                  />
+                }
+              />
+              <MetricCard
+                title="최근 평균 거래량"
+                value={formatNumber(result.technicalAnalysis.volume.recentAverageVolume)}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">실제 OHLCV 기반 정량 분석은 제공되지 않았습니다.</p>
+          )}
         </div>
       </ResultSection>
 
       <ResultSection title="리스크 노트" tone="yellow">
         {riskNotes.length === 0 ? (
-          <EmptyState>추가 리스크 노트가 없습니다.</EmptyState>
+          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+            추가 리스크 노트가 없습니다.
+          </div>
         ) : (
-          <WarningBox>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
             <ul className="list-disc space-y-1 pl-5">
               {riskNotes.map((note) => (
                 <li key={note}>{note}</li>
               ))}
             </ul>
-          </WarningBox>
+          </div>
         )}
       </ResultSection>
 
+      <FeedbackSection analysisId={result.analysisId} />
+
       <section className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-900 shadow-soft">
-        본 결과는 RSI, MACD, 볼린저밴드, 이동평균선, 거래량 등 기술적 지표와 차트
-        이미지 기반 참고 정보이며, 투자 조언이나 매수·매도 추천이 아닙니다. 실제
-        투자 판단은 사용자의 책임입니다.
+        본 결과는 RSI, MACD, 볼린저밴드, 이동평균선, 거래량 등 기술적 지표와 차트 이미지 기반 참고 정보이며,
+        투자 조언이나 매수·매도 추천이 아닙니다. 실제 투자 판단은 사용자의 책임입니다.
       </section>
     </div>
   );

@@ -12,13 +12,15 @@ const toneClasses: Record<BadgeTone, string> = {
 
 interface StatusBadgeProps {
   label: ReactNode;
-  tone?: BadgeTone;
+  tone?: BadgeTone | string;
 }
 
 export default function StatusBadge({ label, tone = "neutral" }: StatusBadgeProps) {
+  const toneClass = tone in toneClasses ? toneClasses[tone as BadgeTone] : `${tone} border`;
+
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${toneClasses[tone]}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${toneClass}`}
     >
       {label}
     </span>

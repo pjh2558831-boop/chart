@@ -1,4 +1,4 @@
-export type Tone = "success" | "warning" | "danger" | "neutral";
+export type Tone = "success" | "warning" | "danger" | "neutral" | "info";
 
 const numberFormatter = new Intl.NumberFormat("ko-KR", {
   maximumFractionDigits: 4,
@@ -12,7 +12,6 @@ export function formatNumber(value?: number | null): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return "-";
   }
-
   return numberFormatter.format(value);
 }
 
@@ -20,7 +19,6 @@ export function formatPrice(value?: number | null): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return "-";
   }
-
   return priceFormatter.format(value);
 }
 
@@ -28,12 +26,11 @@ export function formatPercent(value?: number | null): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return "-";
   }
-
   return `${value.toFixed(2)}%`;
 }
 
 export function formatConfidence(confidence?: string | null): string {
-  switch (confidence?.toLowerCase()) {
+  switch ((confidence ?? "").toLowerCase()) {
     case "high":
       return "높음";
     case "medium":
@@ -48,7 +45,7 @@ export function formatConfidence(confidence?: string | null): string {
 }
 
 export function formatStatus(status?: string | null): string {
-  switch (status?.toLowerCase()) {
+  switch ((status ?? "").toLowerCase()) {
     case "overbought":
       return "과매수";
     case "oversold":
@@ -76,7 +73,7 @@ export function formatStatus(status?: string | null): string {
     case "near_upper":
       return "상단 근접";
     case "above_upper":
-      return "상단 돌파";
+      return "상단 이탈";
     case "below_lower":
       return "하단 이탈";
     case "middle":
@@ -102,43 +99,88 @@ export function formatStatus(status?: string | null): string {
   }
 }
 
-export function getStatusTone(status?: string | null): Tone {
-  const normalized = status?.toLowerCase();
+export function formatPatternCategory(category?: string | null): string {
+  switch ((category ?? "").toLowerCase()) {
+    case "reversal":
+      return "반전형";
+    case "continuation":
+      return "지속형";
+    case "range":
+      return "박스권";
+    case "breakout":
+      return "돌파형";
+    case "unknown":
+      return "불명확";
+    default:
+      return category || "-";
+  }
+}
 
+export function formatBreakoutDirection(direction?: string | null): string {
+  switch ((direction ?? "").toLowerCase()) {
+    case "upside_candidate":
+      return "상방 돌파 후보";
+    case "downside_candidate":
+      return "하방 돌파 후보";
+    case "neutral":
+      return "중립";
+    case "unknown":
+      return "방향 확인 필요";
+    default:
+      return direction || "-";
+  }
+}
+
+export function formatRiskLevel(riskLevel?: string | null): string {
+  switch ((riskLevel ?? "").toLowerCase()) {
+    case "low":
+      return "낮음";
+    case "medium":
+      return "보통";
+    case "high":
+      return "높음";
+    default:
+      return "알 수 없음";
+  }
+}
+
+export function getStatusTone(status?: string | null): Tone {
+  const normalized = (status ?? "").toLowerCase();
   if (
-    normalized === "bullish" ||
-    normalized === "bullish_cross" ||
-    normalized === "bullish_cross_candidate" ||
-    normalized === "rebound_candidate" ||
-    normalized === "increasing" ||
-    normalized === "price_above_ma" ||
-    normalized === "short_above_long"
+    [
+      "bullish",
+      "bullish_cross",
+      "bullish_cross_candidate",
+      "rebound_candidate",
+      "increasing",
+      "price_above_ma",
+      "short_above_long",
+    ].includes(normalized)
   ) {
     return "success";
   }
-
   if (
-    normalized === "overbought" ||
-    normalized === "bearish" ||
-    normalized === "bearish_cross" ||
-    normalized === "bearish_cross_candidate" ||
-    normalized === "decreasing" ||
-    normalized === "below_lower" ||
-    normalized === "price_below_ma" ||
-    normalized === "short_below_long"
+    [
+      "overbought",
+      "bearish",
+      "bearish_cross",
+      "bearish_cross_candidate",
+      "decreasing",
+      "below_lower",
+      "price_below_ma",
+      "short_below_long",
+    ].includes(normalized)
   ) {
     return "danger";
   }
-
-  if (normalized === "insufficient_data" || normalized === "insufficient_visual_data") {
+  if (["insufficient_data", "insufficient_visual_data"].includes(normalized)) {
     return "warning";
   }
-
   return "neutral";
 }
 
 export function getConfidenceTone(confidence?: string | null): Tone {
-  switch (confidence?.toLowerCase()) {
+  switch ((confidence ?? "").toLowerCase()) {
     case "high":
       return "success";
     case "medium":
@@ -147,6 +189,47 @@ export function getConfidenceTone(confidence?: string | null): Tone {
       return "danger";
     default:
       return "neutral";
+  }
+}
+
+export function getPatternCategoryTone(category?: string | null): Tone {
+  switch ((category ?? "").toLowerCase()) {
+    case "reversal":
+      return "warning";
+    case "continuation":
+      return "info";
+    case "range":
+      return "neutral";
+    case "breakout":
+      return "success";
+    default:
+      return "neutral";
+  }
+}
+
+export function getBreakoutTone(direction?: string | null): string {
+  switch ((direction ?? "").toLowerCase()) {
+    case "upside_candidate":
+      return "text-emerald-700 bg-emerald-50 border-emerald-200";
+    case "downside_candidate":
+      return "text-rose-700 bg-rose-50 border-rose-200";
+    case "neutral":
+      return "text-slate-700 bg-slate-50 border-slate-200";
+    default:
+      return "text-slate-600 bg-slate-50 border-slate-200";
+  }
+}
+
+export function getRiskTone(riskLevel?: string | null): string {
+  switch ((riskLevel ?? "").toLowerCase()) {
+    case "low":
+      return "text-emerald-700 bg-emerald-50 border-emerald-200";
+    case "medium":
+      return "text-amber-700 bg-amber-50 border-amber-200";
+    case "high":
+      return "text-rose-700 bg-rose-50 border-rose-200";
+    default:
+      return "text-slate-600 bg-slate-50 border-slate-200";
   }
 }
 
@@ -179,7 +262,6 @@ export function formatPriceRange(from?: number | null, to?: number | null): stri
   if (from === null || from === undefined || to === null || to === undefined) {
     return "-";
   }
-
   return `${formatPrice(from)} ~ ${formatPrice(to)}`;
 }
 
@@ -187,6 +269,5 @@ export function formatScore(score?: number | null): string {
   if (score === null || score === undefined || !Number.isFinite(score)) {
     return "-";
   }
-
   return `${score}점`;
 }

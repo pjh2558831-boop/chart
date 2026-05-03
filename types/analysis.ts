@@ -1,4 +1,14 @@
+import type { UsageStatus } from "./billing";
+
 export type Confidence = "low" | "medium" | "high" | "unavailable";
+export type PatternCategory = "reversal" | "continuation" | "range" | "breakout" | "unknown";
+export type BreakoutDirection =
+  | "upside_candidate"
+  | "downside_candidate"
+  | "neutral"
+  | "unknown";
+export type RiskLevel = "low" | "medium" | "high";
+
 export type ActionParameter =
   | "buy_candidate"
   | "sell_candidate"
@@ -18,8 +28,15 @@ export interface SymbolDetection {
 
 export interface PatternCandidate {
   name: string;
+  label: string;
+  category: PatternCategory | string;
   confidence: Confidence | string;
-  reason: string;
+  evidence: string[];
+  breakoutDirection: BreakoutDirection | string;
+  confirmationCondition: string;
+  invalidationCondition: string;
+  entryLogic: string;
+  riskLevel: RiskLevel | string;
 }
 
 export interface VisualZone {
@@ -258,8 +275,10 @@ export interface ImageInfo {
 }
 
 export interface AnalysisResponse {
+  analysisId?: number;
   aiAnalysis: AIAnalysis;
   technicalAnalysis?: TechnicalAnalysis | null;
   tradeSignal?: TradeSignal | null;
   imageInfo?: ImageInfo;
+  usageStatus?: UsageStatus;
 }

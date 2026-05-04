@@ -8,6 +8,9 @@ export type BreakoutDirection =
   | "neutral"
   | "unknown";
 export type RiskLevel = "low" | "medium" | "high";
+export type PatternDirection = "bullish" | "bearish" | "neutral" | "unknown";
+export type PatternStage = "candidate" | "confirmed" | "failed" | "invalid";
+export type PatternEntryType = "aggressive" | "conservative" | "wait" | "none";
 
 export type ActionParameter =
   | "buy_candidate"
@@ -30,13 +33,55 @@ export interface PatternCandidate {
   name: string;
   label: string;
   category: PatternCategory | string;
+  direction?: PatternDirection | string;
+  stage?: PatternStage | string;
   confidence: Confidence | string;
+  confidenceScore?: number | null;
+  baseReliability?: {
+    score: number;
+    reason: string;
+  };
+  priceLevels?: {
+    currentPrice?: number | null;
+    patternHigh?: number | null;
+    patternLow?: number | null;
+    neckline?: number | null;
+    support?: number | null;
+    resistance?: number | null;
+    breakoutPrice?: number | null;
+    breakdownPrice?: number | null;
+  };
+  tradePlan?: {
+    entryType?: PatternEntryType | string;
+    entryPriceAggressive?: number | null;
+    entryPriceConservative?: number | null;
+    stopLossPrice?: number | null;
+    targetPrice1?: number | null;
+    targetPrice2?: number | null;
+    riskRewardRatio?: number | null;
+  };
   evidence: string[];
   breakoutDirection: BreakoutDirection | string;
   confirmationCondition: string;
   invalidationCondition: string;
   entryLogic: string;
+  exitLogic?: string;
   riskLevel: RiskLevel | string;
+  warnings?: string[];
+  calculation?: {
+    patternHeight?: number | null;
+    formula: string;
+    estimated: boolean;
+  };
+}
+
+export interface PatternSummary {
+  primaryPattern: string | null;
+  overallPatternBias: "bullish" | "bearish" | "neutral";
+  bestEntryZone: string | null;
+  keyInvalidationPrice: number | null;
+  keyTargetPrice: number | null;
+  comment: string;
 }
 
 export interface VisualZone {
@@ -98,12 +143,20 @@ export interface VolumeReading {
   confidence?: Confidence | string | null;
 }
 
+export interface IchimokuReading {
+  visible?: boolean;
+  status?: string | null;
+  cloudPosition?: "above_cloud" | "inside_cloud" | "below_cloud" | "unknown" | string | null;
+  confidence?: Confidence | string | null;
+}
+
 export interface IndicatorReadings {
   rsi?: RSIReading;
   macd?: MACDReading;
   bollingerBands?: BollingerReading;
   movingAverages?: MovingAverageReading;
   volume?: VolumeReading;
+  ichimoku?: IchimokuReading;
 }
 
 export interface AIAnalysis {
@@ -115,6 +168,7 @@ export interface AIAnalysis {
   visibleIndicators: string[];
   visualSupportZones: VisualZone[];
   visualResistanceZones: VisualZone[];
+  patternSummary?: PatternSummary | null;
   priceAxisObservations?: PriceAxisObservations;
   indicatorReadings?: IndicatorReadings;
   volumeObservation: string;

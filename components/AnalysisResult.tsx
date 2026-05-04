@@ -127,6 +127,49 @@ function scoreRowClasses(group: string) {
   };
 }
 
+function formatPatternStage(stage?: string | null) {
+  switch (stage) {
+    case "candidate":
+      return "후보";
+    case "confirmed":
+      return "확인됨";
+    case "failed":
+      return "실패";
+    case "invalid":
+      return "무효";
+    default:
+      return "후보";
+  }
+}
+
+function formatPatternDirection(direction?: string | null) {
+  switch (direction) {
+    case "bullish":
+      return "상승형";
+    case "bearish":
+      return "하락형";
+    case "neutral":
+      return "중립";
+    default:
+      return "불명확";
+  }
+}
+
+function formatEntryType(entryType?: string | null) {
+  switch (entryType) {
+    case "aggressive":
+      return "공격적";
+    case "conservative":
+      return "보수적";
+    case "wait":
+      return "대기";
+    case "none":
+      return "없음";
+    default:
+      return "-";
+  }
+}
+
 function PatternCandidateCard({ candidate }: { candidate: PatternCandidate }) {
   const evidenceText =
     candidate.evidence?.length ? candidate.evidence.join(" / ") : "근거 없음";
@@ -157,6 +200,36 @@ function PatternCandidateCard({ candidate }: { candidate: PatternCandidate }) {
           />
         </div>
       </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          title="패턴 상태"
+          value={formatPatternStage(candidate.stage)}
+          badge={<StatusBadge label={formatPatternDirection(candidate.direction)} tone="info" />}
+        />
+        <MetricCard title="신뢰도 점수" value={formatScore(candidate.confidenceScore)} />
+        <MetricCard
+          title="공격적 진입 후보"
+          value={formatPrice(candidate.tradePlan?.entryPriceAggressive)}
+          description={`진입 유형: ${formatEntryType(candidate.tradePlan?.entryType)}`}
+        />
+        <MetricCard title="무효화 기준 후보" value={formatPrice(candidate.tradePlan?.stopLossPrice)} />
+        <MetricCard title="1차 목표 후보" value={formatPrice(candidate.tradePlan?.targetPrice1)} />
+        <MetricCard title="2차 목표 후보" value={formatPrice(candidate.tradePlan?.targetPrice2)} />
+        <MetricCard title="손익비" value={formatNumber(candidate.tradePlan?.riskRewardRatio)} />
+        <MetricCard
+          title="패턴 높이"
+          value={formatPrice(candidate.calculation?.patternHeight)}
+          description={candidate.calculation?.estimated ? "이미지 기반 추정값" : "계산값"}
+        />
+      </div>
+
+      {candidate.baseReliability ? (
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-700">
+          <p className="font-semibold text-slate-900">기본 신뢰도 {candidate.baseReliability.score}점</p>
+          <p className="mt-1">{candidate.baseReliability.reason}</p>
+        </div>
+      ) : null}
 
       <div className="mt-4 space-y-4 text-sm leading-6 text-slate-700">
         <div>
@@ -308,6 +381,17 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
             <MetricCard title="시각적 추세" value={fallback(ai?.visualTrend)} />
           </div>
           <p className="text-base leading-7 text-slate-800">{fallback(ai?.summary)}</p>
+          {ai?.patternSummary ? (
+            <div className="grid gap-4 rounded-lg border border-blue-100 bg-blue-50 p-4 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard title="우선 패턴 후보" value={fallback(ai.patternSummary.primaryPattern)} />
+              <MetricCard title="패턴 방향성" value={fallback(ai.patternSummary.overallPatternBias)} />
+              <MetricCard title="핵심 무효화 가격" value={formatPrice(ai.patternSummary.keyInvalidationPrice)} />
+              <MetricCard title="핵심 목표 가격 후보" value={formatPrice(ai.patternSummary.keyTargetPrice)} />
+              <p className="md:col-span-2 xl:col-span-4 text-sm leading-6 text-blue-900">
+                {ai.patternSummary.comment}
+              </p>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             {indicators.length === 0 ? (
               <span className="text-sm text-slate-500">확인된 보조지표가 없습니다.</span>

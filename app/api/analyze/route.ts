@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
+import analysisRules from "../../../config/analysis-rules.json";
+import { detectChartPatterns, normalizeChartImageAnalysis } from "../../../lib/server/chartPatternDetector";
 import {
   createAnalysisLog,
   getUsageStatus,
@@ -24,6 +26,7 @@ export const runtime = "nodejs";
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const DEFAULT_MODEL = "gpt-4.1-mini";
+const ANALYSIS_RULES_PROMPT = JSON.stringify(analysisRules, null, 2);
 
 const SYSTEM_PROMPT = `
 너는 주식 차트 이미지를 시각적으로 해석하는 보조 분석기다.
@@ -52,7 +55,7 @@ const USER_PROMPT = `
   "visualTrend": string,
   "patternCandidates": [
     {
-      "name": "box_range | ascending_channel | descending_channel | symmetrical_triangle | ascending_triangle | descending_triangle | double_bottom | double_top | head_and_shoulders | inverse_head_and_shoulders | flag | wedge | unknown",
+      "name": "double_bottom | double_top | head_and_shoulders | inverse_head_and_shoulders | ascending_triangle | descending_triangle | bull_flag | bear_flag | cup_and_handle | rectangle_breakout | unknown",
       "label": string,
       "category": "reversal" | "continuation" | "range" | "breakout" | "unknown",
       "confidence": "low" | "medium" | "high",
@@ -79,7 +82,8 @@ const USER_PROMPT = `
     "macd": {"visible": boolean, "status": "bullish_cross_candidate | bullish | bearish_cross_candidate | bearish | neutral | unknown", "confidence": "low" | "medium" | "high"},
     "bollingerBands": {"visible": boolean, "position": "near_lower | middle | near_upper | above_upper | below_lower | unknown", "upperEstimate": number | null, "lowerEstimate": number | null, "confidence": "low" | "medium" | "high"},
     "movingAverages": {"visible": boolean, "status": "price_above_ma | price_below_ma | mixed | unknown", "confidence": "low" | "medium" | "high"},
-    "volume": {"visible": boolean, "status": "increasing | decreasing | neutral | unknown", "confidence": "low" | "medium" | "high"}
+    "volume": {"visible": boolean, "status": "increasing | decreasing | neutral | unknown", "confidence": "low" | "medium" | "high"},
+    "ichimoku": {"visible": boolean, "status": "above_cloud | inside_cloud | below_cloud | unknown", "cloudPosition": "above_cloud | inside_cloud | below_cloud | unknown", "confidence": "low" | "medium" | "high"}
   },
   "volumeObservation": string,
   "riskNotes": string[],
@@ -223,6 +227,7 @@ function normalizeAiAnalysis(rawValue: unknown): AIAnalysis {
       bollingerBands: normalizeBollinger(indicators.bollingerBands),
       movingAverages: normalizeIndicator(indicators.movingAverages),
       volume: normalizeIndicator(indicators.volume),
+      ichimoku: normalizeIchimoku(indicators.ichimoku),
     },
     volumeObservation: asString(raw.volumeObservation, "거래량은 이미지상 확인이 필요합니다."),
     riskNotes: asStringArray(raw.riskNotes),
@@ -269,6 +274,16 @@ function normalizeBollinger(value: unknown) {
     position: asString(raw.position, "unknown"),
     upperEstimate: asNumber(raw.upperEstimate),
     lowerEstimate: asNumber(raw.lowerEstimate),
+    confidence: normalizeConfidence(raw.confidence),
+  };
+}
+
+function normalizeIchimoku(value: unknown) {
+  const raw = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  return {
+    visible: Boolean(raw.visible),
+    status: asString(raw.status, "unknown"),
+    cloudPosition: asString(raw.cloudPosition, "unknown"),
     confidence: normalizeConfidence(raw.confidence),
   };
 }
@@ -537,7 +552,12 @@ async function callOpenAi(dataUrl: string, model: string) {
       input: [
         {
           role: "system",
-          content: [{ type: "input_text", text: SYSTEM_PROMPT }],
+          content: [
+            {
+              type: "input_text",
+              text: `${SYSTEM_PROMPT}\n\nUse these project analysis rules as the source of truth:\n${ANALYSIS_RULES_PROMPT}`,
+            },
+          ],
         },
         {
           role: "user",
@@ -601,6 +621,12 @@ export async function POST(request: NextRequest) {
         return jsonError("OpenAI 응답 본문이 비어 있습니다.", 502, { raw: openAiResult });
       }
       aiAnalysis = normalizeAiAnalysis(parseJsonObject(outputText));
+      const patternAnalysis = detectChartPatterns(normalizeChartImageAnalysis(aiAnalysis));
+      aiAnalysis = {
+        ...aiAnalysis,
+        patternCandidates: patternAnalysis.patternCandidates,
+        patternSummary: patternAnalysis.patternSummary,
+      };
     } catch (error) {
       return jsonError(error instanceof Error ? error.message : "AI 분석 실패", 502);
     }

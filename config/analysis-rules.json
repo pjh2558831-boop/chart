@@ -1,0 +1,396 @@
+{
+  "version": "2026-05-04",
+  "purpose": "Chart image analysis rules for visual AI analysis and technical signal scoring. All outputs are candidates, not investment advice.",
+  "analysisPrinciples": [
+    "패턴은 확정이 아니라 후보로만 표현한다.",
+    "가격은 이미지 기반 추정값 또는 OHLCV 기반 후보값으로만 표현한다.",
+    "매수 추천, 매도 추천, 수익 보장, 확정 목표가 표현은 금지한다.",
+    "OHLCV 데이터가 있으면 실제 데이터 기반 계산을 우선한다.",
+    "이미지 분석만 가능한 경우 신뢰도는 보수적으로 둔다.",
+    "RSI, MACD, 볼린저밴드, 이동평균선, 거래량은 보조 근거로 사용하고 단독 패턴 확정 근거로 쓰지 않는다."
+  ],
+  "supportedIndicators": {
+    "rsi": {
+      "label": "RSI",
+      "rules": [
+        { "condition": "value >= 70", "status": "overbought", "interpretation": "과매수 구간 후보" },
+        { "condition": "value <= 30", "status": "oversold", "interpretation": "과매도 구간 후보" },
+        { "condition": "30 이하에서 위로 회복", "status": "rebound_candidate", "interpretation": "반등 후보 강화" },
+        { "condition": "30 < value < 70", "status": "neutral", "interpretation": "중립 구간" }
+      ]
+    },
+    "macd": {
+      "label": "MACD",
+      "rules": [
+        { "condition": "MACD line crosses above signal line", "status": "bullish_cross_candidate", "interpretation": "상승 모멘텀 후보" },
+        { "condition": "MACD line above signal line", "status": "bullish", "interpretation": "상승 우위 후보" },
+        { "condition": "MACD line crosses below signal line", "status": "bearish_cross_candidate", "interpretation": "하락 모멘텀 후보" },
+        { "condition": "MACD line below signal line", "status": "bearish", "interpretation": "하락 우위 후보" },
+        { "condition": "histogram increasing", "status": "momentum_increasing", "interpretation": "상승 모멘텀 강화 후보" },
+        { "condition": "histogram decreasing", "status": "momentum_decreasing", "interpretation": "모멘텀 둔화 후보" }
+      ]
+    },
+    "bollingerBands": {
+      "label": "볼린저밴드",
+      "rules": [
+        { "condition": "price near lower band", "status": "near_lower", "interpretation": "하단 반등 후보" },
+        { "condition": "price near upper band", "status": "near_upper", "interpretation": "상단 저항 또는 과열 후보" },
+        { "condition": "price above upper band", "status": "above_upper", "interpretation": "상단 이탈 과열 후보" },
+        { "condition": "price below lower band", "status": "below_lower", "interpretation": "하단 이탈 변동성 확대 후보" },
+        { "condition": "band squeeze then breakout", "status": "volatility_breakout_candidate", "interpretation": "변동성 돌파 후보" }
+      ]
+    },
+    "movingAverages": {
+      "label": "이동평균선",
+      "rules": [
+        { "condition": "price above major moving averages", "status": "price_above_ma", "interpretation": "상승 추세 후보" },
+        { "condition": "price below major moving averages", "status": "price_below_ma", "interpretation": "하락 추세 후보" },
+        { "condition": "short MA above long MA", "status": "short_above_long", "interpretation": "상승 우위 후보" },
+        { "condition": "short MA below long MA", "status": "short_below_long", "interpretation": "하락 우위 후보" },
+        { "condition": "golden cross", "status": "golden_cross_candidate", "interpretation": "매수 후보 강화 요소" },
+        { "condition": "dead cross", "status": "dead_cross_candidate", "interpretation": "매도 후보 강화 요소" }
+      ]
+    },
+    "volume": {
+      "label": "거래량",
+      "rules": [
+        { "condition": "rising price with increasing volume", "status": "bullish_confirmation_candidate", "interpretation": "상승 신뢰도 보조" },
+        { "condition": "resistance breakout with increasing volume", "status": "breakout_confirmation_candidate", "interpretation": "돌파 신뢰도 보조" },
+        { "condition": "falling price with increasing volume", "status": "sell_pressure_candidate", "interpretation": "매도 압력 강화 후보" },
+        { "condition": "decreasing volume", "status": "low_confidence", "interpretation": "신호 신뢰도 낮음" }
+      ]
+    },
+    "ichimoku": {
+      "label": "일목구름",
+      "rules": [
+        { "condition": "price above cloud", "status": "above_cloud", "interpretation": "상승형 패턴 보조 근거" },
+        { "condition": "price inside cloud", "status": "inside_cloud", "interpretation": "추세 불명확 또는 중립 후보" },
+        { "condition": "price below cloud", "status": "below_cloud", "interpretation": "하락형 패턴 보조 근거" }
+      ]
+    }
+  },
+  "patternDefinitions": {
+    "box_range": {
+      "label": "박스권",
+      "category": "range",
+      "conditions": [
+        "고점과 저점이 일정 범위 안에서 반복된다.",
+        "최소 2회 이상 상단 저항과 하단 지지가 확인된다.",
+        "상단 저항선과 하단 지지선 사이에서 가격이 왕복한다."
+      ],
+      "confirmationCondition": "상단 저항 돌파 또는 하단 지지 이탈이 확인되어야 방향성이 강화됩니다.",
+      "invalidationCondition": "박스권 중심부에서 방향성 없이 움직이거나 지지·저항 터치 횟수가 부족하면 신뢰도가 낮아집니다.",
+      "entryLogic": "상단 돌파 후 지지 전환 또는 하단 이탈 후 저항 전환 확인 시 진입 후보 조건으로만 봅니다.",
+      "breakoutDirection": "neutral",
+      "riskLevel": "high"
+    },
+    "ascending_channel": {
+      "label": "상승 채널",
+      "category": "continuation",
+      "conditions": [
+        "고점과 저점이 동시에 우상향한다.",
+        "평행한 추세선 후보가 존재한다.",
+        "하단 추세선에서 반등하는 흐름이 반복된다."
+      ],
+      "confirmationCondition": "하단 채널 지지 후 반등하거나 상단 채널 돌파가 확인되어야 합니다.",
+      "invalidationCondition": "하단 채널을 종가 기준으로 이탈하면 상승 채널 후보는 약해집니다.",
+      "entryLogic": "하단 채널 지지 확인 후 반등 캔들이 나올 때만 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "upside_candidate",
+      "riskLevel": "medium"
+    },
+    "descending_channel": {
+      "label": "하락 채널",
+      "category": "continuation",
+      "conditions": [
+        "고점과 저점이 동시에 우하향한다.",
+        "상단 저항선과 하단 지지선이 평행하게 내려간다."
+      ],
+      "confirmationCondition": "상단 채널 저항 후 하락하거나 하단 채널 이탈이 확인되어야 합니다.",
+      "invalidationCondition": "상단 채널을 돌파하면 하락 채널 후보는 무효화됩니다.",
+      "entryLogic": "상단 채널 저항 확인 후 하락 전환이 나올 때만 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "downside_candidate",
+      "riskLevel": "medium"
+    },
+    "symmetrical_triangle": {
+      "label": "삼각수렴",
+      "category": "breakout",
+      "conditions": [
+        "고점은 낮아지고 저점은 높아진다.",
+        "변동폭이 점차 감소한다.",
+        "가격이 수렴 구간 안에서 압축된다."
+      ],
+      "confirmationCondition": "수렴 상단 또는 하단 돌파와 거래량 증가가 함께 나오면 신뢰도가 높아집니다.",
+      "invalidationCondition": "수렴 구간을 이탈한 뒤 반대 방향으로 강하게 재진입하면 패턴 후보가 약해집니다.",
+      "entryLogic": "수렴 내부에서는 예측 진입을 피하고 돌파 방향 확인 후 진입 후보 조건으로만 봅니다.",
+      "breakoutDirection": "unknown",
+      "riskLevel": "high"
+    },
+    "ascending_triangle": {
+      "label": "상승 삼각형",
+      "category": "breakout",
+      "conditions": [
+        "고점은 비슷한 위치에서 저항을 형성한다.",
+        "저점은 점진적으로 상승한다.",
+        "매수 압력이 점점 높아지는 구조다."
+      ],
+      "confirmationCondition": "상단 수평 저항 돌파가 확인되어야 합니다.",
+      "invalidationCondition": "상승 저점 라인을 종가 기준으로 이탈하면 후보가 약해집니다.",
+      "entryLogic": "저항 돌파 후 눌림에서 지지 전환이 확인될 때만 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "upside_candidate",
+      "riskLevel": "medium"
+    },
+    "descending_triangle": {
+      "label": "하락 삼각형",
+      "category": "breakout",
+      "conditions": [
+        "저점은 비슷한 위치에서 지지를 형성한다.",
+        "고점은 점진적으로 하락한다.",
+        "매도 압력이 점점 강해지는 구조다."
+      ],
+      "confirmationCondition": "하단 지지 이탈이 확인되어야 합니다.",
+      "invalidationCondition": "하락 고점 라인을 돌파하면 후보가 약해집니다.",
+      "entryLogic": "지지 이탈 후 되돌림 저항이 확인될 때만 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "downside_candidate",
+      "riskLevel": "medium"
+    },
+    "double_bottom": {
+      "label": "이중바닥",
+      "category": "reversal",
+      "conditions": [
+        "비슷한 저점이 2회 형성된다.",
+        "두 번째 저점 이후 반등이 발생한다.",
+        "중간 고점이 넥라인 역할을 한다."
+      ],
+      "confirmationCondition": "중간 고점인 넥라인을 종가 기준으로 돌파해야 신뢰도가 상승합니다.",
+      "invalidationCondition": "두 번째 저점을 종가 기준으로 하향 이탈하면 후보는 무효화됩니다.",
+      "entryLogic": "넥라인 돌파 후 눌림에서 지지 전환이 확인될 때만 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "upside_candidate",
+      "riskLevel": "high"
+    },
+    "double_top": {
+      "label": "이중천장",
+      "category": "reversal",
+      "conditions": [
+        "비슷한 고점이 2회 형성된다.",
+        "두 번째 고점 이후 하락이 발생한다.",
+        "중간 저점이 넥라인 역할을 한다."
+      ],
+      "confirmationCondition": "중간 저점인 넥라인 이탈이 확인되어야 합니다.",
+      "invalidationCondition": "두 번째 고점을 종가 기준으로 상향 돌파하면 후보는 무효화됩니다.",
+      "entryLogic": "넥라인 이탈 후 되돌림 저항이 확인될 때만 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "downside_candidate",
+      "riskLevel": "high"
+    },
+    "head_and_shoulders": {
+      "label": "헤드앤숄더",
+      "category": "reversal",
+      "conditions": [
+        "좌어깨, 머리, 우어깨 구조가 있다.",
+        "머리가 가장 높다.",
+        "넥라인 후보가 존재해야 한다."
+      ],
+      "confirmationCondition": "넥라인 이탈과 반등 실패가 함께 확인되면 신뢰도가 상승합니다.",
+      "invalidationCondition": "우어깨 이후 고점을 돌파하면 후보는 무효화됩니다.",
+      "entryLogic": "넥라인 이탈 후 되돌림 저항이 확인될 때만 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "downside_candidate",
+      "riskLevel": "high"
+    },
+    "inverse_head_and_shoulders": {
+      "label": "역헤드앤숄더",
+      "category": "reversal",
+      "conditions": [
+        "좌어깨, 머리, 우어깨 구조가 있다.",
+        "머리가 가장 낮다.",
+        "넥라인 후보가 존재해야 한다."
+      ],
+      "confirmationCondition": "넥라인 돌파와 거래량 증가가 함께 확인되면 신뢰도가 상승합니다.",
+      "invalidationCondition": "우어깨 저점을 이탈하면 후보는 무효화됩니다.",
+      "entryLogic": "넥라인 돌파 후 눌림 지지 확인 시 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "upside_candidate",
+      "riskLevel": "high"
+    },
+    "flag": {
+      "label": "플래그",
+      "category": "continuation",
+      "conditions": [
+        "강한 상승 또는 하락 이후 짧은 반대 방향 조정이 나온다.",
+        "조정 구간은 기존 추세보다 작고 짧아야 한다."
+      ],
+      "confirmationCondition": "기존 추세 방향으로 재돌파하고 거래량이 증가하면 신뢰도가 상승합니다.",
+      "invalidationCondition": "조정 범위를 반대 방향으로 이탈하면 후보가 약해집니다.",
+      "entryLogic": "플래그 상단 또는 하단 재돌파 확인 후 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "unknown",
+      "riskLevel": "medium"
+    },
+    "bull_flag": {
+      "label": "불 플래그",
+      "category": "continuation",
+      "conditions": [
+        "강한 급등 구간이 먼저 존재한다.",
+        "이후 짧은 하락 채널 또는 횡보 조정이 나온다.",
+        "조정 폭이 깃대 상승폭의 50% 이하이면 신뢰도가 높아진다."
+      ],
+      "confirmationCondition": "플래그 상단 돌파가 확인되어야 합니다.",
+      "invalidationCondition": "플래그 하단을 이탈하면 후보가 약해집니다.",
+      "entryLogic": "플래그 상단 돌파 확인 후 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "upside_candidate",
+      "riskLevel": "medium"
+    },
+    "bear_flag": {
+      "label": "베어 플래그",
+      "category": "continuation",
+      "conditions": [
+        "강한 급락 구간이 먼저 존재한다.",
+        "이후 짧은 상승 채널 또는 횡보 반등이 나온다.",
+        "반등 폭이 깃대 하락폭의 50% 이하이면 신뢰도가 높아진다."
+      ],
+      "confirmationCondition": "플래그 하단 이탈이 확인되어야 합니다.",
+      "invalidationCondition": "플래그 상단을 돌파하면 후보가 약해집니다.",
+      "entryLogic": "플래그 하단 이탈 확인 후 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "downside_candidate",
+      "riskLevel": "medium"
+    },
+    "cup_and_handle": {
+      "label": "컵앤핸들",
+      "category": "continuation",
+      "conditions": [
+        "둥근 U자형 컵 구조가 보인다.",
+        "컵 우측이 이전 고점 근처까지 회복한다.",
+        "손잡이 조정은 컵 상승폭의 1/3 이내가 이상적이다."
+      ],
+      "confirmationCondition": "손잡이 상단 또는 컵 고점 돌파가 확인되어야 합니다.",
+      "invalidationCondition": "손잡이 저점 이탈 시 후보가 약해집니다.",
+      "entryLogic": "손잡이 상단 돌파 확인 후 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "upside_candidate",
+      "riskLevel": "medium"
+    },
+    "rectangle_breakout": {
+      "label": "박스권 돌파",
+      "category": "range",
+      "conditions": [
+        "일정한 상단 저항과 하단 지지가 2회 이상 반복된다.",
+        "가격이 박스권 안에서 횡보한다."
+      ],
+      "confirmationCondition": "상단 돌파 또는 하단 이탈이 확인되어야 합니다.",
+      "invalidationCondition": "돌파 후 박스권 내부로 재진입하면 실패 가능성이 커집니다.",
+      "entryLogic": "박스권 경계 돌파/이탈 확인 후 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "neutral",
+      "riskLevel": "medium"
+    },
+    "wedge": {
+      "label": "쐐기형",
+      "category": "breakout",
+      "conditions": [
+        "고점과 저점이 한 방향으로 좁아지는 구조다.",
+        "추세선 간격이 점점 줄어든다."
+      ],
+      "confirmationCondition": "쐐기 상단 또는 하단 이탈이 확인되어야 합니다.",
+      "invalidationCondition": "이탈 후 반대 방향으로 강하게 재진입하면 후보가 약해집니다.",
+      "entryLogic": "쐐기 내부에서는 예측 진입을 피하고 이탈 방향 확인 후 진입 후보 조건으로 봅니다.",
+      "breakoutDirection": "unknown",
+      "riskLevel": "high"
+    }
+  },
+  "patternScoring": {
+    "structureScore": { "max": 30, "description": "패턴 구조가 정의와 얼마나 일치하는지" },
+    "touchCountScore": { "max": 15, "description": "지지/저항/추세선 터치 횟수" },
+    "slopeScore": { "max": 15, "description": "고점/저점 기울기 조건 일치 여부" },
+    "volumeScore": { "max": 15, "description": "돌파 또는 반등 시 거래량 증가 여부" },
+    "indicatorConfluenceScore": { "max": 10, "description": "RSI, MACD, 이동평균선, 볼린저밴드 보조 일치 여부" },
+    "breakoutReadinessScore": { "max": 15, "description": "현재 가격이 확인 조건에 얼마나 근접했는지" },
+    "confidenceMapping": [
+      { "condition": "totalScore >= 75", "confidence": "high" },
+      { "condition": "50 <= totalScore < 75", "confidence": "medium" },
+      { "condition": "totalScore < 50", "confidence": "low" }
+    ],
+    "forceLowRules": [
+      "OHLCV 데이터 없이 이미지만으로 애매하게 추정한 경우",
+      "지지/저항 터치가 2회 미만인 경우",
+      "넥라인 또는 추세선 후보가 불명확한 경우",
+      "핵심 조건이 하나라도 부족한 경우",
+      "보조지표와 가격 구조가 충돌하는 경우",
+      "돌파 방향이 명확하지 않은데 방향성을 강하게 표현해야 하는 경우"
+    ]
+  },
+  "visualTradeSignalScoring": {
+    "buy": {
+      "supportProximity": [
+        { "condition": "current price is 0~2.5% above nearest support", "score": 30 },
+        { "condition": "current price is 2.5~5% above nearest support", "score": 15 },
+        { "condition": "support zone exists but price unavailable", "score": 10 }
+      ],
+      "rsiRebound": [
+        { "condition": "rsi.status == rebound_candidate", "score": 25 },
+        { "condition": "rsi.status == oversold", "score": 20 },
+        { "condition": "rsi.status == neutral", "score": 10 },
+        { "condition": "rsi.status == overbought", "score": -20 }
+      ],
+      "macdBullish": [
+        { "condition": "macd.status == bullish_cross_candidate", "score": 25 },
+        { "condition": "macd.status == bullish", "score": 15 },
+        { "condition": "macd.status == bearish_cross_candidate", "score": -20 },
+        { "condition": "macd.status == bearish", "score": -10 }
+      ],
+      "volumeIncrease": [
+        { "condition": "volume.status == increasing", "score": 20 },
+        { "condition": "volume.status == neutral", "score": 5 },
+        { "condition": "volume.status == decreasing", "score": -10 }
+      ],
+      "trend": [
+        { "condition": "visualTrend includes 상승", "score": 15 },
+        { "condition": "visualTrend includes 횡보", "score": 5 },
+        { "condition": "visualTrend includes 하락", "score": -15 }
+      ]
+    },
+    "sell": {
+      "resistanceProximity": [
+        { "condition": "current price is 0~2.5% below nearest resistance", "score": 30 },
+        { "condition": "current price is 2.5~5% below nearest resistance", "score": 15 },
+        { "condition": "resistance zone exists but price unavailable", "score": 10 }
+      ],
+      "rsiOverheated": [
+        { "condition": "rsi.status == overbought", "score": 25 },
+        { "condition": "60 <= rsi.valueEstimate < 70", "score": 15 },
+        { "condition": "rsi.status == oversold", "score": -20 }
+      ],
+      "macdBearish": [
+        { "condition": "macd.status == bearish_cross_candidate", "score": 25 },
+        { "condition": "macd.status == bearish", "score": 15 },
+        { "condition": "macd.status == bullish_cross_candidate", "score": -20 },
+        { "condition": "macd.status == bullish", "score": -10 }
+      ],
+      "volumeIncrease": [
+        { "condition": "volume.status == increasing", "score": 20 },
+        { "condition": "volume.status == neutral", "score": 5 },
+        { "condition": "volume.status == decreasing", "score": -5 }
+      ],
+      "bollingerUpper": [
+        { "condition": "bollingerBands.position == above_upper", "score": 20 },
+        { "condition": "bollingerBands.position == near_upper", "score": 15 },
+        { "condition": "bollingerBands.position == near_lower", "score": -15 }
+      ]
+    },
+    "finalSignalRules": [
+      { "condition": "buyScore >= 75 and buyScore > sellScore + 15", "signal": "strong_buy_candidate" },
+      { "condition": "buyScore >= 55 and buyScore > sellScore", "signal": "buy_candidate" },
+      { "condition": "sellScore >= 75 and sellScore > buyScore + 15", "signal": "strong_sell_candidate" },
+      { "condition": "sellScore >= 55 and sellScore > buyScore", "signal": "sell_candidate" },
+      { "condition": "scores are similar", "signal": "neutral" },
+      { "condition": "price and indicator information are insufficient", "signal": "insufficient_visual_data" }
+    ]
+  },
+  "riskAndTargetRules": {
+    "stopLossCandidate": [
+      "nearestSupport가 있으면 nearestSupport * 0.98",
+      "nearestSupport가 없고 recentLowEstimate가 있으면 recentLowEstimate * 0.98",
+      "둘 다 없으면 null"
+    ],
+    "targetPriceCandidate": [
+      "1차 목표 후보는 nearestResistance",
+      "2차 목표 후보는 bollingerBands.upperEstimate 또는 recentHighEstimate",
+      "저항 후보가 없으면 currentPrice + 2~3 * (currentPrice - stopLossCandidate)"
+    ],
+    "riskRewardRatio": "currentPriceEstimate, stopLossCandidate, primaryTargetCandidate가 모두 있을 때 reward / risk로 계산"
+  },
+  "disclaimer": "본 분석은 차트 이미지와 기술적 지표 기반 참고 정보이며 투자 조언이나 매수·매도 추천이 아닙니다."
+}

@@ -40,7 +40,11 @@ export default function ScoreSummary({ summary }: ScoreSummaryProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <ResultSection title="신호 점수 요약" description="점수는 조건 충족도를 요약한 참고 지표이며, 단독 판단 기준이 아닙니다." tone="purple">
+    <ResultSection
+      title="신호 점수 요약"
+      description="점수는 100점 기준으로 정규화한 참고 지표이며, 단독 판단 기준이 아닙니다."
+      tone="purple"
+    >
       <div className="grid gap-4 md:grid-cols-3">
         <MetricCard title="매수 점수" value={formatScore(summary.buyScore)} />
         <MetricCard title="매도 점수" value={formatScore(summary.sellScore)} />
@@ -50,6 +54,17 @@ export default function ScoreSummary({ summary }: ScoreSummaryProps) {
       <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-700">
         {summary.interpretation}
       </p>
+
+      {summary.deductions.length > 0 ? (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm font-semibold text-amber-900">감점 요인</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-amber-800">
+            {summary.deductions.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <button
         type="button"

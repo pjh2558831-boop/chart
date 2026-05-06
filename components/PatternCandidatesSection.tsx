@@ -81,6 +81,13 @@ function PatternCard({ candidate }: { candidate: PatternCandidate }) {
         </div>
       </div>
 
+      {candidate.tradingImplication ? (
+        <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
+          <p className="font-semibold text-blue-950">매매 해석 참고</p>
+          <p className="mt-1 text-sm leading-6 text-blue-900">{candidate.tradingImplication}</p>
+        </div>
+      ) : null}
+
       <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
         <p className="font-semibold text-slate-900">근거</p>
         {candidate.evidence?.length ? (
@@ -93,17 +100,6 @@ function PatternCard({ candidate }: { candidate: PatternCandidate }) {
           <p className="mt-2 text-sm text-slate-500">근거 없음</p>
         )}
       </div>
-
-      {candidate.warnings?.length ? (
-        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="font-semibold text-amber-900">경고</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-amber-800">
-            {candidate.warnings.map((item, index) => (
-              <li key={`${item}-${index}`}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
     </article>
   );
 }

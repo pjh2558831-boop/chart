@@ -8,7 +8,11 @@ interface IndicatorAnalysisSectionProps {
 
 export default function IndicatorAnalysisSection({ indicators }: IndicatorAnalysisSectionProps) {
   return (
-    <ResultSection title="보조지표 해석" description="RSI, MACD, 볼린저밴드, 이동평균선, 거래량, 일목구름을 보조 근거로 정리합니다." tone="green">
+    <ResultSection
+      title="보조지표 해석"
+      description="RSI, MACD, 볼린저밴드, 일목구름, 이동평균선, 거래량을 각각 분리해서 해석합니다."
+      tone="green"
+    >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {indicators.map((indicator) => (
           <article key={indicator.name} className="rounded-lg border border-slate-200 bg-white p-4">

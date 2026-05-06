@@ -71,6 +71,7 @@ export interface PatternCandidate {
   confirmationCondition: string;
   invalidationCondition: string;
   entryLogic: string;
+  tradingImplication?: string | null;
   exitLogic?: string;
   riskLevel: RiskLevel | string;
   warnings?: string[];
@@ -131,6 +132,8 @@ export interface MACDReading {
 
 export interface BollingerReading {
   visible?: boolean;
+  status?: string | null;
+  reason?: string | null;
   position?: string | null;
   upperEstimate?: number | null;
   lowerEstimate?: number | null;
@@ -152,6 +155,9 @@ export interface VolumeReading {
 export interface IchimokuReading {
   visible?: boolean;
   status?: string | null;
+  pricePosition?: string | null;
+  cloudState?: string | null;
+  reason?: string | null;
   cloudPosition?: "above_cloud" | "inside_cloud" | "below_cloud" | "unknown" | string | null;
   confidence?: Confidence | string | null;
 }
@@ -370,16 +376,25 @@ export interface AnalysisViewModel {
     signalTone: SignalTone;
     currentState: string;
     strategyTypeLabel: string;
-    confidenceLabel: string;
-    currentPriceText: string;
+    buyScoreText: string;
+    sellScoreText: string;
+    holdScoreText: string;
+    buyScoreLevel: string;
+    sellScoreLevel: string;
+    holdScoreLevel: string;
     oneLineSummary: string;
   };
   priceStrategy: {
     entryZoneText: string;
+    entryZoneBasis: string;
     stopLossText: string;
+    stopLossBasis: string;
     target1Text: string;
+    target1Basis: string;
     target2Text: string;
+    target2Basis: string;
     riskRewardText: string;
+    riskRewardBasis: string;
     priceBasisWarning: string;
   };
   decisionReasons: Array<{
@@ -392,6 +407,7 @@ export interface AnalysisViewModel {
     holdScore: number | null;
     interpretation: string;
     rows: Array<{ group: string; label: string; score: number | null | undefined }>;
+    deductions: string[];
   };
   marketState: {
     trendDirection: string;
@@ -431,6 +447,18 @@ export interface ImageInfo {
 
 export interface AnalysisResponse {
   analysisId?: number;
+  cacheHit?: boolean;
+  analysisMode?: "fast" | "standard" | "precision" | string;
+  promptVersion?: string;
+  performance?: {
+    totalMs?: number;
+    imageReadMs?: number;
+    imageProcessingMs?: number;
+    cacheLookupMs?: number;
+    aiRequestMs?: number;
+    postProcessMs?: number;
+    dbSaveMs?: number;
+  };
   aiAnalysis: AIAnalysis;
   advancedTradeSignal?: AdvancedTradeSignal | null;
   visualSummary?: VisualSummary | null;

@@ -23,6 +23,13 @@ export function formatPercent(value?: number | null): string {
   return `${value.toFixed(2)}%`;
 }
 
+export function formatBytes(bytes?: number | null): string {
+  if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return "-";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
 export function formatConfidence(confidence?: string | null): string {
   switch ((confidence ?? "").toLowerCase()) {
     case "high":
@@ -84,6 +91,8 @@ export function formatStatus(status?: string | null): string {
       return "하단 이탈";
     case "middle":
       return "중단 부근";
+    case "not_visible":
+      return "확인 불가";
     case "price_above_ma":
       return "가격이 이평선 위";
     case "price_below_ma":
@@ -98,6 +107,14 @@ export function formatStatus(status?: string | null): string {
       return "구름 내부";
     case "below_cloud":
       return "구름 아래";
+    case "near_cloud_top":
+      return "구름 상단 근접";
+    case "near_cloud_bottom":
+      return "구름 하단 근접";
+    case "support_candidate":
+      return "지지 후보";
+    case "resistance_candidate":
+      return "저항 후보";
     case "mixed":
       return "혼합";
     case "unknown":
@@ -182,6 +199,7 @@ export function getStatusTone(status?: string | null): Tone {
       "price_above_ma",
       "short_above_long",
       "above_cloud",
+      "support_candidate",
     ].includes(normalized)
   ) {
     return "success";
@@ -198,6 +216,7 @@ export function getStatusTone(status?: string | null): Tone {
       "price_below_ma",
       "short_below_long",
       "below_cloud",
+      "resistance_candidate",
     ].includes(normalized)
   ) {
     return "danger";
@@ -297,5 +316,5 @@ export function formatPriceRange(from?: number | null, to?: number | null): stri
 
 export function formatScore(score?: number | null): string {
   if (score === null || score === undefined || !Number.isFinite(score)) return "-";
-  return `${score}점`;
+  return `${Math.min(100, Math.max(0, Math.round(score)))}점`;
 }

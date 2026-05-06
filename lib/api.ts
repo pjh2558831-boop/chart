@@ -2,6 +2,8 @@ import type { AnalysisResponse } from "../types/analysis";
 import type { AnalysisLogRecord, FeedbackRecord, UsageStatus } from "../types/billing";
 import { getOrCreateUserId } from "./user";
 
+export type AnalysisMode = "fast" | "standard" | "precision";
+
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 function apiUrl(path: string) {
@@ -27,14 +29,20 @@ function createUserHeaders() {
   };
 }
 
-export async function analyzeChartImage(file: File): Promise<AnalysisResponse> {
+export async function analyzeChartImage(
+  file: File,
+  analysisMode: AnalysisMode = "standard",
+  signal?: AbortSignal,
+): Promise<AnalysisResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("analysisMode", analysisMode);
 
   const response = await fetch(apiUrl("/api/analyze"), {
     method: "POST",
     headers: createUserHeaders(),
     body: formData,
+    signal,
   });
 
   if (!response.ok) {

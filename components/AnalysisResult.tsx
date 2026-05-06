@@ -55,7 +55,11 @@ function FeedbackSection({ analysisId }: { analysisId?: number }) {
   };
 
   return (
-    <ResultSection title="피드백" description="분석 품질 개선을 위한 MVP용 피드백 영역입니다." tone="green">
+    <ResultSection
+      title="피드백"
+      description="분석 품질 개선을 위한 MVP 피드백 영역입니다."
+      tone="green"
+    >
       <div className="grid gap-4 md:grid-cols-2">
         <label className="text-sm text-slate-700">
           <span className="mb-2 block font-semibold text-slate-900">별점</span>
@@ -151,8 +155,8 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
       <FeedbackSection analysisId={result.analysisId} />
 
       <section className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-900 shadow-soft">
-        본 분석은 차트 이미지와 기술적 지표 기반 참고 정보이며 투자 조언이나 매수·매도 추천이 아닙니다. 실제 투자 판단에는
-        실시간 가격, 거래량, OHLCV 데이터, 재무 정보, 시장 상황을 함께 확인해야 합니다.
+        본 분석은 차트 이미지와 기술적 지표 기반 참고 정보이며 투자 조언이나 매수·매도 추천이 아닙니다.
+        실제 투자 판단에는 실시간 가격, 거래량, OHLCV 데이터, 재무 정보, 시장 상황을 함께 확인해야 합니다.
       </section>
     </div>
   );

@@ -1,6 +1,8 @@
+import type { Session } from "@supabase/supabase-js";
+
 import type { AnalysisResponse } from "../types/analysis";
 import type { AnalysisLogRecord, FeedbackRecord, UsageStatus } from "../types/billing";
-import { getOrCreateUserId } from "./user";
+import { getAuthHeaders } from "./identity";
 
 export type AnalysisMode = "fast" | "standard" | "precision";
 
@@ -23,16 +25,11 @@ async function parseError(response: Response): Promise<never> {
   throw new Error(message);
 }
 
-function createUserHeaders() {
-  return {
-    "X-User-Id": getOrCreateUserId(),
-  };
-}
-
 export async function analyzeChartImage(
   file: File,
   analysisMode: AnalysisMode = "standard",
   signal?: AbortSignal,
+  session?: Session | null,
 ): Promise<AnalysisResponse> {
   const formData = new FormData();
   formData.append("file", file);
@@ -40,7 +37,7 @@ export async function analyzeChartImage(
 
   const response = await fetch(apiUrl("/api/analyze"), {
     method: "POST",
-    headers: createUserHeaders(),
+    headers: getAuthHeaders(session),
     body: formData,
     signal,
   });
@@ -52,9 +49,9 @@ export async function analyzeChartImage(
   return response.json() as Promise<AnalysisResponse>;
 }
 
-export async function getUsageStatus(): Promise<UsageStatus> {
+export async function getUsageStatus(session?: Session | null): Promise<UsageStatus> {
   const response = await fetch(apiUrl("/api/usage-status"), {
-    headers: createUserHeaders(),
+    headers: getAuthHeaders(session),
   });
 
   if (!response.ok) {
@@ -64,9 +61,9 @@ export async function getUsageStatus(): Promise<UsageStatus> {
   return response.json() as Promise<UsageStatus>;
 }
 
-export async function getAnalysisLogs(): Promise<AnalysisLogRecord[]> {
+export async function getAnalysisLogs(session?: Session | null): Promise<AnalysisLogRecord[]> {
   const response = await fetch(apiUrl("/api/analysis-logs"), {
-    headers: createUserHeaders(),
+    headers: getAuthHeaders(session),
   });
 
   if (!response.ok) {
@@ -76,9 +73,9 @@ export async function getAnalysisLogs(): Promise<AnalysisLogRecord[]> {
   return response.json() as Promise<AnalysisLogRecord[]>;
 }
 
-export async function getAnalysisLog(id: number): Promise<AnalysisLogRecord> {
+export async function getAnalysisLog(id: number, session?: Session | null): Promise<AnalysisLogRecord> {
   const response = await fetch(apiUrl(`/api/analysis-logs/${id}`), {
-    headers: createUserHeaders(),
+    headers: getAuthHeaders(session),
   });
 
   if (!response.ok) {
@@ -88,18 +85,21 @@ export async function getAnalysisLog(id: number): Promise<AnalysisLogRecord> {
   return response.json() as Promise<AnalysisLogRecord>;
 }
 
-export async function submitFeedback(params: {
-  analysisId: number;
-  rating?: number | null;
-  correctSignal?: string | null;
-  correctPattern?: string | null;
-  comment?: string | null;
-}): Promise<FeedbackRecord> {
+export async function submitFeedback(
+  params: {
+    analysisId: number;
+    rating?: number | null;
+    correctSignal?: string | null;
+    correctPattern?: string | null;
+    comment?: string | null;
+  },
+  session?: Session | null,
+): Promise<FeedbackRecord> {
   const response = await fetch(apiUrl("/api/feedback"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...createUserHeaders(),
+      ...getAuthHeaders(session),
     },
     body: JSON.stringify(params),
   });

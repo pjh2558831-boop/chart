@@ -23,6 +23,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
 
     const restoreSession = async () => {
+      if (!supabase) {
+        if (mounted) {
+          setSession(null);
+          setUser(null);
+          setLoading(false);
+        }
+        return;
+      }
+
       const { data, error } = await supabase.auth.getSession();
 
       if (!mounted) {
@@ -41,6 +50,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     void restoreSession();
+
+    if (!supabase) {
+      return () => {
+        mounted = false;
+      };
+    }
 
     const {
       data: { subscription },
@@ -62,6 +77,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       session,
       loading,
       signOut: async () => {
+        if (!supabase) {
+          setSession(null);
+          setUser(null);
+          return;
+        }
+
         const { error } = await supabase.auth.signOut();
         if (error) {
           throw error;

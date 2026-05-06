@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useAuth } from "../context/AuthContext";
 import { submitFeedback } from "../lib/api";
 import { normalizeAnalysisResult } from "../lib/analysisViewModel";
 import type { AnalysisResponse } from "../types/analysis";
@@ -21,6 +22,7 @@ interface AnalysisResultProps {
 }
 
 function FeedbackSection({ analysisId }: { analysisId?: number }) {
+  const { user, session } = useAuth();
   const [rating, setRating] = useState<number>(5);
   const [correctSignal, setCorrectSignal] = useState("neutral");
   const [correctPattern, setCorrectPattern] = useState("");
@@ -31,6 +33,14 @@ function FeedbackSection({ analysisId }: { analysisId?: number }) {
 
   if (!analysisId) {
     return null;
+  }
+
+  if (!user) {
+    return (
+      <ResultSection title="피드백" description="피드백 제출은 로그인 사용자에게만 제공됩니다." tone="green">
+        <p className="text-sm text-slate-600">분석 품질 개선을 위한 피드백을 남기려면 Google 로그인이 필요합니다.</p>
+      </ResultSection>
+    );
   }
 
   const handleSubmit = async () => {
@@ -45,7 +55,7 @@ function FeedbackSection({ analysisId }: { analysisId?: number }) {
         correctSignal,
         correctPattern: correctPattern || null,
         comment: comment || null,
-      });
+      }, session);
       setMessage("피드백이 저장되었습니다.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "피드백 저장 중 오류가 발생했습니다.");

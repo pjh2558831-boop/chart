@@ -449,6 +449,7 @@ export interface AnalysisResponse {
   analysisId?: number;
   cacheHit?: boolean;
   analysisMode?: "fast" | "standard" | "precision" | string;
+  appliedAnalysisMode?: "fast" | "standard" | "precision" | string;
   promptVersion?: string;
   performance?: {
     totalMs?: number;

@@ -1,20 +1,28 @@
-export type UserPlan = "free" | "basic" | "pro" | "premium";
+export type AnalysisModeName = "fast" | "standard" | "precision";
+export type UserPlan = "guest" | "free" | "plus" | "pro";
+export type IdentityType = "guest" | "user";
 
 export interface UsageStatus {
-  userId: string;
+  identityType: IdentityType;
+  id: string;
+  userId?: string | null;
+  guestId?: string | null;
   plan: UserPlan;
+  price: number;
   dailyLimit: number;
   monthlyLimit: number;
   dailyUsed: number;
   monthlyUsed: number;
   dailyRemaining: number;
   monthlyRemaining: number;
+  analysisMode: AnalysisModeName;
   enabledFeatures: string[];
 }
 
 export interface AnalysisLogRecord {
   id: number;
-  userId: string;
+  userId?: string | null;
+  guestId?: string | null;
   analysisType: string;
   inputImageHash?: string | null;
   result: unknown;

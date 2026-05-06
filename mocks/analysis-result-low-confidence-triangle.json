@@ -1,0 +1,170 @@
+{
+  "aiAnalysis": {
+    "chartType": "캔들차트",
+    "timeframeEstimate": "4시간봉 추정",
+    "visualTrend": "횡보",
+    "patternCandidates": [
+      {
+        "name": "symmetrical_triangle",
+        "label": "삼각수렴",
+        "category": "breakout",
+        "confidence": "low",
+        "evidence": [
+          "고점은 낮아지고 저점은 높아지는 듯한 수렴 구조가 일부 관찰됩니다.",
+          "변동폭이 줄어드는 구간처럼 보이지만 추세선 후보가 충분히 명확하지 않습니다."
+        ],
+        "breakoutDirection": "neutral",
+        "confirmationCondition": "수렴 상단 또는 하단을 종가 기준으로 이탈해야 방향 후보의 신뢰도가 높아집니다.",
+        "invalidationCondition": "수렴 범위를 벗어난 뒤 반대 방향으로 강하게 재진입하면 해당 패턴 후보는 무효화됩니다.",
+        "entryLogic": "수렴 내부에서는 방향 예측 진입을 보류하고, 돌파 방향 확인 후 진입 후보로만 해석하는 편이 적절합니다.",
+        "riskLevel": "high"
+      }
+    ],
+    "visibleIndicators": ["볼린저밴드", "거래량"],
+    "visualSupportZones": [
+      {
+        "label": "수렴 하단 부근",
+        "confidence": "low",
+        "note": "하단 추세선 후보로 보이지만 반복 확인 횟수가 부족합니다."
+      }
+    ],
+    "visualResistanceZones": [
+      {
+        "label": "수렴 상단 부근",
+        "confidence": "low",
+        "note": "상단 추세선 후보로 보이지만 기울기 해석에 오차가 있을 수 있습니다."
+      }
+    ],
+    "priceAxisObservations": {
+      "currentPriceEstimate": {
+        "value": 88.7,
+        "confidence": "low",
+        "note": "가격축 숫자가 흐려 낮은 신뢰도로 추정합니다."
+      },
+      "visibleSupportPrices": [
+        {
+          "value": 86.5,
+          "label": "수렴 하단",
+          "confidence": "low"
+        }
+      ],
+      "visibleResistancePrices": [
+        {
+          "value": 90.8,
+          "label": "수렴 상단",
+          "confidence": "low"
+        }
+      ],
+      "recentHighEstimate": {
+        "value": 92.0,
+        "confidence": "low",
+        "note": "최근 고점 추정치입니다."
+      },
+      "recentLowEstimate": {
+        "value": 85.9,
+        "confidence": "low",
+        "note": "최근 저점 추정치입니다."
+      }
+    },
+    "indicatorReadings": {
+      "rsi": {
+        "visible": false,
+        "valueEstimate": null,
+        "status": "unknown",
+        "confidence": null
+      },
+      "macd": {
+        "visible": false,
+        "status": "unknown",
+        "confidence": null
+      },
+      "bollingerBands": {
+        "visible": true,
+        "position": "middle",
+        "upperEstimate": 91.2,
+        "lowerEstimate": 86.2,
+        "confidence": "low"
+      },
+      "movingAverages": {
+        "visible": false,
+        "status": "unknown",
+        "confidence": null
+      },
+      "volume": {
+        "visible": true,
+        "status": "neutral",
+        "confidence": "low"
+      }
+    },
+    "volumeObservation": "거래량 변화가 크지 않아 돌파 신뢰도를 높이기에는 근거가 부족해 보입니다.",
+    "riskNotes": [
+      "수렴 구조 해석이 애매하여 낮은 신뢰도로 유지합니다.",
+      "돌파 전 예측 진입은 해석 리스크가 큽니다."
+    ],
+    "summary": "이미지상 삼각수렴 후보처럼 보이는 압축 구간이 관찰되지만, 추세선과 거래량 근거가 충분히 선명하지 않아 낮은 신뢰도의 패턴 후보로 보는 편이 적절합니다.",
+    "disclaimer": "본 결과는 차트 이미지 기반 참고 정보이며 투자 조언이 아닙니다."
+  },
+  "technicalAnalysis": null,
+  "tradeSignal": {
+    "analysisType": "visual_image_based",
+    "finalSignal": "neutral",
+    "signalLabel": "중립 신호",
+    "buyScore": 28,
+    "sellScore": 31,
+    "confidence": "low",
+    "currentPriceEstimate": {
+      "value": 88.7,
+      "confidence": "low"
+    },
+    "buyZone": {
+      "priceRange": {
+        "from": 86.5,
+        "to": 88.7
+      },
+      "basis": [
+        "수렴 하단 부근이 지지 후보 구간으로 보입니다."
+      ]
+    },
+    "sellZone": {
+      "priceRange": {
+        "from": 88.5,
+        "to": 90.8
+      },
+      "basis": [
+        "수렴 상단 부근이 저항 후보 구간으로 보입니다."
+      ]
+    },
+    "stopLossCandidate": {
+      "price": 84.18,
+      "basis": "수렴 하단 추정값을 약 2% 이탈하는 기준입니다."
+    },
+    "targetPriceCandidate": {
+      "primary": 90.8,
+      "secondary": 92.0,
+      "riskRewardRatio": 0.46,
+      "basis": "수렴 상단과 최근 고점 추정값을 기준으로 계산했습니다."
+    },
+    "conditionScores": {
+      "buy": {
+        "supportProximity": 15,
+        "rsiRebound": 0,
+        "macdBullish": 0,
+        "volumeIncrease": 5,
+        "trend": 5,
+        "total": 25
+      },
+      "sell": {
+        "resistanceProximity": 15,
+        "rsiOverheated": 0,
+        "macdBearish": 0,
+        "volumeIncrease": 5,
+        "bollingerUpper": 15,
+        "total": 35
+      }
+    },
+    "warnings": [
+      "패턴과 가격 추정값의 신뢰도가 낮아 보수적으로 해석해야 합니다.",
+      "본 신호는 매수·매도 추천이 아닙니다."
+    ]
+  }
+}

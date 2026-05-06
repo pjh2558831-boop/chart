@@ -1,0 +1,114 @@
+{
+  "aiAnalysis": {
+    "chartType": "선차트",
+    "timeframeEstimate": "불명확",
+    "visualTrend": "추세 불명확",
+    "patternCandidates": [],
+    "visibleIndicators": [],
+    "visualSupportZones": [],
+    "visualResistanceZones": [],
+    "priceAxisObservations": {
+      "currentPriceEstimate": null,
+      "visibleSupportPrices": [],
+      "visibleResistancePrices": [],
+      "recentHighEstimate": null,
+      "recentLowEstimate": null
+    },
+    "indicatorReadings": {
+      "rsi": {
+        "visible": false,
+        "valueEstimate": null,
+        "status": "unknown",
+        "confidence": null
+      },
+      "macd": {
+        "visible": false,
+        "status": "unknown",
+        "confidence": null
+      },
+      "bollingerBands": {
+        "visible": false,
+        "position": "unknown",
+        "upperEstimate": null,
+        "lowerEstimate": null,
+        "confidence": null
+      },
+      "movingAverages": {
+        "visible": false,
+        "status": "unknown",
+        "confidence": null
+      },
+      "volume": {
+        "visible": false,
+        "status": "unknown",
+        "confidence": null
+      }
+    },
+    "volumeObservation": "거래량 패널이 명확하지 않아 시각적 거래량 해석이 어렵습니다.",
+    "riskNotes": [
+      "지지선과 저항선 구조가 충분히 선명하지 않습니다.",
+      "보조지표 인식이 어려워 패턴 기반 판단을 보류하는 편이 적절합니다."
+    ],
+    "summary": "이미지상 특정 패턴 후보로 단정할 수 있는 구조는 확인되지 않습니다. 추가 고점·저점 형성 또는 주요 지지·저항 돌파 여부를 더 확인할 필요가 있습니다.",
+    "disclaimer": "본 결과는 차트 이미지 기반 참고 정보이며 투자 조언이 아닙니다."
+  },
+  "technicalAnalysis": null,
+  "tradeSignal": {
+    "analysisType": "visual_image_based",
+    "finalSignal": "insufficient_visual_data",
+    "signalLabel": "시각 정보 부족",
+    "buyScore": 0,
+    "sellScore": 0,
+    "confidence": "low",
+    "currentPriceEstimate": {
+      "value": null,
+      "confidence": null
+    },
+    "buyZone": {
+      "priceRange": {
+        "from": null,
+        "to": null
+      },
+      "basis": []
+    },
+    "sellZone": {
+      "priceRange": {
+        "from": null,
+        "to": null
+      },
+      "basis": []
+    },
+    "stopLossCandidate": {
+      "price": null,
+      "basis": "시각적으로 명확한 지지선 후보가 없어 손절 기준 후보를 계산하지 못했습니다."
+    },
+    "targetPriceCandidate": {
+      "primary": null,
+      "secondary": null,
+      "riskRewardRatio": null,
+      "basis": "가격축과 저항 후보 정보가 부족해 목표 가격 후보를 계산하지 못했습니다."
+    },
+    "conditionScores": {
+      "buy": {
+        "supportProximity": 0,
+        "rsiRebound": 0,
+        "macdBullish": 0,
+        "volumeIncrease": 0,
+        "trend": 0,
+        "total": 0
+      },
+      "sell": {
+        "resistanceProximity": 0,
+        "rsiOverheated": 0,
+        "macdBearish": 0,
+        "volumeIncrease": 0,
+        "bollingerUpper": 0,
+        "total": 0
+      }
+    },
+    "warnings": [
+      "가격축과 보조지표 인식이 어려워 시각 기반 신호를 충분히 계산하지 못했습니다.",
+      "본 신호는 매수·매도 추천이 아닙니다."
+    ]
+  }
+}

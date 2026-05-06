@@ -9,23 +9,17 @@ const priceFormatter = new Intl.NumberFormat("ko-KR", {
 });
 
 export function formatNumber(value?: number | null): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) {
-    return "-";
-  }
+  if (value === null || value === undefined || !Number.isFinite(value)) return "-";
   return numberFormatter.format(value);
 }
 
 export function formatPrice(value?: number | null): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) {
-    return "-";
-  }
+  if (value === null || value === undefined || !Number.isFinite(value)) return "계산 불가";
   return priceFormatter.format(value);
 }
 
 export function formatPercent(value?: number | null): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) {
-    return "-";
-  }
+  if (value === null || value === undefined || !Number.isFinite(value)) return "-";
   return `${value.toFixed(2)}%`;
 }
 
@@ -46,6 +40,18 @@ export function formatConfidence(confidence?: string | null): string {
 
 export function formatStatus(status?: string | null): string {
   switch ((status ?? "").toLowerCase()) {
+    case "completed":
+      return "검증 완료";
+    case "skipped":
+      return "검증 건너뜀";
+    case "failed":
+      return "검증 실패";
+    case "uptrend":
+      return "상승 추세";
+    case "downtrend":
+      return "하락 추세";
+    case "sideways_or_mixed":
+      return "혼합/횡보";
     case "overbought":
       return "과매수";
     case "oversold":
@@ -86,16 +92,34 @@ export function formatStatus(status?: string | null): string {
       return "단기선 우위";
     case "short_below_long":
       return "장기선 우위";
+    case "above_cloud":
+      return "구름 위";
+    case "inside_cloud":
+      return "구름 내부";
+    case "below_cloud":
+      return "구름 아래";
     case "mixed":
       return "혼합";
     case "unknown":
       return "확인 불가";
     case "insufficient_data":
-      return "데이터 부족";
     case "insufficient_visual_data":
-      return "시각 정보 부족";
+      return "데이터 부족";
     default:
       return status || "-";
+  }
+}
+
+export function formatMarket(market?: string | null): string {
+  switch ((market ?? "").toUpperCase()) {
+    case "KR":
+      return "한국";
+    case "US":
+      return "미국";
+    case "UNKNOWN":
+      return "확인 불가";
+    default:
+      return market || "-";
   }
 }
 
@@ -121,7 +145,7 @@ export function formatBreakoutDirection(direction?: string | null): string {
     case "upside_candidate":
       return "상방 돌파 후보";
     case "downside_candidate":
-      return "하방 돌파 후보";
+      return "하방 이탈 후보";
     case "neutral":
       return "중립";
     case "unknown":
@@ -148,6 +172,8 @@ export function getStatusTone(status?: string | null): Tone {
   const normalized = (status ?? "").toLowerCase();
   if (
     [
+      "completed",
+      "uptrend",
       "bullish",
       "bullish_cross",
       "bullish_cross_candidate",
@@ -155,12 +181,14 @@ export function getStatusTone(status?: string | null): Tone {
       "increasing",
       "price_above_ma",
       "short_above_long",
+      "above_cloud",
     ].includes(normalized)
   ) {
     return "success";
   }
   if (
     [
+      "failed",
       "overbought",
       "bearish",
       "bearish_cross",
@@ -169,11 +197,12 @@ export function getStatusTone(status?: string | null): Tone {
       "below_lower",
       "price_below_ma",
       "short_below_long",
+      "below_cloud",
     ].includes(normalized)
   ) {
     return "danger";
   }
-  if (["insufficient_data", "insufficient_visual_data"].includes(normalized)) {
+  if (["skipped", "insufficient_data", "insufficient_visual_data", "unknown"].includes(normalized)) {
     return "warning";
   }
   return "neutral";
@@ -236,38 +265,37 @@ export function getRiskTone(riskLevel?: string | null): string {
 export function formatSignalLabel(signal?: string | null): string {
   switch (signal) {
     case "strong_buy_candidate":
-      return "강한 매수 후보 신호";
+      return "강한 매수 후보";
     case "buy_candidate":
-      return "매수 후보 신호";
+      return "매수 후보";
     case "weak_buy_candidate":
-      return "약한 매수 후보 신호";
-    case "strong_sell_candidate":
-      return "강한 매도 후보 신호";
-    case "sell_candidate":
-      return "매도 후보 신호";
+      return "약한 매수 후보";
+    case "hold_candidate":
+      return "보유 후보";
+    case "reduce_position_candidate":
+      return "비중축소 후보";
     case "weak_sell_candidate":
-      return "약한 매도 후보 신호";
+      return "약한 매도 후보";
+    case "sell_candidate":
+      return "매도 후보";
+    case "strong_sell_candidate":
+      return "강한 매도 후보";
     case "neutral":
-      return "중립 신호";
+      return "중립";
     case "insufficient_data":
-      return "데이터 부족";
     case "insufficient_visual_data":
-      return "시각 정보 부족";
+      return "데이터 부족";
     default:
       return signal || "-";
   }
 }
 
 export function formatPriceRange(from?: number | null, to?: number | null): string {
-  if (from === null || from === undefined || to === null || to === undefined) {
-    return "-";
-  }
+  if (from === null || from === undefined || to === null || to === undefined) return "계산 불가";
   return `${formatPrice(from)} ~ ${formatPrice(to)}`;
 }
 
 export function formatScore(score?: number | null): string {
-  if (score === null || score === undefined || !Number.isFinite(score)) {
-    return "-";
-  }
+  if (score === null || score === undefined || !Number.isFinite(score)) return "-";
   return `${score}점`;
 }

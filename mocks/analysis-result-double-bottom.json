@@ -1,0 +1,173 @@
+{
+  "aiAnalysis": {
+    "chartType": "캔들차트",
+    "timeframeEstimate": "일봉 추정",
+    "visualTrend": "상승 후 조정",
+    "patternCandidates": [
+      {
+        "name": "double_bottom",
+        "label": "이중바닥",
+        "category": "reversal",
+        "confidence": "medium",
+        "evidence": [
+          "비슷한 가격대의 저점이 2회 확인됩니다.",
+          "두 번째 저점 이후 반등 흐름이 관찰됩니다.",
+          "중간 고점 부근이 넥라인 후보로 보입니다."
+        ],
+        "breakoutDirection": "upside_candidate",
+        "confirmationCondition": "중간 고점인 넥라인을 종가 기준으로 돌파해야 이중바닥 후보 신뢰도가 높아집니다.",
+        "invalidationCondition": "두 번째 저점을 종가 기준으로 하향 이탈하면 이중바닥 후보는 무효화됩니다.",
+        "entryLogic": "넥라인 돌파 후 눌림에서 지지 전환이 확인될 때 진입 후보로 볼 수 있습니다.",
+        "riskLevel": "medium"
+      }
+    ],
+    "visibleIndicators": ["RSI", "MACD", "거래량", "이동평균선"],
+    "visualSupportZones": [
+      {
+        "label": "하단 박스권 부근",
+        "confidence": "medium",
+        "note": "최근 두 차례 반등이 나왔던 가격대 후보입니다."
+      }
+    ],
+    "visualResistanceZones": [
+      {
+        "label": "넥라인 부근",
+        "confidence": "medium",
+        "note": "중간 고점이 저항 후보 구간으로 관찰됩니다."
+      }
+    ],
+    "priceAxisObservations": {
+      "currentPriceEstimate": {
+        "value": 123.4,
+        "confidence": "medium",
+        "note": "우측 가격축 기준 현재가로 추정됩니다."
+      },
+      "visibleSupportPrices": [
+        {
+          "value": 120.0,
+          "label": "이중바닥 저점 부근",
+          "confidence": "medium"
+        }
+      ],
+      "visibleResistancePrices": [
+        {
+          "value": 129.5,
+          "label": "넥라인 부근",
+          "confidence": "medium"
+        }
+      ],
+      "recentHighEstimate": {
+        "value": 132.0,
+        "confidence": "low",
+        "note": "최근 고점으로 보이는 구간입니다."
+      },
+      "recentLowEstimate": {
+        "value": 118.5,
+        "confidence": "low",
+        "note": "최근 저점으로 보이는 구간입니다."
+      }
+    },
+    "indicatorReadings": {
+      "rsi": {
+        "visible": true,
+        "valueEstimate": 42,
+        "status": "rebound_candidate",
+        "confidence": "medium"
+      },
+      "macd": {
+        "visible": true,
+        "status": "bullish_cross_candidate",
+        "confidence": "medium"
+      },
+      "bollingerBands": {
+        "visible": true,
+        "position": "middle",
+        "upperEstimate": 132.0,
+        "lowerEstimate": 118.0,
+        "confidence": "low"
+      },
+      "movingAverages": {
+        "visible": true,
+        "status": "price_above_ma",
+        "confidence": "medium"
+      },
+      "volume": {
+        "visible": true,
+        "status": "increasing",
+        "confidence": "medium"
+      }
+    },
+    "volumeObservation": "반등 구간에서 거래량이 이전 구간 대비 증가하는 흐름으로 보입니다.",
+    "riskNotes": [
+      "패턴은 확정이 아니라 후보입니다.",
+      "넥라인 돌파 전까지는 실패 가능성을 열어두어야 합니다."
+    ],
+    "summary": "이미지상 이중바닥 후보와 넥라인 부근 저항이 함께 관찰됩니다. RSI와 MACD도 반등 쪽 보조 근거로 보이지만, 최종 확인은 넥라인 돌파 여부가 중요합니다.",
+    "disclaimer": "본 결과는 차트 이미지 기반 참고 정보이며 투자 조언이 아닙니다."
+  },
+  "technicalAnalysis": null,
+  "tradeSignal": {
+    "analysisType": "visual_image_based",
+    "finalSignal": "buy_candidate",
+    "signalLabel": "매수 후보 신호",
+    "buyScore": 68,
+    "sellScore": 24,
+    "confidence": "medium",
+    "currentPriceEstimate": {
+      "value": 123.4,
+      "confidence": "medium"
+    },
+    "buyZone": {
+      "priceRange": {
+        "from": 120.0,
+        "to": 123.5
+      },
+      "basis": [
+        "현재가가 이미지상 주요 지지 후보 구간에 가깝습니다.",
+        "RSI가 과매도권에서 반등하는 후보 흐름으로 보입니다.",
+        "MACD가 상향 교차 후보로 관찰됩니다."
+      ]
+    },
+    "sellZone": {
+      "priceRange": {
+        "from": 126.2,
+        "to": 129.5
+      },
+      "basis": [
+        "넥라인과 최근 고점 부근이 저항 후보 구간으로 보입니다."
+      ]
+    },
+    "stopLossCandidate": {
+      "price": 117.6,
+      "basis": "이미지상 주요 지지 후보 구간을 약 2% 이탈하는 가격입니다."
+    },
+    "targetPriceCandidate": {
+      "primary": 129.5,
+      "secondary": 132.0,
+      "riskRewardRatio": 1.57,
+      "basis": "넥라인과 최근 고점 추정값을 기준으로 계산했습니다."
+    },
+    "conditionScores": {
+      "buy": {
+        "supportProximity": 30,
+        "rsiRebound": 25,
+        "macdBullish": 25,
+        "volumeIncrease": 20,
+        "trend": 15,
+        "total": 115
+      },
+      "sell": {
+        "resistanceProximity": 10,
+        "rsiOverheated": 0,
+        "macdBearish": 0,
+        "volumeIncrease": 20,
+        "bollingerUpper": 0,
+        "total": 30
+      }
+    },
+    "warnings": [
+      "이 가격대는 이미지 기반 추정값입니다.",
+      "본 신호는 매수·매도 추천이 아닙니다."
+    ]
+  }
+}

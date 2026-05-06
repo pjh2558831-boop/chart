@@ -11,6 +11,10 @@ function getSiteUrl() {
   const isBrowserLocal =
     browserOrigin.includes("localhost") || browserOrigin.includes("127.0.0.1");
 
+  if (browserOrigin && isBrowserLocal) {
+    return browserOrigin;
+  }
+
   if (configuredSiteUrl) {
     const isConfiguredLocal =
       configuredSiteUrl.includes("localhost") || configuredSiteUrl.includes("127.0.0.1");
@@ -23,9 +27,6 @@ function getSiteUrl() {
   }
 
   if (browserOrigin) {
-    if (isBrowserLocal) {
-      return browserOrigin;
-    }
     return browserOrigin || PRODUCTION_SITE_URL;
   }
 

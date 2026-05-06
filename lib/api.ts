@@ -64,7 +64,7 @@ export async function analyzeChartImage(
   formData.append("file", file);
   formData.append("analysisMode", analysisMode);
 
-  const response = await fetch(apiUrl("/api/analyze"), {
+  const response = await fetch(apiUrl("/api/analyze-chart"), {
     method: "POST",
     headers: getAuthHeaders(session),
     body: formData,
@@ -103,7 +103,10 @@ export async function getAnalysisLogs(session?: Session | null): Promise<Analysi
   return response.json() as Promise<AnalysisLogRecord[]>;
 }
 
-export async function getAnalysisLog(id: number, session?: Session | null): Promise<AnalysisLogRecord> {
+export async function getAnalysisLog(
+  id: number,
+  session?: Session | null,
+): Promise<AnalysisLogRecord> {
   const response = await fetch(apiUrl(`/api/analysis-logs/${id}`), {
     headers: getAuthHeaders(session),
   });

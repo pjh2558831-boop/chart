@@ -368,8 +368,10 @@ def generate_visual_trade_signal(ai_analysis: dict[str, Any]) -> dict[str, Any]:
         for key in ("rsi", "macd", "bollingerBands", "movingAverages", "volume")
     )
 
-    buy_score = int(buy["scores"]["total"])
-    sell_score = int(sell["scores"]["total"])
+    buy_score = max(0, min(100, int(buy["scores"]["total"])))
+    sell_score = max(0, min(100, int(sell["scores"]["total"])))
+    buy["scores"]["total"] = buy_score
+    sell["scores"]["total"] = sell_score
 
     if not has_price_info and not has_indicator_info:
         final_signal = "insufficient_visual_data"

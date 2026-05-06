@@ -77,3 +77,27 @@ def init_db() -> None:
             );
             """
         )
+        _ensure_column(connection, "analysis_logs", "prompt_version", "TEXT NULL")
+        _ensure_column(connection, "analysis_logs", "analysis_mode", "TEXT NULL")
+        _ensure_column(connection, "analysis_logs", "cache_key", "TEXT NULL")
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_analysis_logs_cache_key
+            ON analysis_logs(cache_key)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_analysis_logs_user_cache_key
+            ON analysis_logs(user_id, cache_key)
+            """
+        )
+
+
+def _ensure_column(connection: sqlite3.Connection, table_name: str, column_name: str, column_type: str) -> None:
+    columns = {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name not in columns:
+        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")

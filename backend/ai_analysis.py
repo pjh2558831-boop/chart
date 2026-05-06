@@ -17,171 +17,94 @@ from schemas import AIAnalysis
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-4.1-mini"
+PROMPT_VERSION = "chart_analysis_v2_speed_optimized"
 ENV_PATH = Path(__file__).resolve().with_name(".env")
 
 load_dotenv(dotenv_path=ENV_PATH)
 
 
 SYSTEM_PROMPT = """
-너는 주식 차트 이미지를 시각적으로 해석하는 보조 분석기다.
-너는 실제 OHLCV 데이터, 거래소 API, 외부 가격 데이터에 접근하지 않는다.
-너는 이미지에 보이는 정보만 분석한다.
-
-중요 규칙:
-- 패턴은 절대 확정하지 않는다.
-- 항상 "후보"로만 해석한다.
-- 애매하면 confidence는 반드시 low로 둔다.
-- 지지선, 저항선, 넥라인, 추세선은 모두 후보로만 표현한다.
-- RSI, MACD, 볼린저밴드, 이동평균선, 거래량은 보조 근거로만 사용하고, 단독으로 패턴을 확정하지 않는다.
-- 거래량 증가가 돌파와 함께 보일 때만 보조 근거로 사용한다.
-- 이미지 기반 분석은 최대 confidence를 medium까지만 허용한다.
-- 손절 기준 없이 진입을 단정하지 않는다.
-- 매수 추천, 매도 추천, 수익 보장, 확정 돌파 같은 표현은 금지한다.
-- 결과는 기술적 지표 기반 참고 정보이며 실제 투자 판단은 사용자의 책임이라는 취지를 유지한다.
-- 반드시 JSON만 반환한다.
+너는 주식 차트 이미지를 기술적으로 해석하는 분석 엔진이다.
+이미지에 보이는 구조만 분석하고 실제 OHLCV 데이터에 접근한 것처럼 말하지 않는다.
+모든 판단은 후보, 기술적 신호, 참고 정보로만 표현한다.
+투자 조언, 매수·매도 추천, 확정 가격, 수익 보장 표현은 금지한다.
+불명확한 값은 null, unknown, not_visible, low confidence로 반환한다.
+볼린저밴드와 일목구름을 혼동하지 않는다.
+볼린저밴드는 상단/중심/하단 3개 밴드가 명확할 때만 visible=true다.
+구름 형태의 음영 영역은 일목구름으로 분류한다.
+응답은 반드시 JSON 객체 하나만 반환한다.
 """.strip()
 
 
-PATTERN_GUIDE = """
-패턴 후보 정의표:
+USER_PROMPT = """
+전송된 이미지는 분석 모드에 따라 fullImage, rightCropImage, bottomCropImage, centerChartImage 중 일부다.
+fullImage는 전체 구조, rightCropImage는 가격축/최근 캔들, bottomCropImage는 RSI/MACD/거래량 등 하단 보조지표, centerChartImage는 패턴 구조 확인용이다.
 
-1. box_range | 박스권 | range
-- 고점과 저점이 일정 범위 안에서 반복
-- 최소 2회 이상 상단 저항, 하단 지지 확인
-- 확인 조건: 상단 저항 돌파 또는 하단 지지 이탈
-- 무효화 조건: 중심부에서 방향성 없이 움직이거나 터치 횟수 부족
-- 방향 후보: 상단 근처 upside_candidate, 하단 근처 downside_candidate, 중앙 neutral
+필수 분석:
+- chartType, timeframeEstimate, visualTrend
+- 가격축 추정: currentPriceEstimate, support/resistance, recent high/low
+- 보조지표: RSI, MACD, 볼린저밴드, 일목구름, 이동평균선, 거래량
+- 패턴 후보 최대 3개: 박스권, 채널, 삼각형, 이중바닥/천장, 헤드앤숄더, 플래그, 쐐기, 지지/저항 리테스트, 돌파 후 눌림, 볼린저 스퀴즈, 일목구름 관련 후보
+- riskNotes 최대 5개, evidence는 패턴당 최대 3개, summary는 3~5문장 이하
 
-2. ascending_channel | 상승 채널 | continuation
-- 고점과 저점이 동시에 우상향
-- 평행한 추세선 후보 존재
-- 확인 조건: 하단 채널 지지 후 반등 또는 상단 채널 돌파
-- 무효화 조건: 하단 채널 이탈
-
-3. descending_channel | 하락 채널 | continuation
-- 고점과 저점이 동시에 우하향
-- 평행한 하락 추세선 후보 존재
-- 확인 조건: 상단 채널 저항 후 하락 또는 하단 채널 이탈
-- 무효화 조건: 상단 채널 돌파
-
-4. symmetrical_triangle | 삼각수렴 | breakout
-- 고점은 낮아지고 저점은 높아짐
-- 변동폭이 점차 감소
-- 확인 조건: 수렴 상단 또는 하단 돌파
-- 무효화 조건: 돌파 후 반대 방향 재진입
-
-5. ascending_triangle | 상승 삼각형 | breakout
-- 고점은 비슷한 위치에서 저항 형성
-- 저점은 점진적으로 상승
-- 확인 조건: 상단 저항 돌파
-- 무효화 조건: 상승 저점 라인 이탈
-
-6. descending_triangle | 하락 삼각형 | breakout
-- 저점은 비슷한 위치에서 지지 형성
-- 고점은 점진적으로 하락
-- 확인 조건: 하단 지지 이탈
-- 무효화 조건: 하락 고점 라인 돌파
-
-7. double_bottom | 이중바닥 | reversal
-- 비슷한 저점이 2회 형성
-- 두 번째 저점 이후 반등
-- 중간 고점이 넥라인 후보
-- 확인 조건: 넥라인 돌파
-- 무효화 조건: 두 번째 저점 이탈
-
-8. double_top | 이중천장 | reversal
-- 비슷한 고점이 2회 형성
-- 두 번째 고점 이후 하락
-- 중간 저점이 넥라인 후보
-- 확인 조건: 넥라인 이탈
-- 무효화 조건: 두 번째 고점 돌파
-
-9. head_and_shoulders | 헤드앤숄더 | reversal
-- 좌어깨, 머리, 우어깨 구조
-- 머리가 가장 높음
-- 넥라인 후보 존재
-- 확인 조건: 넥라인 이탈
-- 무효화 조건: 우어깨 이후 고점 돌파
-
-10. inverse_head_and_shoulders | 역헤드앤숄더 | reversal
-- 좌어깨, 머리, 우어깨 구조
-- 머리가 가장 낮음
-- 넥라인 후보 존재
-- 확인 조건: 넥라인 돌파
-- 무효화 조건: 우어깨 저점 이탈
-
-11. flag | 플래그 | continuation
-- 강한 상승 또는 하락 이후 짧은 반대 방향 조정
-- 조정 구간은 작고 짧음
-- 확인 조건: 기존 추세 방향 재돌파
-- 무효화 조건: 조정 범위 반대 방향 이탈
-
-12. wedge | 쐐기형 | breakout
-- 고점과 저점이 한 방향으로 좁아짐
-- 상승 쐐기 또는 하락 쐐기 가능
-- 확인 조건: 쐐기 상단 또는 하단 이탈
-- 무효화 조건: 이탈 후 반대 방향 재진입
-
-출력 규칙:
-- patternCandidates는 위 패턴명만 사용
-- 구조가 약하면 빈 배열 반환
-- evidence는 각 후보마다 최소 2개 이상 작성 시도
-- confirmationCondition, invalidationCondition, entryLogic은 반드시 채운다
-- riskLevel은 low/medium/high 중 하나
-- breakoutDirection은 upside_candidate/downside_candidate/neutral/unknown 중 하나
+JSON 필드는 아래 구조를 지켜라:
+{
+  "symbolDetection": {
+    "detectedName": string|null,
+    "detectedTicker": string|null,
+    "detectedMarket": "KR"|"US"|"UNKNOWN",
+    "detectedExchange": string|null,
+    "currency": string|null,
+    "confidence": "low"|"medium"|"high",
+    "reason": string
+  },
+  "chartType": string,
+  "timeframeEstimate": string,
+  "visualTrend": string,
+  "patternCandidates": [
+    {
+      "name": string,
+      "label": string,
+      "category": "reversal"|"continuation"|"range"|"breakout"|"unknown",
+      "confidence": "low"|"medium"|"high",
+      "confidenceScore": number|null,
+      "evidence": string[],
+      "breakoutDirection": "upside_candidate"|"downside_candidate"|"neutral"|"unknown",
+      "confirmationCondition": string,
+      "invalidationCondition": string,
+      "entryLogic": string,
+      "tradingImplication": string|null,
+      "riskLevel": "low"|"medium"|"high"
+    }
+  ],
+  "visibleIndicators": string[],
+  "visualSupportZones": [{"label": string, "confidence": "low"|"medium"|"high", "note": string}],
+  "visualResistanceZones": [{"label": string, "confidence": "low"|"medium"|"high", "note": string}],
+  "priceAxisObservations": {
+    "currentPriceEstimate": {"value": number|null, "confidence": "low"|"medium"|"high"|null, "note": string|null},
+    "visibleSupportPrices": [{"value": number|null, "label": string, "confidence": "low"|"medium"|"high"|null}],
+    "visibleResistancePrices": [{"value": number|null, "label": string, "confidence": "low"|"medium"|"high"|null}],
+    "recentHighEstimate": {"value": number|null, "confidence": "low"|"medium"|"high"|null, "note": string|null},
+    "recentLowEstimate": {"value": number|null, "confidence": "low"|"medium"|"high"|null, "note": string|null}
+  },
+  "indicatorReadings": {
+    "rsi": {"visible": boolean, "valueEstimate": number|null, "status": string|null, "confidence": "low"|"medium"|"high"|null},
+    "macd": {"visible": boolean, "status": string|null, "confidence": "low"|"medium"|"high"|null},
+    "bollingerBands": {"visible": boolean, "status": string|null, "reason": string|null, "position": string|null, "upperEstimate": number|null, "lowerEstimate": number|null, "confidence": "low"|"medium"|"high"|null},
+    "ichimoku": {"visible": boolean, "pricePosition": string|null, "cloudState": string|null, "status": string|null, "cloudPosition": string|null, "confidence": "low"|"medium"|"high"|null, "reason": string|null},
+    "movingAverages": {"visible": boolean, "status": string|null, "confidence": "low"|"medium"|"high"|null},
+    "volume": {"visible": boolean, "status": string|null, "confidence": "low"|"medium"|"high"|null}
+  },
+  "volumeObservation": string,
+  "riskNotes": string[],
+  "summary": string,
+  "disclaimer": string
+}
 """.strip()
 
 
-USER_PROMPT = f"""
-첫 번째 이미지는 전체 차트이고, 두 번째 이미지는 오른쪽 35% 가격축/최근 캔들 보조 이미지다.
-두 이미지를 함께 보고, 이미지에 실제로 보이는 구조만 분석하라.
-
-{PATTERN_GUIDE}
-
-반드시 아래 JSON 구조로만 반환하라.
-
-필수 필드:
-1. symbolDetection
-2. chartType
-3. timeframeEstimate
-4. visualTrend
-5. patternCandidates
-6. visibleIndicators
-7. visualSupportZones
-8. visualResistanceZones
-9. priceAxisObservations
-10. indicatorReadings
-11. volumeObservation
-12. riskNotes
-13. summary
-14. disclaimer
-
-priceAxisObservations 규칙:
-- currentPriceEstimate.value는 우측 가격축에서 현재가가 꽤 명확히 읽힐 때만 넣고, 불명확하면 null
-- visibleSupportPrices / visibleResistancePrices는 숫자가 보일 때만 value를 넣고, 아니면 null
-- recentHighEstimate / recentLowEstimate도 숫자가 보일 때만 추정
-
-indicatorReadings 규칙:
-- rsi.status: oversold | rebound_candidate | neutral | overbought | unknown
-- macd.status: bullish_cross_candidate | bullish | bearish_cross_candidate | bearish | unknown
-- bollingerBands.position: near_lower | middle | near_upper | above_upper | below_lower | unknown
-- movingAverages.status: price_above_ma | price_below_ma | short_above_long | short_below_long | mixed | unknown
-- volume.status: increasing | decreasing | neutral | unknown
-
-patternCandidates 규칙:
-- 패턴이 애매하면 confidence는 low
-- 이미지 기반 후보는 high 금지, 최대 medium
-- evidence는 구조적 근거 중심으로 작성
-- 거래량/RSI/MACD/이평/볼린저는 보조 근거일 뿐 단독 근거가 아님
-- confirmationCondition에는 무엇을 확인해야 신뢰도가 올라가는지 적는다
-- invalidationCondition에는 어떤 조건에서 패턴 후보가 약해지거나 무효화되는지 적는다
-- entryLogic에는 "진입 후보 조건"만 적고 매수·매도 추천처럼 쓰지 않는다
-
-명확한 패턴이 없으면:
-- patternCandidates: []
-
-summary, riskNotes, disclaimer는 한국어로 작성한다.
-""".strip()
+def _nullable_confidence_schema() -> dict[str, Any]:
+    return {"type": ["string", "null"], "enum": ["low", "medium", "high", None]}
 
 
 AI_ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
@@ -200,40 +123,29 @@ AI_ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
                 "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
                 "reason": {"type": "string"},
             },
-            "required": [
-                "detectedName",
-                "detectedTicker",
-                "detectedMarket",
-                "detectedExchange",
-                "currency",
-                "confidence",
-                "reason",
-            ],
+            "required": ["detectedName", "detectedTicker", "detectedMarket", "detectedExchange", "currency", "confidence", "reason"],
         },
         "chartType": {"type": "string"},
         "timeframeEstimate": {"type": "string"},
         "visualTrend": {"type": "string"},
         "patternCandidates": {
             "type": "array",
+            "maxItems": 3,
             "items": {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
                     "name": {"type": "string"},
                     "label": {"type": "string"},
-                    "category": {
-                        "type": "string",
-                        "enum": ["reversal", "continuation", "range", "breakout", "unknown"],
-                    },
+                    "category": {"type": "string", "enum": ["reversal", "continuation", "range", "breakout", "unknown"]},
                     "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-                    "evidence": {"type": "array", "items": {"type": "string"}},
-                    "breakoutDirection": {
-                        "type": "string",
-                        "enum": ["upside_candidate", "downside_candidate", "neutral", "unknown"],
-                    },
+                    "confidenceScore": {"type": ["number", "null"]},
+                    "evidence": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
+                    "breakoutDirection": {"type": "string", "enum": ["upside_candidate", "downside_candidate", "neutral", "unknown"]},
                     "confirmationCondition": {"type": "string"},
                     "invalidationCondition": {"type": "string"},
                     "entryLogic": {"type": "string"},
+                    "tradingImplication": {"type": ["string", "null"]},
                     "riskLevel": {"type": "string", "enum": ["low", "medium", "high"]},
                 },
                 "required": [
@@ -241,11 +153,13 @@ AI_ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
                     "label",
                     "category",
                     "confidence",
+                    "confidenceScore",
                     "evidence",
                     "breakoutDirection",
                     "confirmationCondition",
                     "invalidationCondition",
                     "entryLogic",
+                    "tradingImplication",
                     "riskLevel",
                 ],
             },
@@ -284,11 +198,7 @@ AI_ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
                 "currentPriceEstimate": {
                     "type": ["object", "null"],
                     "additionalProperties": False,
-                    "properties": {
-                        "value": {"type": ["number", "null"]},
-                        "confidence": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
-                        "note": {"type": ["string", "null"]},
-                    },
+                    "properties": {"value": {"type": ["number", "null"]}, "confidence": _nullable_confidence_schema(), "note": {"type": ["string", "null"]}},
                     "required": ["value", "confidence", "note"],
                 },
                 "visibleSupportPrices": {
@@ -296,11 +206,7 @@ AI_ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
-                        "properties": {
-                            "value": {"type": ["number", "null"]},
-                            "label": {"type": "string"},
-                            "confidence": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
-                        },
+                        "properties": {"value": {"type": ["number", "null"]}, "label": {"type": "string"}, "confidence": _nullable_confidence_schema()},
                         "required": ["value", "label", "confidence"],
                     },
                 },
@@ -309,42 +215,24 @@ AI_ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
-                        "properties": {
-                            "value": {"type": ["number", "null"]},
-                            "label": {"type": "string"},
-                            "confidence": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
-                        },
+                        "properties": {"value": {"type": ["number", "null"]}, "label": {"type": "string"}, "confidence": _nullable_confidence_schema()},
                         "required": ["value", "label", "confidence"],
                     },
                 },
                 "recentHighEstimate": {
                     "type": ["object", "null"],
                     "additionalProperties": False,
-                    "properties": {
-                        "value": {"type": ["number", "null"]},
-                        "confidence": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
-                        "note": {"type": ["string", "null"]},
-                    },
+                    "properties": {"value": {"type": ["number", "null"]}, "confidence": _nullable_confidence_schema(), "note": {"type": ["string", "null"]}},
                     "required": ["value", "confidence", "note"],
                 },
                 "recentLowEstimate": {
                     "type": ["object", "null"],
                     "additionalProperties": False,
-                    "properties": {
-                        "value": {"type": ["number", "null"]},
-                        "confidence": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
-                        "note": {"type": ["string", "null"]},
-                    },
+                    "properties": {"value": {"type": ["number", "null"]}, "confidence": _nullable_confidence_schema(), "note": {"type": ["string", "null"]}},
                     "required": ["value", "confidence", "note"],
                 },
             },
-            "required": [
-                "currentPriceEstimate",
-                "visibleSupportPrices",
-                "visibleResistancePrices",
-                "recentHighEstimate",
-                "recentLowEstimate",
-            ],
+            "required": ["currentPriceEstimate", "visibleSupportPrices", "visibleResistancePrices", "recentHighEstimate", "recentLowEstimate"],
         },
         "indicatorReadings": {
             "type": "object",
@@ -353,22 +241,13 @@ AI_ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
                 "rsi": {
                     "type": "object",
                     "additionalProperties": False,
-                    "properties": {
-                        "visible": {"type": "boolean"},
-                        "valueEstimate": {"type": ["number", "null"]},
-                        "status": {"type": ["string", "null"]},
-                        "confidence": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
-                    },
+                    "properties": {"visible": {"type": "boolean"}, "valueEstimate": {"type": ["number", "null"]}, "status": {"type": ["string", "null"]}, "confidence": _nullable_confidence_schema()},
                     "required": ["visible", "valueEstimate", "status", "confidence"],
                 },
                 "macd": {
                     "type": "object",
                     "additionalProperties": False,
-                    "properties": {
-                        "visible": {"type": "boolean"},
-                        "status": {"type": ["string", "null"]},
-                        "confidence": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
-                    },
+                    "properties": {"visible": {"type": "boolean"}, "status": {"type": ["string", "null"]}, "confidence": _nullable_confidence_schema()},
                     "required": ["visible", "status", "confidence"],
                 },
                 "bollingerBands": {
@@ -376,38 +255,46 @@ AI_ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
                     "additionalProperties": False,
                     "properties": {
                         "visible": {"type": "boolean"},
+                        "status": {"type": ["string", "null"]},
+                        "reason": {"type": ["string", "null"]},
                         "position": {"type": ["string", "null"]},
                         "upperEstimate": {"type": ["number", "null"]},
                         "lowerEstimate": {"type": ["number", "null"]},
-                        "confidence": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
+                        "confidence": _nullable_confidence_schema(),
                     },
-                    "required": ["visible", "position", "upperEstimate", "lowerEstimate", "confidence"],
+                    "required": ["visible", "status", "reason", "position", "upperEstimate", "lowerEstimate", "confidence"],
                 },
-                "movingAverages": {
+                "ichimoku": {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
                         "visible": {"type": "boolean"},
+                        "pricePosition": {"type": ["string", "null"]},
+                        "cloudState": {"type": ["string", "null"]},
                         "status": {"type": ["string", "null"]},
-                        "confidence": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
+                        "cloudPosition": {"type": ["string", "null"]},
+                        "confidence": _nullable_confidence_schema(),
+                        "reason": {"type": ["string", "null"]},
                     },
+                    "required": ["visible", "pricePosition", "cloudState", "status", "cloudPosition", "confidence", "reason"],
+                },
+                "movingAverages": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {"visible": {"type": "boolean"}, "status": {"type": ["string", "null"]}, "confidence": _nullable_confidence_schema()},
                     "required": ["visible", "status", "confidence"],
                 },
                 "volume": {
                     "type": "object",
                     "additionalProperties": False,
-                    "properties": {
-                        "visible": {"type": "boolean"},
-                        "status": {"type": ["string", "null"]},
-                        "confidence": {"type": ["string", "null"], "enum": ["low", "medium", "high", None]},
-                    },
+                    "properties": {"visible": {"type": "boolean"}, "status": {"type": ["string", "null"]}, "confidence": _nullable_confidence_schema()},
                     "required": ["visible", "status", "confidence"],
                 },
             },
-            "required": ["rsi", "macd", "bollingerBands", "movingAverages", "volume"],
+            "required": ["rsi", "macd", "bollingerBands", "ichimoku", "movingAverages", "volume"],
         },
         "volumeObservation": {"type": "string"},
-        "riskNotes": {"type": "array", "items": {"type": "string"}},
+        "riskNotes": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
         "summary": {"type": "string"},
         "disclaimer": {"type": "string"},
     },
@@ -460,34 +347,45 @@ def _extract_output_text(response: Any) -> str:
     raise RuntimeError("OpenAI Vision API 응답에서 텍스트를 찾을 수 없습니다.")
 
 
-def analyze_chart_image_with_ai(full_image_bytes: bytes, crop_image_bytes: bytes) -> AIAnalysis:
+def _normalize_image_inputs(
+    full_image_bytes: bytes | None = None,
+    crop_image_bytes: bytes | None = None,
+    images: dict[str, bytes | None] | None = None,
+) -> list[tuple[str, bytes]]:
+    if images:
+        ordered_names = ["fullImage", "rightCropImage", "bottomCropImage", "centerChartImage"]
+        return [(name, images[name]) for name in ordered_names if images.get(name)]
+    if full_image_bytes is None or crop_image_bytes is None:
+        raise ValueError("분석할 이미지 bytes가 없습니다.")
+    return [("fullImage", full_image_bytes), ("rightCropImage", crop_image_bytes)]
+
+
+def analyze_chart_image_with_ai(
+    full_image_bytes: bytes | None = None,
+    crop_image_bytes: bytes | None = None,
+    images: dict[str, bytes | None] | None = None,
+) -> AIAnalysis:
     client = _get_openai_client()
     model = os.getenv("OPENAI_MODEL", DEFAULT_MODEL)
+    image_inputs = _normalize_image_inputs(full_image_bytes, crop_image_bytes, images)
+
+    user_content: list[dict[str, Any]] = [{"type": "input_text", "text": USER_PROMPT}]
+    for label, image_bytes in image_inputs:
+        user_content.append({"type": "input_text", "text": f"{label}를 참고해 분석하세요."})
+        user_content.append(
+            {
+                "type": "input_image",
+                "image_url": _image_bytes_to_data_url(image_bytes),
+                "detail": "high",
+            }
+        )
 
     try:
         response = client.responses.create(
             model=model,
             input=[
-                {
-                    "role": "system",
-                    "content": [{"type": "input_text", "text": SYSTEM_PROMPT}],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": USER_PROMPT},
-                        {
-                            "type": "input_image",
-                            "image_url": _image_bytes_to_data_url(full_image_bytes),
-                            "detail": "high",
-                        },
-                        {
-                            "type": "input_image",
-                            "image_url": _image_bytes_to_data_url(crop_image_bytes),
-                            "detail": "high",
-                        },
-                    ],
-                },
+                {"role": "system", "content": [{"type": "input_text", "text": SYSTEM_PROMPT}]},
+                {"role": "user", "content": user_content},
             ],
             text={
                 "format": {
@@ -497,7 +395,7 @@ def analyze_chart_image_with_ai(full_image_bytes: bytes, crop_image_bytes: bytes
                     "strict": True,
                 }
             },
-            max_output_tokens=3600,
+            max_output_tokens=2600,
         )
     except BadRequestError as exc:
         message = str(exc).lower()

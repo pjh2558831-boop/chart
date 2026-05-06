@@ -1,21 +1,79 @@
 from __future__ import annotations
 
 import json
+import os
 
 from database import get_connection, now_iso
 from supabase_client import insert_analysis_log
 
 
+def _decode_result(value: str):
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
 def _row_to_analysis_log(row) -> dict:
+    result = _decode_result(row["result_json"])
     return {
         "id": row["id"],
         "userId": row["user_id"],
         "analysisType": row["analysis_type"],
         "inputImageHash": row["input_image_hash"],
-        "result": json.loads(row["result_json"]),
+        "result": result,
         "modelName": row["model_name"],
+        "promptVersion": row["prompt_version"] if "prompt_version" in row.keys() else None,
+        "analysisMode": row["analysis_mode"] if "analysis_mode" in row.keys() else None,
+        "cacheKey": row["cache_key"] if "cache_key" in row.keys() else None,
         "createdAt": row["created_at"],
     }
+
+
+def build_cache_key(
+    input_image_hash: str,
+    model_name: str,
+    prompt_version: str,
+    analysis_mode: str,
+) -> str:
+    return f"{input_image_hash}:{model_name}:{prompt_version}:{analysis_mode}"
+
+
+def find_cached_analysis(
+    user_id: str | None,
+    input_image_hash: str,
+    model_name: str,
+    prompt_version: str,
+    analysis_mode: str,
+) -> dict | None:
+    cache_key = build_cache_key(input_image_hash, model_name, prompt_version, analysis_mode)
+    global_cache = os.getenv("ENABLE_GLOBAL_IMAGE_CACHE", "false").lower() == "true"
+
+    with get_connection() as connection:
+        if global_cache:
+            row = connection.execute(
+                """
+                SELECT * FROM analysis_logs
+                WHERE cache_key = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (cache_key,),
+            ).fetchone()
+        else:
+            row = connection.execute(
+                """
+                SELECT * FROM analysis_logs
+                WHERE cache_key = ? AND user_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (cache_key, user_id),
+            ).fetchone()
+
+    if row is None:
+        return None
+    return _row_to_analysis_log(row)
 
 
 def create_analysis_log(
@@ -24,6 +82,9 @@ def create_analysis_log(
     input_image_hash: str | None,
     result: dict,
     model_name: str | None,
+    prompt_version: str | None = None,
+    analysis_mode: str | None = None,
+    cache_key: str | None = None,
 ) -> dict:
     timestamp = now_iso()
     result_json = json.dumps(result, ensure_ascii=False)
@@ -32,11 +93,29 @@ def create_analysis_log(
         cursor = connection.execute(
             """
             INSERT INTO analysis_logs (
-                user_id, analysis_type, input_image_hash, result_json, model_name, created_at
+                user_id,
+                analysis_type,
+                input_image_hash,
+                result_json,
+                model_name,
+                prompt_version,
+                analysis_mode,
+                cache_key,
+                created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, analysis_type, input_image_hash, result_json, model_name, timestamp),
+            (
+                user_id,
+                analysis_type,
+                input_image_hash,
+                result_json,
+                model_name,
+                prompt_version,
+                analysis_mode,
+                cache_key,
+                timestamp,
+            ),
         )
         connection.commit()
         analysis_id = cursor.lastrowid
@@ -52,8 +131,11 @@ def create_analysis_log(
             "user_id": user_id,
             "analysis_type": analysis_type,
             "input_image_hash": input_image_hash,
-            "result_json": result_json,
+            "result_json": result,
             "model_name": model_name,
+            "prompt_version": prompt_version,
+            "analysis_mode": analysis_mode,
+            "cache_key": cache_key,
             "created_at": timestamp,
         }
     )

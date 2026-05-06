@@ -6,16 +6,22 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from ai_analysis import analyze_chart_image_with_ai
-from analysis_repository import create_analysis_log, get_analysis_log, list_analysis_logs
+from ai_analysis import PROMPT_VERSION, analyze_chart_image_with_ai
+from analysis_repository import (
+    build_cache_key,
+    create_analysis_log,
+    find_cached_analysis,
+    get_analysis_log,
+    list_analysis_logs,
+)
 from auth import get_or_create_user, get_user_id_from_header, update_user_plan
 from billing import assert_can_analyze, get_usage_status, record_usage
 from database import init_db
 from feedback_repository import create_feedback
-from image_processing import process_image_for_ai
+from image_processing import normalize_analysis_mode, process_image_for_ai
 from market_data import (
     build_yfinance_candidates,
     fetch_ohlcv_from_candidates,
@@ -24,6 +30,7 @@ from market_data import (
     validate_ohlcv_data,
 )
 from pattern_analysis import detectPatternCandidates, merge_pattern_candidates
+from performance import build_performance_report, measure_step, now_ms
 from schemas import AIAnalysis, PatternCandidate
 from technical_analysis import run_technical_analysis
 from visual_trade_signal import generate_visual_trade_signal
@@ -113,10 +120,17 @@ def _build_result_payload(
     technical_analysis: dict[str, Any] | None,
     trade_signal: dict[str, Any] | None,
     image_info: dict[str, Any] | None,
+    cache_hit: bool = False,
+    analysis_mode: str | None = None,
+    prompt_version: str | None = None,
+    performance: dict[str, Any] | None = None,
     analysis_id: int | None = None,
     usage_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
+        "cacheHit": cache_hit,
+        "analysisMode": analysis_mode,
+        "promptVersion": prompt_version,
         "aiAnalysis": ai_analysis.model_dump(mode="json"),
         "technicalAnalysis": technical_analysis,
         "tradeSignal": trade_signal,
@@ -126,6 +140,37 @@ def _build_result_payload(
         payload["analysisId"] = analysis_id
     if usage_status is not None:
         payload["usageStatus"] = usage_status
+    if performance is not None:
+        payload["performance"] = performance
+    return payload
+
+
+def _performance_enabled() -> bool:
+    return os.getenv("ENABLE_PERFORMANCE_DEBUG", "false").lower() == "true"
+
+
+def _attach_runtime_fields(
+    result: dict[str, Any],
+    *,
+    cache_hit: bool,
+    analysis_mode: str,
+    prompt_version: str,
+    analysis_id: int | None,
+    usage_status: dict[str, Any] | None,
+    performance: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload = {
+        **result,
+        "cacheHit": cache_hit,
+        "analysisMode": analysis_mode,
+        "promptVersion": prompt_version,
+    }
+    if analysis_id is not None:
+        payload["analysisId"] = analysis_id
+    if usage_status is not None:
+        payload["usageStatus"] = usage_status
+    if performance is not None:
+        payload["performance"] = performance
     return payload
 
 
@@ -199,7 +244,16 @@ async def feedback(
 
 
 @app.post("/analyze-chart")
-async def analyze_chart(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+async def analyze_chart(
+    request: Request,
+    file: UploadFile = File(...),
+    analysis_mode: str = Form("standard"),
+) -> dict[str, Any]:
+    total_started_at = now_ms()
+    timings: dict[str, float] = {}
+    normalized_analysis_mode = normalize_analysis_mode(analysis_mode)
+    model_name = os.getenv("OPENAI_MODEL") or "gpt-4.1-mini"
+
     user_id = get_user_id_from_header(request)
     user = get_or_create_user(user_id)
     _validate_upload_metadata(file)
@@ -208,8 +262,9 @@ async def analyze_chart(request: Request, file: UploadFile = File(...)) -> dict[
     filename = file.filename or "uploaded-image"
     content_type = file.content_type
 
-    contents = await file.read(MAX_FILE_SIZE_BYTES + 1)
-    await file.close()
+    with measure_step("imageReadMs", timings):
+        contents = await file.read(MAX_FILE_SIZE_BYTES + 1)
+        await file.close()
 
     if not contents:
         raise HTTPException(status_code=400, detail="빈 파일은 업로드할 수 없습니다.")
@@ -217,65 +272,123 @@ async def analyze_chart(request: Request, file: UploadFile = File(...)) -> dict[
         raise HTTPException(status_code=413, detail="파일 크기는 최대 5MB까지 가능합니다.")
 
     try:
-        processed = process_image_for_ai(
-            image_bytes=contents,
-            filename=filename,
-            content_type=content_type,
-        )
+        with measure_step("imageProcessingMs", timings):
+            processed = process_image_for_ai(
+                image_bytes=contents,
+                filename=filename,
+                content_type=content_type,
+                mode=normalized_analysis_mode,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    try:
-        ai_analysis = analyze_chart_image_with_ai(
-            full_image_bytes=processed["fullImageBytes"],
-            crop_image_bytes=processed["cropImageBytes"],
+    input_image_hash = _get_input_image_hash(processed)
+    cache_key = (
+        build_cache_key(
+            input_image_hash=input_image_hash,
+            model_name=model_name,
+            prompt_version=PROMPT_VERSION,
+            analysis_mode=normalized_analysis_mode,
         )
+        if input_image_hash
+        else None
+    )
+
+    cached_analysis = None
+    if input_image_hash:
+        try:
+            with measure_step("cacheLookupMs", timings):
+                cached_analysis = find_cached_analysis(
+                    user_id=user_id,
+                    input_image_hash=input_image_hash,
+                    model_name=model_name,
+                    prompt_version=PROMPT_VERSION,
+                    analysis_mode=normalized_analysis_mode,
+                )
+        except Exception as exc:  # pragma: no cover - cache should never break analysis
+            logger.warning("Cache lookup failed: %s", exc)
+            timings.setdefault("cacheLookupMs", 0.0)
+
+    if cached_analysis is not None:
+        with measure_step("dbSaveMs", timings):
+            record_usage(user_id, ANALYSIS_TYPE)
+            updated_user = get_or_create_user(user_id)
+            updated_usage_status = get_usage_status(updated_user)
+        timings["totalMs"] = round(now_ms() - total_started_at, 2)
+        performance = build_performance_report(timings) if _performance_enabled() else None
+        return _attach_runtime_fields(
+            cached_analysis["result"],
+            cache_hit=True,
+            analysis_mode=normalized_analysis_mode,
+            prompt_version=PROMPT_VERSION,
+            analysis_id=cached_analysis["id"],
+            usage_status=updated_usage_status or usage_status_before,
+            performance=performance,
+        )
+
+    try:
+        with measure_step("aiRequestMs", timings):
+            ai_analysis = analyze_chart_image_with_ai(images=processed["images"])
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    technical_analysis = None
-    data_pattern_candidates: list[dict[str, Any]] = []
-    try:
-        technical_analysis, data_pattern_candidates = _try_build_technical_and_patterns(ai_analysis)
-    except Exception as exc:  # pragma: no cover - enrichment should not break primary response
-        logger.warning("Technical or pattern enrichment failed: %s", exc)
+    with measure_step("postProcessMs", timings):
+        technical_analysis = None
+        data_pattern_candidates: list[dict[str, Any]] = []
+        try:
+            technical_analysis, data_pattern_candidates = _try_build_technical_and_patterns(ai_analysis)
+        except Exception as exc:  # pragma: no cover - enrichment should not break primary response
+            logger.warning("Technical or pattern enrichment failed: %s", exc)
 
-    merged_pattern_candidates = merge_pattern_candidates(
-        ai_analysis.model_dump().get("patternCandidates", []),
-        data_pattern_candidates,
-    )
-    ai_analysis = ai_analysis.model_copy(
-        update={
-            "patternCandidates": [
-                PatternCandidate.model_validate(candidate) for candidate in merged_pattern_candidates
-            ]
-        }
-    )
-    trade_signal = generate_visual_trade_signal(ai_analysis.model_dump())
+        merged_pattern_candidates = merge_pattern_candidates(
+            ai_analysis.model_dump().get("patternCandidates", []),
+            data_pattern_candidates,
+        )
+        ai_analysis = ai_analysis.model_copy(
+            update={
+                "patternCandidates": [
+                    PatternCandidate.model_validate(candidate) for candidate in merged_pattern_candidates
+                ]
+            }
+        )
+        trade_signal = generate_visual_trade_signal(ai_analysis.model_dump())
 
-    record_usage(user_id, ANALYSIS_TYPE)
-    updated_user = get_or_create_user(user_id)
-    updated_usage_status = get_usage_status(updated_user)
     base_result = _build_result_payload(
         ai_analysis=ai_analysis,
         technical_analysis=technical_analysis,
         trade_signal=trade_signal,
         image_info=processed["imageInfo"],
-        usage_status=updated_usage_status,
+        cache_hit=False,
+        analysis_mode=normalized_analysis_mode,
+        prompt_version=PROMPT_VERSION,
     )
-    analysis_log = create_analysis_log(
-        user_id=user_id,
-        analysis_type=ANALYSIS_TYPE,
-        input_image_hash=_get_input_image_hash(processed),
-        result=base_result,
-        model_name=os.getenv("OPENAI_MODEL"),
-    )
+    with measure_step("dbSaveMs", timings):
+        record_usage(user_id, ANALYSIS_TYPE)
+        updated_user = get_or_create_user(user_id)
+        updated_usage_status = get_usage_status(updated_user)
+        analysis_log = create_analysis_log(
+            user_id=user_id,
+            analysis_type=ANALYSIS_TYPE,
+            input_image_hash=input_image_hash,
+            result=base_result,
+            model_name=model_name,
+            prompt_version=PROMPT_VERSION,
+            analysis_mode=normalized_analysis_mode,
+            cache_key=cache_key,
+        )
+
+    timings["totalMs"] = round(now_ms() - total_started_at, 2)
+    performance = build_performance_report(timings) if _performance_enabled() else None
 
     return _build_result_payload(
         ai_analysis=ai_analysis,
         technical_analysis=technical_analysis,
         trade_signal=trade_signal,
         image_info=processed["imageInfo"],
+        cache_hit=False,
+        analysis_mode=normalized_analysis_mode,
+        prompt_version=PROMPT_VERSION,
+        performance=performance,
         analysis_id=analysis_log["id"],
         usage_status=updated_usage_status or usage_status_before,
     )

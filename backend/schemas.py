@@ -254,11 +254,13 @@ def normalize_pattern_candidate(raw_candidate: Any, *, image_based: bool = False
         "label": _to_text(raw_candidate.get("label")) or defaults["label"],
         "category": _normalize_category(raw_candidate.get("category"), canonical_name),
         "confidence": _normalize_confidence(raw_candidate.get("confidence"), image_based=image_based),
+        "confidenceScore": raw_candidate.get("confidenceScore"),
         "evidence": evidence,
         "breakoutDirection": _normalize_breakout_direction(raw_candidate.get("breakoutDirection"), canonical_name),
         "confirmationCondition": confirmation_condition,
         "invalidationCondition": invalidation_condition,
         "entryLogic": entry_logic,
+        "tradingImplication": _to_text(raw_candidate.get("tradingImplication")) or None,
         "riskLevel": _normalize_risk_level(raw_candidate.get("riskLevel"), canonical_name),
     }
 
@@ -303,11 +305,13 @@ class PatternCandidate(BaseModel):
     label: str
     category: PatternCategory
     confidence: Confidence
+    confidenceScore: float | None = None
     evidence: list[str] = Field(default_factory=list)
     breakoutDirection: BreakoutDirection
     confirmationCondition: str
     invalidationCondition: str
     entryLogic: str
+    tradingImplication: str | None = None
     riskLevel: RiskLevel
 
 
@@ -352,6 +356,8 @@ class MACDReading(BaseModel):
 
 class BollingerReading(BaseModel):
     visible: bool = False
+    status: str | None = None
+    reason: str | None = None
     position: str | None = None
     upperEstimate: float | None = None
     lowerEstimate: float | None = None
@@ -370,10 +376,21 @@ class VolumeReading(BaseModel):
     confidence: Confidence | None = None
 
 
+class IchimokuReading(BaseModel):
+    visible: bool = False
+    pricePosition: str | None = None
+    cloudState: str | None = None
+    status: str | None = None
+    cloudPosition: str | None = None
+    confidence: Confidence | None = None
+    reason: str | None = None
+
+
 class IndicatorReadings(BaseModel):
     rsi: RSIReading = Field(default_factory=RSIReading)
     macd: MACDReading = Field(default_factory=MACDReading)
     bollingerBands: BollingerReading = Field(default_factory=BollingerReading)
+    ichimoku: IchimokuReading = Field(default_factory=IchimokuReading)
     movingAverages: MovingAverageReading = Field(default_factory=MovingAverageReading)
     volume: VolumeReading = Field(default_factory=VolumeReading)
 

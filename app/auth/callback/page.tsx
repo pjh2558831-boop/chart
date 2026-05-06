@@ -13,6 +13,10 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     const completeLogin = async () => {
       try {
+        if (!supabase) {
+          throw new Error("Supabase 환경변수가 설정되지 않았습니다.");
+        }
+
         const url = new URL(window.location.href);
         const code = url.searchParams.get("code");
 
@@ -32,7 +36,11 @@ export default function AuthCallbackPage() {
         await upsertProfileForUser(user);
         router.replace("/");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "로그인 처리 중 오류가 발생했습니다.");
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "로그인 처리 중 오류가 발생했습니다.",
+        );
         setTimeout(() => router.replace("/login"), 1800);
       }
     };

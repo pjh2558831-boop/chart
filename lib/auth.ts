@@ -2,8 +2,22 @@ import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "./supabase";
 
+function getSiteUrl() {
+  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
+  if (configuredSiteUrl) {
+    return configuredSiteUrl;
+  }
+
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+
+  return "";
+}
+
 export async function signInWithGoogle() {
-  const redirectTo = `${window.location.origin}/auth/callback`;
+  const siteUrl = getSiteUrl();
+  const redirectTo = `${siteUrl}/auth/callback`;
 
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",

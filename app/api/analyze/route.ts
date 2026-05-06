@@ -20,8 +20,8 @@ function getBackendUrl() {
   return backendUrl;
 }
 
-function sanitizeUserId(userId: string | null) {
-  const trimmed = (userId ?? "").trim();
+function sanitizeIdentity(value: string | null) {
+  const trimmed = (value ?? "").trim();
   if (!trimmed || trimmed.length > 128) {
     return null;
   }
@@ -54,9 +54,12 @@ function mapBackendErrorStatus(status: number) {
 }
 
 export async function POST(request: NextRequest) {
-  const userId = sanitizeUserId(request.headers.get("X-User-Id"));
-  if (!userId) {
-    return jsonError(400, "유효한 X-User-Id 헤더가 필요합니다.");
+  const userId = sanitizeIdentity(request.headers.get("X-User-Id"));
+  const guestId = sanitizeIdentity(request.headers.get("X-Guest-Id"));
+  const authorization = request.headers.get("Authorization");
+
+  if (!userId && !guestId) {
+    return jsonError(400, "로그인 정보 또는 게스트 식별자가 필요합니다.");
   }
 
   let incomingFormData: FormData;
@@ -89,7 +92,9 @@ export async function POST(request: NextRequest) {
     const backendResponse = await fetch(`${getBackendUrl()}/analyze-chart`, {
       method: "POST",
       headers: {
-        "X-User-Id": userId,
+        ...(userId ? { "X-User-Id": userId } : {}),
+        ...(guestId ? { "X-Guest-Id": guestId } : {}),
+        ...(authorization ? { Authorization: authorization } : {}),
       },
       body: backendFormData,
       cache: "no-store",

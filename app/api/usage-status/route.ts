@@ -14,8 +14,8 @@ function getBackendUrl() {
   return backendUrl;
 }
 
-function sanitizeUserId(userId: string | null) {
-  const trimmed = (userId ?? "").trim();
+function sanitizeIdentity(value: string | null) {
+  const trimmed = (value ?? "").trim();
   if (!trimmed || trimmed.length > 128) {
     return null;
   }
@@ -36,14 +36,21 @@ async function parseBackendError(response: Response) {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = sanitizeUserId(request.headers.get("X-User-Id"));
-  if (!userId) {
-    return jsonError(400, "유효한 X-User-Id 헤더가 필요합니다.");
+  const userId = sanitizeIdentity(request.headers.get("X-User-Id"));
+  const guestId = sanitizeIdentity(request.headers.get("X-Guest-Id"));
+  const authorization = request.headers.get("Authorization");
+
+  if (!userId && !guestId) {
+    return jsonError(400, "로그인 정보 또는 게스트 식별자가 필요합니다.");
   }
 
   try {
     const response = await fetch(`${getBackendUrl()}/usage-status`, {
-      headers: { "X-User-Id": userId },
+      headers: {
+        ...(userId ? { "X-User-Id": userId } : {}),
+        ...(guestId ? { "X-Guest-Id": guestId } : {}),
+        ...(authorization ? { Authorization: authorization } : {}),
+      },
       cache: "no-store",
     });
     if (!response.ok) {

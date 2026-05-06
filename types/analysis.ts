@@ -15,9 +15,15 @@ export type PatternEntryType = "aggressive" | "conservative" | "wait" | "none";
 export type ActionParameter =
   | "buy_candidate"
   | "sell_candidate"
+  | "weak_buy_candidate"
+  | "strong_buy_candidate"
+  | "weak_sell_candidate"
+  | "strong_sell_candidate"
+  | "reduce_position_candidate"
   | "hold_candidate"
   | "neutral"
-  | "insufficient_data";
+  | "insufficient_data"
+  | "insufficient_visual_data";
 
 export interface SymbolDetection {
   detectedName?: string | null;
@@ -318,6 +324,101 @@ export interface TradeSignal {
   warnings?: string[];
 }
 
+export interface AdvancedTradeSignal extends Partial<TradeSignal> {
+  finalSignal?: string;
+  holdScore?: number | null;
+  decisionReason?: string[] | null;
+  blockedReasons?: string[] | null;
+  marketState?: string | null;
+  strategyType?: string | null;
+  supportResistance?: {
+    supportLevels?: number[];
+    resistanceLevels?: number[];
+    nearestSupport?: number | null;
+    nearestResistance?: number | null;
+  } | null;
+}
+
+export interface VisualSummary {
+  currentState?: string | null;
+  marketInterpretation?: string | null;
+  volatilityState?: string | null;
+  pricePosition?: string | null;
+  trendDirection?: string | null;
+}
+
+export interface MarketRegime {
+  trendDirection?: string | null;
+  volatilityState?: string | null;
+  pricePosition?: string | null;
+  patternState?: string | null;
+  interpretation?: string | null;
+}
+
+export type SignalTone =
+  | "strongPositive"
+  | "positive"
+  | "neutral"
+  | "caution"
+  | "negative"
+  | "danger"
+  | "unknown";
+
+export interface AnalysisViewModel {
+  signalSummary: {
+    finalLabel: string;
+    signalTone: SignalTone;
+    currentState: string;
+    strategyTypeLabel: string;
+    confidenceLabel: string;
+    currentPriceText: string;
+    oneLineSummary: string;
+  };
+  priceStrategy: {
+    entryZoneText: string;
+    stopLossText: string;
+    target1Text: string;
+    target2Text: string;
+    riskRewardText: string;
+    priceBasisWarning: string;
+  };
+  decisionReasons: Array<{
+    type: "positive" | "neutral" | "negative";
+    text: string;
+  }>;
+  scoreSummary: {
+    buyScore: number | null;
+    sellScore: number | null;
+    holdScore: number | null;
+    interpretation: string;
+    rows: Array<{ group: string; label: string; score: number | null | undefined }>;
+  };
+  marketState: {
+    trendDirection: string;
+    volatilityState: string;
+    pricePosition: string;
+    patternState: string;
+    interpretation: string;
+  };
+  supportResistance: {
+    currentPrice: number | null;
+    supports: Array<{ label: string; value: number | null; distanceText: string; meaning: string }>;
+    resistances: Array<{ label: string; value: number | null; distanceText: string; meaning: string }>;
+  };
+  patternView: {
+    summaryText: string;
+    candidates: PatternCandidate[];
+  };
+  indicatorView: Array<{
+    name: string;
+    status: string;
+    direction: string;
+    interpretation: string;
+    confidence: string;
+  }>;
+  riskWarnings: string[];
+}
+
 export interface ImageInfo {
   original?: {
     filename?: string;
@@ -331,6 +432,9 @@ export interface ImageInfo {
 export interface AnalysisResponse {
   analysisId?: number;
   aiAnalysis: AIAnalysis;
+  advancedTradeSignal?: AdvancedTradeSignal | null;
+  visualSummary?: VisualSummary | null;
+  marketRegime?: MarketRegime | null;
   technicalAnalysis?: TechnicalAnalysis | null;
   tradeSignal?: TradeSignal | null;
   imageInfo?: ImageInfo;

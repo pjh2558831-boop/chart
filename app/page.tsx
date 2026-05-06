@@ -1,17 +1,83 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import AnalysisResult from "../components/AnalysisResult";
 import ImageUploader from "../components/ImageUploader";
-import { analyzeChartImage } from "../lib/api";
+import { analyzeChartImage, getUsageStatus } from "../lib/api";
 import type { AnalysisResponse } from "../types/analysis";
+import type { UsageStatus } from "../types/billing";
+
+function UsageCard({ usageStatus }: { usageStatus: UsageStatus | null }) {
+  if (!usageStatus) {
+    return (
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
+        <p className="text-sm text-slate-500">사용량 정보를 불러오는 중입니다.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
+      <div className="grid gap-4 md:grid-cols-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-500">현재 플랜</p>
+          <p className="mt-2 text-2xl font-bold text-slate-950">{usageStatus.plan}</p>
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-slate-500">오늘 남은 분석 횟수</p>
+          <p className="mt-2 text-2xl font-bold text-slate-950">
+            {usageStatus.dailyRemaining} / {usageStatus.dailyLimit}
+          </p>
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-slate-500">이번 달 남은 분석 횟수</p>
+          <p className="mt-2 text-2xl font-bold text-slate-950">
+            {usageStatus.monthlyRemaining} / {usageStatus.monthlyLimit}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResponse | null>(null);
+  const [usageStatus, setUsageStatus] = useState<UsageStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isUsageLoading, setIsUsageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadUsageStatus = async () => {
+      try {
+        const nextUsageStatus = await getUsageStatus();
+        if (!cancelled) {
+          setUsageStatus(nextUsageStatus);
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "사용량 정보를 불러오는 중 오류가 발생했습니다.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsUsageLoading(false);
+        }
+      }
+    };
+
+    void loadUsageStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleFileSelect = (file: File | null) => {
     setSelectedFile(file);
@@ -31,12 +97,20 @@ export default function Home() {
     try {
       const result = await analyzeChartImage(selectedFile);
       setAnalysisResult(result);
+      if (result.usageStatus) {
+        setUsageStatus(result.usageStatus);
+      }
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "AI 분석 요청 중 예상하지 못한 오류가 발생했습니다.",
-      );
+      const message =
+        requestError instanceof Error ? requestError.message : "AI 분석 요청 중 오류가 발생했습니다.";
+
+      if (message.includes("사용량 제한 초과")) {
+        setError("사용량 제한 초과");
+      } else if (message.includes("현재 요금제에서 사용할 수 없는 기능")) {
+        setError("현재 요금제에서 사용할 수 없는 기능입니다.");
+      } else {
+        setError(message);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -46,15 +120,15 @@ export default function Home() {
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-8">
         <header className="space-y-4">
-          <p className="text-sm font-semibold uppercase text-blue-600">Chart Vision MVP</p>
+          <p className="text-sm font-semibold uppercase text-blue-600">Chart Vision AI</p>
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
               <h1 className="text-3xl font-bold text-slate-950 sm:text-4xl">
                 AI 주식 차트 이미지 분석
               </h1>
               <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">
-                차트 이미지를 업로드하면 AI가 이미지에서 보이는 구조를 분석하고, 가능한 경우
-                실제 OHLCV 데이터로 기술적 후보 구간을 계산합니다.
+                차트 이미지를 업로드하면 AI가 기술적 분석을 수행하여 현재 시장 상태, 주요 가격대,
+                패턴 후보, 진입·손절·목표 구간을 직관적으로 제공합니다.
               </p>
             </div>
           </div>
@@ -63,9 +137,8 @@ export default function Home() {
         <section className="rounded-lg border border-blue-100 bg-blue-50 px-5 py-4 text-sm leading-6 text-blue-900 shadow-soft">
           <p className="font-semibold text-blue-950">기술적 지표 참고 안내</p>
           <p className="mt-2">
-            분석 결과는 기술적 지표 기반 참고 정보입니다. RSI, MACD, 볼린저밴드,
-            이동평균선, 거래량을 참고하며, 해당 보조지표를 차트에 켜두면 AI가
-            이미지에서 인식할 수 있습니다.
+            분석 결과는 기술적 지표 기반 참고 정보입니다. RSI, MACD, 볼린저밴드, 이동평균선,
+            거래량을 참고하며, 해당 보조지표를 차트에 켜두면 AI가 이미지에서 인식할 수 있습니다.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {["RSI", "MACD", "볼린저밴드", "이동평균선", "거래량"].map((item) => (
@@ -79,6 +152,8 @@ export default function Home() {
           </div>
         </section>
 
+        {isUsageLoading ? null : <UsageCard usageStatus={usageStatus} />}
+
         <ImageUploader file={selectedFile} disabled={isLoading} onFileSelect={handleFileSelect} />
 
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
@@ -86,8 +161,7 @@ export default function Home() {
             <div>
               <h2 className="text-base font-semibold text-slate-900">AI 분석 요청</h2>
               <p className="mt-1 text-sm text-slate-500">
-                이미지만 전송합니다. 이미지에 보이는 보조지표와 가격축을 바탕으로
-                기술적 신호와 후보 구간을 계산합니다.
+                이미지만 전송합니다. 분석이 성공하면 사용량과 분석 기록이 함께 저장됩니다.
               </p>
             </div>
             <button
@@ -103,8 +177,8 @@ export default function Home() {
 
         {!analysisResult && !isLoading && !error ? (
           <section className="rounded-lg border border-blue-100 bg-blue-50 px-5 py-4 text-sm leading-6 text-blue-800">
-            차트 이미지를 업로드하면 AI가 이미지에서 보이는 구조를 분석하고, 가능한 경우
-            실제 OHLCV 데이터로 기술적 후보 구간을 계산합니다.
+            차트 이미지를 업로드하면 AI가 이미지에서 보이는 차트 구조를 분석합니다. 종목 정보가
+            이미지에서 충분히 확인되면 실제 가격 데이터 기반 검증도 함께 시도합니다.
           </section>
         ) : null}
 
@@ -114,7 +188,7 @@ export default function Home() {
               이미지를 최적화하고 AI 분석 및 데이터 검증을 진행하고 있습니다.
             </p>
             <p className="mt-1 text-sm text-slate-500">
-              완료되면 아래에 기술적 신호와 후보 가격대가 표시됩니다.
+              완료되면 기술적 신호와 후보 가격대를 함께 보여드립니다.
             </p>
           </section>
         ) : null}

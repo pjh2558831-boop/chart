@@ -1,46 +1,72 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createFeedback, sanitizeUserId } from "../../../lib/server/supabaseRest";
-
 export const runtime = "nodejs";
+
+function jsonError(status: number, detail: string) {
+  return NextResponse.json({ detail }, { status });
+}
+
+function getBackendUrl() {
+  const backendUrl = process.env.BACKEND_API_URL?.replace(/\/$/, "");
+  if (!backendUrl) {
+    throw new Error("BACKEND_API_URL is not configured");
+  }
+  return backendUrl;
+}
+
+function sanitizeUserId(userId: string | null) {
+  const trimmed = (userId ?? "").trim();
+  if (!trimmed || trimmed.length > 128) {
+    return null;
+  }
+  if (!/^[a-zA-Z0-9._:@-]+$/.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+async function parseBackendError(response: Response) {
+  try {
+    const body = (await response.json()) as { detail?: unknown; error?: unknown; message?: unknown };
+    const detail = body.detail || body.error || body.message;
+    return typeof detail === "string" ? detail : "피드백 저장 중 오류가 발생했습니다.";
+  } catch {
+    return response.statusText || "피드백 저장 중 오류가 발생했습니다.";
+  }
+}
 
 export async function POST(request: NextRequest) {
   const userId = sanitizeUserId(request.headers.get("X-User-Id"));
   if (!userId) {
-    return NextResponse.json({ detail: "X-User-Id 헤더가 필요합니다." }, { status: 400 });
+    return jsonError(400, "유효한 X-User-Id 헤더가 필요합니다.");
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonError(400, "올바른 JSON 요청이 필요합니다.");
   }
 
   try {
-    const body = (await request.json()) as {
-      analysisId?: number;
-      rating?: number | null;
-      correctSignal?: string | null;
-      correctPattern?: string | null;
-      comment?: string | null;
-    };
-
-    const analysisId = Number(body.analysisId);
-    if (!Number.isInteger(analysisId) || analysisId <= 0) {
-      return NextResponse.json({ detail: "analysisId가 필요합니다." }, { status: 400 });
-    }
-    if (body.rating !== null && body.rating !== undefined && (body.rating < 1 || body.rating > 5)) {
-      return NextResponse.json({ detail: "rating은 1~5 사이여야 합니다." }, { status: 400 });
-    }
-
-    const feedback = await createFeedback({
-      userId,
-      analysisId,
-      rating: body.rating ?? null,
-      correctSignal: body.correctSignal ?? null,
-      correctPattern: body.correctPattern ?? null,
-      comment: body.comment ?? null,
+    const response = await fetch(`${getBackendUrl()}/feedback`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-Id": userId,
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
     });
-
-    return NextResponse.json(feedback);
-  } catch (error) {
-    return NextResponse.json(
-      { detail: error instanceof Error ? error.message : "피드백 저장 중 오류가 발생했습니다." },
-      { status: 500 },
-    );
+    if (!response.ok) {
+      return jsonError(response.status, await parseBackendError(response));
+    }
+    const text = await response.text();
+    return new NextResponse(text, {
+      status: response.status,
+      headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
+    });
+  } catch {
+    return jsonError(502, "분석 서버에 연결할 수 없습니다.");
   }
 }

@@ -8,13 +8,24 @@ import { supabase } from "../../../lib/supabase";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
-  const [message, setMessage] = useState("로그인 처리 중...");
+  const [message, setMessage] = useState("로그인 처리 중입니다...");
 
   useEffect(() => {
-    const completeLogin = async () => {
+    let mounted = true;
+
+    const finishOnHome = () => {
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", "/");
+      }
+      router.replace("/");
+    };
+
+    async function handleCallback() {
       try {
         if (!supabase) {
-          throw new Error("Supabase 환경변수가 설정되지 않았습니다.");
+          setMessage("Supabase 환경변수가 설정되지 않아 게스트 모드로 이동합니다.");
+          finishOnHome();
+          return;
         }
 
         const url = new URL(window.location.href);
@@ -22,30 +33,35 @@ export default function AuthCallbackPage() {
 
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) {
-            throw error;
-          }
+          if (error) throw error;
+        } else {
+          await supabase.auth.getSession();
         }
 
         const user = await getCurrentUser();
-        if (!user) {
-          router.replace("/login");
-          return;
+        if (user) {
+          try {
+            await upsertProfileForUser(user);
+          } catch (profileError) {
+            console.warn("Profile upsert failed after OAuth callback:", profileError);
+          }
         }
 
-        await upsertProfileForUser(user);
-        router.replace("/");
+        if (!mounted) return;
+        finishOnHome();
       } catch (error) {
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "로그인 처리 중 오류가 발생했습니다.",
-        );
-        setTimeout(() => router.replace("/login"), 1800);
+        console.error("Auth callback error:", error);
+        if (!mounted) return;
+        setMessage("로그인 처리 중 오류가 발생해 메인 화면으로 이동합니다.");
+        finishOnHome();
       }
-    };
+    }
 
-    void completeLogin();
+    void handleCallback();
+
+    return () => {
+      mounted = false;
+    };
   }, [router]);
 
   return (

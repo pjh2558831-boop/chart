@@ -12,17 +12,46 @@ function apiUrl(path: string) {
   return `${API_BASE_URL}${path}`;
 }
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  usageStatus?: UsageStatus;
+
+  constructor(message: string, status: number, code?: string, usageStatus?: UsageStatus) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.usageStatus = usageStatus;
+  }
+}
+
 async function parseError(response: Response): Promise<never> {
   let message = "요청 처리 중 오류가 발생했습니다.";
+  let code: string | undefined;
+  let usageStatus: UsageStatus | undefined;
 
   try {
-    const body = (await response.json()) as { detail?: string; error?: string; message?: string };
-    message = body.detail || body.error || body.message || message;
+    const body = (await response.json()) as {
+      detail?: string | { code?: string; message?: string; usageStatus?: UsageStatus };
+      error?: string;
+      message?: string;
+      usageStatus?: UsageStatus;
+    };
+
+    if (typeof body.detail === "object" && body.detail !== null) {
+      code = body.detail.code;
+      usageStatus = body.detail.usageStatus;
+      message = body.detail.message || code || message;
+    } else {
+      message = body.detail || body.error || body.message || message;
+      usageStatus = body.usageStatus;
+    }
   } catch {
     message = response.statusText || message;
   }
 
-  throw new Error(message);
+  throw new ApiError(message, response.status, code, usageStatus);
 }
 
 export async function analyzeChartImage(
@@ -52,6 +81,7 @@ export async function analyzeChartImage(
 export async function getUsageStatus(session?: Session | null): Promise<UsageStatus> {
   const response = await fetch(apiUrl("/api/usage-status"), {
     headers: getAuthHeaders(session),
+    cache: "no-store",
   });
 
   if (!response.ok) {

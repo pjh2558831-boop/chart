@@ -34,8 +34,10 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS usage_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
+                user_id TEXT NULL,
+                guest_id TEXT NULL,
                 analysis_type TEXT NOT NULL,
+                plan_snapshot TEXT NOT NULL DEFAULT 'free',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(id)
             );
@@ -54,11 +56,15 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS analysis_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
+                user_id TEXT NULL,
+                guest_id TEXT NULL,
                 analysis_type TEXT NOT NULL,
                 input_image_hash TEXT NULL,
                 result_json TEXT NOT NULL,
                 model_name TEXT NULL,
+                prompt_version TEXT NULL,
+                analysis_mode TEXT NULL,
+                cache_key TEXT NULL,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(id)
             );
@@ -77,27 +83,152 @@ def init_db() -> None:
             );
             """
         )
-        _ensure_column(connection, "analysis_logs", "prompt_version", "TEXT NULL")
-        _ensure_column(connection, "analysis_logs", "analysis_mode", "TEXT NULL")
-        _ensure_column(connection, "analysis_logs", "cache_key", "TEXT NULL")
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_analysis_logs_cache_key
-            ON analysis_logs(cache_key)
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_analysis_logs_user_cache_key
-            ON analysis_logs(user_id, cache_key)
-            """
-        )
+        _migrate_usage_logs(connection)
+        _migrate_analysis_logs(connection)
+        _ensure_indexes(connection)
+
+
+def _column_map(connection: sqlite3.Connection, table_name: str) -> dict[str, sqlite3.Row]:
+    return {
+        row["name"]: row
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
 
 
 def _ensure_column(connection: sqlite3.Connection, table_name: str, column_name: str, column_type: str) -> None:
-    columns = {
-        row["name"]
-        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
-    }
-    if column_name not in columns:
+    if column_name not in _column_map(connection, table_name):
         connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+
+
+def _migrate_usage_logs(connection: sqlite3.Connection) -> None:
+    columns = _column_map(connection, "usage_logs")
+    user_id_not_null = bool(columns.get("user_id") and columns["user_id"]["notnull"])
+    missing_columns = {"guest_id", "plan_snapshot"} - set(columns)
+
+    if not user_id_not_null and not missing_columns:
+        return
+
+    connection.commit()
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS usage_logs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NULL,
+            guest_id TEXT NULL,
+            analysis_type TEXT NOT NULL,
+            plan_snapshot TEXT NOT NULL DEFAULT 'free',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    select_plan = "plan_snapshot" if "plan_snapshot" in columns else "'free'"
+    select_guest = "guest_id" if "guest_id" in columns else "NULL"
+    connection.execute(
+        f"""
+        INSERT INTO usage_logs_new (id, user_id, guest_id, analysis_type, plan_snapshot, created_at)
+        SELECT id, user_id, {select_guest}, analysis_type, COALESCE({select_plan}, 'free'), created_at
+        FROM usage_logs
+        """
+    )
+    connection.execute("DROP TABLE usage_logs")
+    connection.execute("ALTER TABLE usage_logs_new RENAME TO usage_logs")
+    connection.commit()
+    connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_analysis_logs(connection: sqlite3.Connection) -> None:
+    columns = _column_map(connection, "analysis_logs")
+    user_id_not_null = bool(columns.get("user_id") and columns["user_id"]["notnull"])
+    required_columns = {"guest_id", "prompt_version", "analysis_mode", "cache_key"}
+    missing_columns = required_columns - set(columns)
+
+    if not user_id_not_null and not missing_columns:
+        return
+
+    connection.commit()
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS analysis_logs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NULL,
+            guest_id TEXT NULL,
+            analysis_type TEXT NOT NULL,
+            input_image_hash TEXT NULL,
+            result_json TEXT NOT NULL,
+            model_name TEXT NULL,
+            prompt_version TEXT NULL,
+            analysis_mode TEXT NULL,
+            cache_key TEXT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    select_guest = "guest_id" if "guest_id" in columns else "NULL"
+    select_prompt = "prompt_version" if "prompt_version" in columns else "NULL"
+    select_mode = "analysis_mode" if "analysis_mode" in columns else "NULL"
+    select_cache = "cache_key" if "cache_key" in columns else "NULL"
+    connection.execute(
+        f"""
+        INSERT INTO analysis_logs_new (
+            id, user_id, guest_id, analysis_type, input_image_hash, result_json,
+            model_name, prompt_version, analysis_mode, cache_key, created_at
+        )
+        SELECT
+            id, user_id, {select_guest}, analysis_type, input_image_hash, result_json,
+            model_name, {select_prompt}, {select_mode}, {select_cache}, created_at
+        FROM analysis_logs
+        """
+    )
+    connection.execute("DROP TABLE analysis_logs")
+    connection.execute("ALTER TABLE analysis_logs_new RENAME TO analysis_logs")
+    connection.commit()
+    connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _ensure_indexes(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_usage_logs_user_id_created_at
+        ON usage_logs(user_id, created_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_usage_logs_guest_id_created_at
+        ON usage_logs(guest_id, created_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_analysis_logs_user_id_created_at
+        ON analysis_logs(user_id, created_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_analysis_logs_guest_id_created_at
+        ON analysis_logs(guest_id, created_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_analysis_logs_cache_key
+        ON analysis_logs(cache_key)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_analysis_logs_user_cache_key
+        ON analysis_logs(user_id, cache_key)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_analysis_logs_guest_cache_key
+        ON analysis_logs(guest_id, cache_key)
+        """
+    )

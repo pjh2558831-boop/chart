@@ -19,6 +19,7 @@ def _row_to_analysis_log(row) -> dict:
     return {
         "id": row["id"],
         "userId": row["user_id"],
+        "guestId": row["guest_id"] if "guest_id" in row.keys() else None,
         "analysisType": row["analysis_type"],
         "inputImageHash": row["input_image_hash"],
         "result": result,
@@ -40,7 +41,9 @@ def build_cache_key(
 
 
 def find_cached_analysis(
+    *,
     user_id: str | None,
+    guest_id: str | None,
     input_image_hash: str,
     model_name: str,
     prompt_version: str,
@@ -60,7 +63,7 @@ def find_cached_analysis(
                 """,
                 (cache_key,),
             ).fetchone()
-        else:
+        elif user_id:
             row = connection.execute(
                 """
                 SELECT * FROM analysis_logs
@@ -70,6 +73,16 @@ def find_cached_analysis(
                 """,
                 (cache_key, user_id),
             ).fetchone()
+        else:
+            row = connection.execute(
+                """
+                SELECT * FROM analysis_logs
+                WHERE cache_key = ? AND guest_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (cache_key, guest_id),
+            ).fetchone()
 
     if row is None:
         return None
@@ -77,7 +90,9 @@ def find_cached_analysis(
 
 
 def create_analysis_log(
-    user_id: str,
+    *,
+    user_id: str | None,
+    guest_id: str | None,
     analysis_type: str,
     input_image_hash: str | None,
     result: dict,
@@ -94,6 +109,7 @@ def create_analysis_log(
             """
             INSERT INTO analysis_logs (
                 user_id,
+                guest_id,
                 analysis_type,
                 input_image_hash,
                 result_json,
@@ -103,10 +119,11 @@ def create_analysis_log(
                 cache_key,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
+                guest_id,
                 analysis_type,
                 input_image_hash,
                 result_json,
@@ -119,16 +136,14 @@ def create_analysis_log(
         )
         connection.commit()
         analysis_id = cursor.lastrowid
-        row = connection.execute(
-            "SELECT * FROM analysis_logs WHERE id = ? AND user_id = ?",
-            (analysis_id, user_id),
-        ).fetchone()
+        row = connection.execute("SELECT * FROM analysis_logs WHERE id = ?", (analysis_id,)).fetchone()
 
     analysis_log = _row_to_analysis_log(row)
     insert_analysis_log(
         {
             "id": analysis_log["id"],
             "user_id": user_id,
+            "guest_id": guest_id,
             "analysis_type": analysis_type,
             "input_image_hash": input_image_hash,
             "result_json": result,

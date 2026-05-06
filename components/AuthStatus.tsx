@@ -5,7 +5,12 @@ import { useState } from "react";
 
 import { useAuth } from "../context/AuthContext";
 
-export default function AuthStatus() {
+type AuthStatusProps = {
+  showLoginHint?: boolean;
+  onDismissHint?: () => void;
+};
+
+export default function AuthStatus({ showLoginHint = false, onDismissHint }: AuthStatusProps) {
   const { user, loading, signOut } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
@@ -28,12 +33,32 @@ export default function AuthStatus() {
 
   if (!user) {
     return (
-      <Link
-        href="/login"
-        className="inline-flex items-center justify-center rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-      >
-        Google 로그인
-      </Link>
+      <div className="relative flex flex-col items-end gap-2">
+        {showLoginHint ? (
+          <div className="relative max-w-xs rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 shadow-sm">
+            <button
+              type="button"
+              onClick={onDismissHint}
+              className="absolute right-2 top-1 text-blue-500 hover:text-blue-800"
+              aria-label="로그인 안내 닫기"
+            >
+              ×
+            </button>
+            <p className="pr-4 font-semibold">로그인하면 무료 분석 횟수가 늘어납니다.</p>
+            <p className="mt-1 text-xs leading-5">
+              비로그인: 일 1회 / 월 3회
+              <br />
+              로그인 무료: 일 2회 / 월 10회
+            </p>
+          </div>
+        ) : null}
+        <Link
+          href="/login"
+          className="inline-flex items-center justify-center rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+        >
+          Google 로그인
+        </Link>
+      </div>
     );
   }
 

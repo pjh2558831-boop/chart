@@ -6,7 +6,7 @@ from database import get_connection, now_iso
 from supabase_client import upsert_subscription, upsert_user
 
 
-VALID_PLANS = {"free", "basic", "pro", "premium"}
+VALID_PLANS = {"free", "plus", "pro"}
 
 
 def _row_to_user(row) -> dict:
@@ -34,7 +34,7 @@ def _mirror_user(user: dict) -> None:
 def get_user_id_from_header(request: Request) -> str:
     user_id = request.headers.get("X-User-Id", "").strip()
     if not user_id:
-        raise HTTPException(status_code=400, detail="X-User-Id 헤더가 필요합니다.")
+        raise HTTPException(status_code=400, detail="로그인이 필요한 기능입니다.")
     return user_id
 
 

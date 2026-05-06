@@ -8,6 +8,7 @@ export interface UsageStatus {
   userId?: string | null;
   guestId?: string | null;
   plan: UserPlan;
+  planLabel?: string;
   price: number;
   dailyLimit: number;
   monthlyLimit: number;
@@ -17,6 +18,8 @@ export interface UsageStatus {
   monthlyRemaining: number;
   analysisMode: AnalysisModeName;
   enabledFeatures: string[];
+  isLoggedIn?: boolean;
+  isPaidPlan?: boolean;
 }
 
 export interface AnalysisLogRecord {

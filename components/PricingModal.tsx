@@ -1,60 +1,89 @@
 "use client";
 
+import type { UserPlan } from "../types/billing";
+
 type PricingModalProps = {
   open: boolean;
+  currentPlan?: UserPlan;
+  isLoggedIn?: boolean;
   onClose: () => void;
   onLogin: () => void;
 };
 
-const plans = [
+const plans: Array<{
+  id: Exclude<UserPlan, "guest">;
+  name: string;
+  price: string;
+  description: string;
+  features: string[];
+  button: string;
+  highlighted?: boolean;
+}> = [
   {
+    id: "free",
     name: "Free",
-    price: "0원",
-    badge: "로그인 무료",
-    features: ["일 2회 / 월 10회", "fast 분석", "분석 기록 저장", "피드백 제출"],
-    button: "로그인하기",
-    variant: "login",
+    price: "0원 / 월",
+    description: "가볍게 차트 분석을 체험할 수 있습니다.",
+    features: ["로그인 무료 제공", "일 2회 / 월 10회", "빠른 분석", "기본 차트 리포트", "분석 기록 저장"],
+    button: "로그인하고 무료로 사용",
   },
   {
+    id: "plus",
     name: "Plus",
     price: "5,900원 / 월",
-    badge: "준비 중",
-    features: ["일 20회 / 월 100회", "standard 분석", "고급 패턴 분석", "광고 제거", "리포트 저장"],
-    button: "Plus 준비 중",
-    variant: "paid",
+    description: "일반 투자자를 위한 표준 분석 플랜입니다.",
+    features: ["일 20회 / 월 100회", "기본 분석 모드", "고급 패턴 후보", "광고 제거", "리포트 저장"],
+    button: "Plus 시작하기",
+    highlighted: true,
   },
   {
+    id: "pro",
     name: "Pro",
     price: "12,900원 / 월",
-    badge: "준비 중",
-    features: ["일 50회 / 월 300회", "precision 분석", "히스토리 비교", "뉴스 기반 리서치 예정", "실시간 정보 분석 예정"],
-    button: "Pro 준비 중",
-    variant: "paid",
+    description: "더 깊은 분석이 필요한 사용자를 위한 플랜입니다.",
+    features: [
+      "일 50회 / 월 300회",
+      "정밀 분석 모드",
+      "고급 패턴 분석",
+      "분석 히스토리 비교",
+      "뉴스 기반 리서치 예정",
+      "실시간 정보 분석 예정",
+    ],
+    button: "Pro 시작하기",
   },
 ];
 
-export default function PricingModal({ open, onClose, onLogin }: PricingModalProps) {
+export default function PricingModal({
+  open,
+  currentPlan = "guest",
+  isLoggedIn = false,
+  onClose,
+  onLogin,
+}: PricingModalProps) {
   if (!open) {
     return null;
   }
 
-  const handlePlanClick = (variant: string) => {
-    if (variant === "login") {
+  const handlePlanClick = (planId: UserPlan) => {
+    if (planId === "free" && !isLoggedIn) {
       onLogin();
       return;
     }
-    window.alert("결제 기능은 준비 중입니다. 현재는 무료 플랜으로 이용할 수 있습니다.");
+    if (planId === currentPlan) {
+      return;
+    }
+    window.alert("결제 기능은 업데이트 예정입니다.");
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
-      <section className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+      <section className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase text-blue-600">Pricing</p>
             <h2 className="mt-2 text-2xl font-bold text-slate-950">요금제 선택</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              결제 연동은 아직 준비 중입니다. 현재는 무료 체험과 로그인 무료 플랜을 사용할 수 있습니다.
+              결제 기능은 아직 준비 중입니다. 현재는 무료 플랜과 테스트용 플랜 상태만 표시합니다.
             </p>
           </div>
           <button
@@ -66,30 +95,59 @@ export default function PricingModal({ open, onClose, onLogin }: PricingModalPro
           </button>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-          {plans.map((plan) => (
-            <article key={plan.name} className="rounded-lg border border-slate-200 p-5">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-lg font-bold text-slate-950">{plan.name}</h3>
-                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                  {plan.badge}
-                </span>
-              </div>
-              <p className="mt-3 text-2xl font-bold text-slate-950">{plan.price}</p>
-              <ul className="mt-4 space-y-2 text-sm text-slate-600">
-                {plan.features.map((feature) => (
-                  <li key={feature}>- {feature}</li>
-                ))}
-              </ul>
-              <button
-                type="button"
-                onClick={() => handlePlanClick(plan.variant)}
-                className="mt-5 w-full rounded-md bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+        <div className="mt-6 grid gap-5 md:grid-cols-3">
+          {plans.map((plan) => {
+            const isCurrent = currentPlan === plan.id;
+            return (
+              <article
+                key={plan.id}
+                className={[
+                  "flex min-h-[520px] flex-col rounded-2xl border p-7",
+                  plan.highlighted
+                    ? "border-blue-200 bg-blue-50/60 shadow-sm"
+                    : "border-slate-200 bg-white",
+                ].join(" ")}
               >
-                {plan.button}
-              </button>
-            </article>
-          ))}
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-2xl font-bold text-slate-950">{plan.name}</h3>
+                  {isCurrent ? (
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                      현재 플랜
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-5 text-4xl font-bold text-slate-950">{plan.price}</p>
+                <p className="mt-4 min-h-12 text-sm leading-6 text-slate-600">{plan.description}</p>
+
+                <button
+                  type="button"
+                  onClick={() => handlePlanClick(plan.id)}
+                  disabled={isCurrent}
+                  className={[
+                    "mt-6 w-full rounded-full px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed",
+                    isCurrent
+                      ? "border border-slate-200 bg-white text-slate-400"
+                      : plan.highlighted
+                        ? "bg-blue-600 text-white hover:bg-blue-700"
+                        : "bg-slate-950 text-white hover:bg-slate-800",
+                  ].join(" ")}
+                >
+                  {isCurrent ? "현재 플랜" : plan.button}
+                </button>
+
+                <ul className="mt-8 flex-1 space-y-4 text-sm leading-6 text-slate-700">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex gap-3">
+                      <span className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700">
+                        ✓
+                      </span>
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            );
+          })}
         </div>
       </section>
     </div>

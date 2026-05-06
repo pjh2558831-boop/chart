@@ -10,11 +10,7 @@ type ImageUploaderProps = {
   onFileSelect: (file: File | null) => void;
 };
 
-export default function ImageUploader({
-  file,
-  disabled = false,
-  onFileSelect,
-}: ImageUploaderProps) {
+export default function ImageUploader({ file, disabled = false, onFileSelect }: ImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -125,11 +121,7 @@ export default function ImageUploader({
             </button>
           </div>
           <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <img
-              src={previewUrl}
-              alt="업로드 이미지 미리보기"
-              className="max-h-[420px] w-full object-contain"
-            />
+            <img src={previewUrl} alt="업로드 이미지 미리보기" className="max-h-[420px] w-full object-contain" />
           </div>
         </div>
       ) : null}

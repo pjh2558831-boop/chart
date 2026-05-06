@@ -18,7 +18,13 @@ from analysis_repository import (
     list_analysis_logs,
 )
 from auth import get_or_create_user, get_user_id_from_header, update_user_plan
-from billing import assert_can_analyze, get_usage_status, record_usage
+from billing import (
+    assert_can_analyze,
+    coerce_analysis_mode_for_plan,
+    get_usage_status,
+    record_usage,
+    resolve_request_identity,
+)
 from database import init_db
 from feedback_repository import create_feedback
 from image_processing import normalize_analysis_mode, process_image_for_ai
@@ -126,10 +132,12 @@ def _build_result_payload(
     performance: dict[str, Any] | None = None,
     analysis_id: int | None = None,
     usage_status: dict[str, Any] | None = None,
+    applied_analysis_mode: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "cacheHit": cache_hit,
         "analysisMode": analysis_mode,
+        "appliedAnalysisMode": applied_analysis_mode or analysis_mode,
         "promptVersion": prompt_version,
         "aiAnalysis": ai_analysis.model_dump(mode="json"),
         "technicalAnalysis": technical_analysis,
@@ -158,11 +166,13 @@ def _attach_runtime_fields(
     analysis_id: int | None,
     usage_status: dict[str, Any] | None,
     performance: dict[str, Any] | None,
+    applied_analysis_mode: str | None = None,
 ) -> dict[str, Any]:
     payload = {
         **result,
         "cacheHit": cache_hit,
         "analysisMode": analysis_mode,
+        "appliedAnalysisMode": applied_analysis_mode or analysis_mode,
         "promptVersion": prompt_version,
     }
     if analysis_id is not None:
@@ -186,9 +196,8 @@ async def health() -> dict[str, str]:
 
 @app.get("/usage-status")
 async def usage_status(request: Request) -> dict[str, Any]:
-    user_id = get_user_id_from_header(request)
-    user = get_or_create_user(user_id)
-    return get_usage_status(user)
+    identity = resolve_request_identity(request)
+    return get_usage_status(identity)
 
 
 @app.post("/admin/set-plan")
@@ -251,14 +260,16 @@ async def analyze_chart(
 ) -> dict[str, Any]:
     total_started_at = now_ms()
     timings: dict[str, float] = {}
-    normalized_analysis_mode = normalize_analysis_mode(analysis_mode)
+    requested_analysis_mode = normalize_analysis_mode(analysis_mode)
     model_name = os.getenv("OPENAI_MODEL") or "gpt-4.1-mini"
 
-    user_id = get_user_id_from_header(request)
-    user = get_or_create_user(user_id)
+    identity = resolve_request_identity(request)
+    user_id = identity["id"] if identity["type"] == "user" else None
+    guest_id = identity["id"] if identity["type"] == "guest" else None
+    normalized_analysis_mode = coerce_analysis_mode_for_plan(identity["plan"], requested_analysis_mode)
     _validate_upload_metadata(file)
 
-    usage_status_before = assert_can_analyze(user, ANALYSIS_TYPE)
+    usage_status_before = assert_can_analyze(identity, ANALYSIS_TYPE)
     filename = file.filename or "uploaded-image"
     content_type = file.content_type
 
@@ -300,6 +311,7 @@ async def analyze_chart(
             with measure_step("cacheLookupMs", timings):
                 cached_analysis = find_cached_analysis(
                     user_id=user_id,
+                    guest_id=guest_id,
                     input_image_hash=input_image_hash,
                     model_name=model_name,
                     prompt_version=PROMPT_VERSION,
@@ -311,15 +323,15 @@ async def analyze_chart(
 
     if cached_analysis is not None:
         with measure_step("dbSaveMs", timings):
-            record_usage(user_id, ANALYSIS_TYPE)
-            updated_user = get_or_create_user(user_id)
-            updated_usage_status = get_usage_status(updated_user)
+            record_usage(identity, ANALYSIS_TYPE)
+            updated_usage_status = get_usage_status(identity)
         timings["totalMs"] = round(now_ms() - total_started_at, 2)
         performance = build_performance_report(timings) if _performance_enabled() else None
         return _attach_runtime_fields(
             cached_analysis["result"],
             cache_hit=True,
             analysis_mode=normalized_analysis_mode,
+            applied_analysis_mode=normalized_analysis_mode,
             prompt_version=PROMPT_VERSION,
             analysis_id=cached_analysis["id"],
             usage_status=updated_usage_status or usage_status_before,
@@ -360,14 +372,15 @@ async def analyze_chart(
         image_info=processed["imageInfo"],
         cache_hit=False,
         analysis_mode=normalized_analysis_mode,
+        applied_analysis_mode=normalized_analysis_mode,
         prompt_version=PROMPT_VERSION,
     )
     with measure_step("dbSaveMs", timings):
-        record_usage(user_id, ANALYSIS_TYPE)
-        updated_user = get_or_create_user(user_id)
-        updated_usage_status = get_usage_status(updated_user)
+        record_usage(identity, ANALYSIS_TYPE)
+        updated_usage_status = get_usage_status(identity)
         analysis_log = create_analysis_log(
             user_id=user_id,
+            guest_id=guest_id,
             analysis_type=ANALYSIS_TYPE,
             input_image_hash=input_image_hash,
             result=base_result,
@@ -387,6 +400,7 @@ async def analyze_chart(
         image_info=processed["imageInfo"],
         cache_hit=False,
         analysis_mode=normalized_analysis_mode,
+        applied_analysis_mode=normalized_analysis_mode,
         prompt_version=PROMPT_VERSION,
         performance=performance,
         analysis_id=analysis_log["id"],

@@ -10,17 +10,17 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 const DIRECT_ANALYZE_API_BASE_URL = (
   process.env.NEXT_PUBLIC_ANALYZE_API_URL ??
   process.env.NEXT_PUBLIC_BACKEND_API_URL ??
-  "https://chartbackend-production.up.railway.app"
+  ""
 ).replace(/\/$/, "");
 
 function apiUrl(path: string) {
   return `${API_BASE_URL}${path}`;
 }
 
-function analyzeApiUrl() {
+function directAnalyzeApiUrl() {
   return DIRECT_ANALYZE_API_BASE_URL
     ? `${DIRECT_ANALYZE_API_BASE_URL}/analyze-chart`
-    : apiUrl("/api/analyze-chart");
+    : null;
 }
 
 export class ApiError extends Error {
@@ -65,23 +65,44 @@ async function parseError(response: Response): Promise<never> {
   throw new ApiError(message, response.status, code, usageStatus);
 }
 
+async function postAnalysisRequest(
+  url: string,
+  file: File,
+  analysisMode: AnalysisMode,
+  signal: AbortSignal | undefined,
+  session: Session | null | undefined,
+) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("analysisMode", analysisMode);
+  formData.append("analysis_mode", analysisMode);
+
+  return fetch(url, {
+    method: "POST",
+    headers: getAuthHeaders(session),
+    body: formData,
+    signal,
+  });
+}
+
 export async function analyzeChartImage(
   file: File,
   analysisMode: AnalysisMode = "standard",
   signal?: AbortSignal,
   session?: Session | null,
 ): Promise<AnalysisResponse> {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("analysisMode", analysisMode);
-  formData.append("analysis_mode", analysisMode);
+  const directUrl = directAnalyzeApiUrl();
+  const proxyUrl = apiUrl("/api/analyze-chart");
+  let response: Response;
 
-  const response = await fetch(analyzeApiUrl(), {
-    method: "POST",
-    headers: getAuthHeaders(session),
-    body: formData,
-    signal,
-  });
+  try {
+    response = await postAnalysisRequest(directUrl ?? proxyUrl, file, analysisMode, signal, session);
+  } catch (error) {
+    if (!directUrl || signal?.aborted) {
+      throw error;
+    }
+    response = await postAnalysisRequest(proxyUrl, file, analysisMode, signal, session);
+  }
 
   if (!response.ok) {
     await parseError(response);

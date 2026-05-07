@@ -14,7 +14,7 @@ export function formatNumber(value?: number | null): string {
 }
 
 export function formatPrice(value?: number | null): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "계산 불가";
+  if (value === null || value === undefined || !Number.isFinite(value)) return "계산 제한";
   return priceFormatter.format(value);
 }
 
@@ -39,7 +39,7 @@ export function formatConfidence(confidence?: string | null): string {
     case "low":
       return "낮음";
     case "unavailable":
-      return "확인 불가";
+      return "확인 제한";
     default:
       return confidence || "-";
   }
@@ -93,11 +93,11 @@ export function formatStatus(status?: string | null): string {
     case "middle":
       return "중단 부근";
     case "not_visible":
-      return "확인 불가";
+      return "확인 제한";
     case "price_above_ma":
-      return "가격이 이동평균 위";
+      return "가격이 이동평균선 위";
     case "price_below_ma":
-      return "가격이 이동평균 아래";
+      return "가격이 이동평균선 아래";
     case "short_above_long":
       return "단기선 우위";
     case "short_below_long":
@@ -117,7 +117,7 @@ export function formatStatus(status?: string | null): string {
     case "resistance_candidate":
       return "저항 후보";
     case "unknown":
-      return "확인 불가";
+      return "확인 제한";
     case "insufficient_data":
     case "insufficient_visual_data":
       return "데이터 부족";
@@ -133,7 +133,7 @@ export function formatMarket(market?: string | null): string {
     case "US":
       return "미국";
     case "UNKNOWN":
-      return "확인 불가";
+      return "확인 제한";
     default:
       return market || "-";
   }
@@ -309,7 +309,7 @@ export function formatSignalLabel(signal?: string | null): string {
 }
 
 export function formatPriceRange(from?: number | null, to?: number | null): string {
-  if (from === null || from === undefined || to === null || to === undefined) return "계산 불가";
+  if (from === null || from === undefined || to === null || to === undefined) return "계산 제한";
   return `${formatPrice(from)} ~ ${formatPrice(to)}`;
 }
 

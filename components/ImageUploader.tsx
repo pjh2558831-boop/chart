@@ -28,9 +28,7 @@ export default function ImageUploader({ file, disabled = false, onFileSelect }: 
   }, [file]);
 
   const handleFile = async (selectedFile?: File) => {
-    if (!selectedFile) {
-      return;
-    }
+    if (!selectedFile) return;
 
     setValidationError(null);
 
@@ -50,21 +48,13 @@ export default function ImageUploader({ file, disabled = false, onFileSelect }: 
   const handleDrop = (event: DragEvent<HTMLLabelElement>) => {
     event.preventDefault();
     setIsDragging(false);
-
-    if (disabled) {
-      return;
-    }
-
-    void handleFile(event.dataTransfer.files?.[0]);
+    if (!disabled) void handleFile(event.dataTransfer.files?.[0]);
   };
 
   const removeImage = () => {
     onFileSelect(null);
     setValidationError(null);
-
-    if (inputRef.current) {
-      inputRef.current.value = "";
-    }
+    if (inputRef.current) inputRef.current.value = "";
   };
 
   return (

@@ -1,4 +1,4 @@
-import type { Session } from "@supabase/supabase-js";
+﻿import type { Session } from "@supabase/supabase-js";
 
 import type { AnalysisResponse } from "../types/analysis";
 import type { AnalysisLogRecord, FeedbackRecord, UsageStatus } from "../types/billing";

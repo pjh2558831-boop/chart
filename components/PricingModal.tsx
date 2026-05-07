@@ -60,18 +60,14 @@ export default function PricingModal({
   onClose,
   onLogin,
 }: PricingModalProps) {
-  if (!open) {
-    return null;
-  }
+  if (!open) return null;
 
   const handlePlanClick = (planId: UserPlan) => {
     if (planId === "free" && !isLoggedIn) {
       onLogin();
       return;
     }
-    if (planId === currentPlan) {
-      return;
-    }
+    if (planId === currentPlan) return;
     window.alert("결제 기능은 업데이트 예정입니다.");
   };
 
@@ -103,9 +99,7 @@ export default function PricingModal({
                 key={plan.id}
                 className={[
                   "flex min-h-[520px] flex-col rounded-2xl border p-7",
-                  plan.highlighted
-                    ? "border-blue-200 bg-blue-50/60 shadow-sm"
-                    : "border-slate-200 bg-white",
+                  plan.highlighted ? "border-blue-200 bg-blue-50/60 shadow-sm" : "border-slate-200 bg-white",
                 ].join(" ")}
               >
                 <div className="flex items-center justify-between gap-3">

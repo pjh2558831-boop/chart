@@ -11,9 +11,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   const router = useRouter();
 
   useEffect(() => {
-    if (loading || user) {
-      return;
-    }
+    if (loading || user) return;
 
     const query = typeof window === "undefined" ? "" : window.location.search;
     const next = encodeURIComponent(`${pathname}${query}`);
@@ -32,9 +30,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     );
   }
 
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
   return <>{children}</>;
 }

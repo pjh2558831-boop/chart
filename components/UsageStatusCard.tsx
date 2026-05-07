@@ -9,7 +9,7 @@ const planLabels: Record<UserPlan, string> = {
   pro: "Pro",
 };
 
-const modeLabels = {
+const modeLabels: Record<string, string> = {
   fast: "빠른 분석",
   standard: "기본 분석",
   precision: "정밀 분석",
@@ -23,7 +23,7 @@ function planHelperText(status: UsageStatus) {
     return "Plus로 업그레이드하면 하루 20회, 월 100회까지 사용할 수 있습니다.";
   }
   if (status.plan === "plus") {
-    return "Plus 플랜 기준으로 표준 분석과 고급 패턴 후보를 사용할 수 있습니다.";
+    return "Plus 플랜 기준으로 기본 분석과 고급 패턴 후보를 사용할 수 있습니다.";
   }
   return "Pro 플랜 기준으로 정밀 분석과 향후 고급 리서치 기능을 사용할 수 있습니다.";
 }

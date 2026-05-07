@@ -42,7 +42,7 @@ export default function AuthStatus({ showLoginHint = false, onDismissHint }: Aut
               className="absolute right-2 top-1 text-blue-500 hover:text-blue-800"
               aria-label="로그인 안내 닫기"
             >
-              ×
+              x
             </button>
             <p className="pr-4 font-semibold">로그인하면 무료 분석 횟수가 늘어납니다.</p>
             <p className="mt-1 text-xs leading-5">

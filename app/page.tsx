@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -57,7 +57,7 @@ function createGuestFallbackUsageStatus(message?: string): UsageStatus {
     userId: null,
     guestId,
     plan: "guest",
-    planLabel: "비로그인 무료 체험",
+    planLabel: "鍮꾨줈洹몄씤 臾대즺 泥댄뿕",
     price: 0,
     dailyLimit: 1,
     monthlyLimit: 3,
@@ -85,27 +85,27 @@ function buildLimitMessage(code: string | undefined, usageStatus: UsageStatus | 
   const plan = usageStatus?.plan ?? "guest";
   if (code === "daily_limit_exceeded") {
     if (plan === "guest") {
-      return "오늘 비로그인 무료 분석 횟수를 모두 사용했습니다. 로그인하면 하루 2회까지 무료로 사용할 수 있습니다.";
+      return "?ㅻ뒛 鍮꾨줈洹몄씤 臾대즺 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. 濡쒓렇?명븯硫??섎（ 2?뚭퉴吏 臾대즺濡??ъ슜?????덉뒿?덈떎.";
     }
     if (plan === "free") {
-      return "오늘 Free 분석 횟수를 모두 사용했습니다. Plus 플랜은 하루 20회까지 사용할 수 있습니다.";
+      return "?ㅻ뒛 Free 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. Plus ?뚮옖? ?섎（ 20?뚭퉴吏 ?ъ슜?????덉뒿?덈떎.";
     }
     if (plan === "plus") {
-      return "오늘 Plus 분석 횟수를 모두 사용했습니다. Pro 플랜은 하루 50회까지 사용할 수 있습니다.";
+      return "?ㅻ뒛 Plus 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. Pro ?뚮옖? ?섎（ 50?뚭퉴吏 ?ъ슜?????덉뒿?덈떎.";
     }
-    return "오늘 Pro 분석 횟수를 모두 사용했습니다.";
+    return "?ㅻ뒛 Pro 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎.";
   }
   if (code === "monthly_limit_exceeded") {
     if (plan === "guest") {
-      return "이번 달 비로그인 무료 분석 횟수를 모두 사용했습니다. 로그인하면 월 10회까지 무료로 사용할 수 있습니다.";
+      return "?대쾲 ??鍮꾨줈洹몄씤 臾대즺 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. 濡쒓렇?명븯硫???10?뚭퉴吏 臾대즺濡??ъ슜?????덉뒿?덈떎.";
     }
     if (plan === "free") {
-      return "Free 분석 횟수를 모두 사용했습니다. Plus 플랜은 월 100회까지 사용할 수 있습니다.";
+      return "Free 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. Plus ?뚮옖? ??100?뚭퉴吏 ?ъ슜?????덉뒿?덈떎.";
     }
     if (plan === "plus") {
-      return "Plus 분석 횟수를 모두 사용했습니다. Pro 플랜은 월 300회까지 사용할 수 있습니다.";
+      return "Plus 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. Pro ?뚮옖? ??300?뚭퉴吏 ?ъ슜?????덉뒿?덈떎.";
     }
-    return "이번 달 Pro 분석 횟수를 모두 사용했습니다.";
+    return "?대쾲 ??Pro 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎.";
   }
   return null;
 }
@@ -116,9 +116,9 @@ function LoadingAnalysisCard({ stepIndex }: { stepIndex: number }) {
       <div className="flex gap-4">
         <div className="mt-1 h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-bold text-slate-950">차트 이미지를 분석 중입니다.</h2>
+          <h2 className="text-lg font-bold text-slate-950">李⑦듃 ?대?吏瑜?遺꾩꽍 以묒엯?덈떎.</h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">
-            이미지 구조, 보조지표, 지지·저항 후보, 기술적 신호를 순서대로 확인하고 있습니다.
+            ?대?吏 援ъ“, 蹂댁“吏?? 吏吏쨌????꾨낫, 湲곗닠???좏샇瑜??쒖꽌?濡??뺤씤?섍퀬 ?덉뒿?덈떎.
           </p>
           <ol className="mt-4 grid gap-2 md:grid-cols-5">
             {loadingSteps.map((step, index) => {
@@ -207,7 +207,7 @@ export default function Home() {
           setUsageError(
             requestError instanceof Error
               ? requestError.message
-              : "사용량 정보를 불러오지 못해 임시 정보를 표시합니다.",
+              : "?ъ슜???뺣낫瑜?遺덈윭?ㅼ? 紐삵빐 ?꾩떆 ?뺣낫瑜??쒖떆?⑸땲??",
           );
           setAnalysisMode((current) => normalizeModeForPlan(current, fallback.plan));
         }
@@ -277,14 +277,14 @@ export default function Home() {
       return;
     }
     if (isUsageExceeded) {
-      setError(buildLimitMessage("daily_limit_exceeded", usageStatus) ?? "분석 가능 횟수를 모두 사용했습니다.");
+      setError(buildLimitMessage("daily_limit_exceeded", usageStatus) ?? "遺꾩꽍 媛???잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎.");
       setIsPricingOpen(true);
       return;
     }
 
     const requestKey = fileKey(selectedFile, safeAnalysisMode);
     if (isLoading && inFlightKeyRef.current === requestKey) {
-      setError("이미 같은 이미지 분석이 진행 중입니다.");
+      setError("?대? 媛숈? ?대?吏 遺꾩꽍??吏꾪뻾 以묒엯?덈떎.");
       return;
     }
 
@@ -318,7 +318,7 @@ export default function Home() {
           setIsPricingOpen(true);
         }
       } else {
-        setError(requestError instanceof Error ? requestError.message : "AI 분석 요청 중 오류가 발생했습니다.");
+        setError(requestError instanceof Error ? requestError.message : "AI 遺꾩꽍 ?붿껌 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.");
       }
     } finally {
       stopLoadingSteps();
@@ -335,10 +335,10 @@ export default function Home() {
           <p className="text-sm font-semibold uppercase text-blue-600">Chart Vision AI</p>
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
-              <h1 className="text-3xl font-bold text-slate-950 sm:text-4xl">AI 주식 차트 이미지 분석</h1>
+              <h1 className="text-3xl font-bold text-slate-950 sm:text-4xl">AI 二쇱떇 李⑦듃 ?대?吏 遺꾩꽍</h1>
               <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">
-                차트 이미지를 업로드하면 AI가 기술적 분석을 수행하여 현재 시장 상태, 주요 가격대, 패턴 후보,
-                진입·손절·목표 구간을 직관적으로 제공합니다.
+                李⑦듃 ?대?吏瑜??낅줈?쒗븯硫?AI媛 湲곗닠??遺꾩꽍???섑뻾?섏뿬 ?꾩옱 ?쒖옣 ?곹깭, 二쇱슂 媛寃⑸?, ?⑦꽩 ?꾨낫,
+                吏꾩엯쨌?먯젅쨌紐⑺몴 援ш컙??吏곴??곸쑝濡??쒓났?⑸땲??
               </p>
             </div>
             <AuthStatus showLoginHint={showLoginHint} onDismissHint={dismissLoginHint} />
@@ -346,10 +346,10 @@ export default function Home() {
         </header>
 
         <section className="rounded-lg border border-blue-100 bg-blue-50 px-5 py-4 text-sm leading-6 text-blue-900 shadow-soft">
-          <p className="font-semibold text-blue-950">기술적 지표 참고 안내</p>
+          <p className="font-semibold text-blue-950">湲곗닠??吏??李멸퀬 ?덈궡</p>
           <p className="mt-2">
-            분석 결과는 기술적 지표 기반 참고 정보입니다. RSI, MACD, 볼린저밴드, 이동평균선, 거래량을 참고하며,
-            해당 보조지표를 차트에 켜두면 AI가 이미지에서 인식할 수 있습니다.
+            遺꾩꽍 寃곌낵??湲곗닠??吏??湲곕컲 李멸퀬 ?뺣낫?낅땲?? RSI, MACD, 蹂쇰┛?諛대뱶, ?대룞?됯퇏?? 嫄곕옒?됱쓣 李멸퀬?섎ŉ,
+            ?대떦 蹂댁“吏?쒕? 李⑦듃??耳쒕몢硫?AI媛 ?대?吏?먯꽌 ?몄떇?????덉뒿?덈떎.
           </p>
         </section>
 
@@ -365,14 +365,14 @@ export default function Home() {
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
           <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">AI 분석 요청</h2>
+              <h2 className="text-base font-semibold text-slate-900">AI 遺꾩꽍 ?붿껌</h2>
               <p className="mt-1 text-sm text-slate-500">
-                선택한 요금제에 따라 사용할 수 있는 분석 모드가 제한됩니다. 최종 제한은 서버에서 다시 검증합니다.
+                ?좏깮???붽툑?쒖뿉 ?곕씪 ?ъ슜?????덈뒗 遺꾩꽍 紐⑤뱶媛 ?쒗븳?⑸땲?? 理쒖쥌 ?쒗븳? ?쒕쾭?먯꽌 ?ㅼ떆 寃利앺빀?덈떎.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <label className="text-sm text-slate-700">
-                <span className="mb-2 block font-semibold text-slate-900">분석 모드</span>
+                <span className="mb-2 block font-semibold text-slate-900">遺꾩꽍 紐⑤뱶</span>
                 <select
                   value={safeAnalysisMode}
                   disabled={isLoading}
@@ -394,25 +394,20 @@ export default function Home() {
                 onClick={handleAnalyze}
                 className="rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                {isLoading ? "분석 중..." : "AI 분석 시작"}
+                {isLoading ? "遺꾩꽍 以?.." : "AI 遺꾩꽍 ?쒖옉"}
               </button>
             </div>
           </div>
           <p className="mt-3 text-xs text-slate-500">
             {analysisModeOptions.find((option) => option.value === safeAnalysisMode)?.description}
           </p>
-          {usageStatus ? (
-            <p className="mt-2 text-xs font-medium text-slate-600">
-              오늘 남은 분석: {usageStatus.dailyRemaining}회 · 이번 달 남은 분석: {usageStatus.monthlyRemaining}회
-            </p>
-          ) : null}
           {isUsageExceeded ? (
             <button
               type="button"
               onClick={() => setIsPricingOpen(true)}
               className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
             >
-              요금제 확인하기
+              ?붽툑???뺤씤?섍린
             </button>
           ) : null}
         </section>
@@ -421,8 +416,8 @@ export default function Home() {
 
         {!analysisResult && !isLoading && !error ? (
           <section className="rounded-lg border border-blue-100 bg-blue-50 px-5 py-4 text-sm leading-6 text-blue-800">
-            로그인하지 않아도 비로그인 무료 체험으로 차트 분석을 시작할 수 있습니다. 로그인하면 무료 사용량과
-            분석 기록 저장 기능이 계정 기준으로 제공됩니다.
+            濡쒓렇?명븯吏 ?딆븘??鍮꾨줈洹몄씤 臾대즺 泥댄뿕?쇰줈 李⑦듃 遺꾩꽍???쒖옉?????덉뒿?덈떎. 濡쒓렇?명븯硫?臾대즺 ?ъ슜?됯낵
+            遺꾩꽍 湲곕줉 ???湲곕뒫??怨꾩젙 湲곗??쇰줈 ?쒓났?⑸땲??
           </section>
         ) : null}
 
@@ -434,13 +429,13 @@ export default function Home() {
 
         {analysisResult?.cacheHit ? (
           <div className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-            이전 분석 결과를 불러왔습니다.
+            ?댁쟾 遺꾩꽍 寃곌낵瑜?遺덈윭?붿뒿?덈떎.
           </div>
         ) : null}
 
         {analysisResult?.appliedAnalysisMode && analysisResult.appliedAnalysisMode !== analysisMode ? (
           <div className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-            현재 요금제에 맞춰 {analysisResult.appliedAnalysisMode} 모드로 분석했습니다.
+            ?꾩옱 ?붽툑?쒖뿉 留욎떠 {analysisResult.appliedAnalysisMode} 紐⑤뱶濡?遺꾩꽍?덉뒿?덈떎.
           </div>
         ) : null}
 

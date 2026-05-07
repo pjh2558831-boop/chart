@@ -58,6 +58,7 @@ export function formatStatus(status?: string | null): string {
     case "downtrend":
       return "하락 추세";
     case "sideways_or_mixed":
+    case "mixed":
       return "혼합/횡보";
     case "overbought":
       return "과매수";
@@ -94,9 +95,9 @@ export function formatStatus(status?: string | null): string {
     case "not_visible":
       return "확인 불가";
     case "price_above_ma":
-      return "가격이 이평선 위";
+      return "가격이 이동평균 위";
     case "price_below_ma":
-      return "가격이 이평선 아래";
+      return "가격이 이동평균 아래";
     case "short_above_long":
       return "단기선 우위";
     case "short_below_long":
@@ -115,8 +116,6 @@ export function formatStatus(status?: string | null): string {
       return "지지 후보";
     case "resistance_candidate":
       return "저항 후보";
-    case "mixed":
-      return "혼합";
     case "unknown":
       return "확인 불가";
     case "insufficient_data":

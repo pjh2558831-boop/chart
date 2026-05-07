@@ -143,7 +143,10 @@ function normalizeSignal(raw: AnalysisResponse) {
   const rawSellScore = source?.sellScore ?? source?.conditionScores?.sell?.total ?? null;
   const buyScore = clampScore(rawBuyScore);
   const sellScore = clampScore(rawSellScore);
-  const holdScore = clampScore(raw.advancedTradeSignal?.holdScore ?? (Math.max(buyScore ?? 0, sellScore ?? 0) ? 100 - Math.max(buyScore ?? 0, sellScore ?? 0) : null));
+  const holdScore = clampScore(
+    raw.advancedTradeSignal?.holdScore ??
+      (Math.max(buyScore ?? 0, sellScore ?? 0) ? 100 - Math.max(buyScore ?? 0, sellScore ?? 0) : null),
+  );
   const rr = source?.targetPriceCandidate?.riskRewardRatio ?? null;
   let signal = source?.finalSignal ?? source?.summarySignal?.actionParameter ?? "neutral";
   const warnings: string[] = [];
@@ -151,7 +154,7 @@ function normalizeSignal(raw: AnalysisResponse) {
 
   if (!current || (supports.length === 0 && resistances.length === 0) || visibleIndicatorCount(raw) <= 1) {
     signal = signal === "neutral" ? "neutral" : "insufficient_data";
-    warnings.push("가격 또는 보조지표 정보가 부족해 강한 기술적 신호로 보지 않습니다.");
+    warnings.push("가격 또는 보조지표 정보가 부족해 강한 기술적 신호로 보기 어렵습니다.");
     deductions.push("가격 또는 보조지표 정보 부족");
   }
 
@@ -164,14 +167,14 @@ function normalizeSignal(raw: AnalysisResponse) {
   const resistanceDistance = distancePercent(current, nearestResistance);
   if (signal === "strong_buy_candidate" && resistanceDistance !== null && resistanceDistance <= 0 && resistanceDistance >= -2.5) {
     signal = (buyScore ?? 0) >= 55 ? "buy_candidate" : "neutral";
-    warnings.push("현재가가 주요 저항 후보에 가까워 강한 매수 후보로 보지 않습니다.");
+    warnings.push("현재가가 주요 저항 후보에 가까워 강한 매수 후보로 보기 어렵습니다.");
     deductions.push("주요 저항 후보 근접");
   }
 
   const supportDistance = distancePercent(current, nearestSupport);
   if (signal === "strong_sell_candidate" && supportDistance !== null && supportDistance >= 0 && supportDistance <= 2.5) {
     signal = (sellScore ?? 0) >= 55 ? "reduce_position_candidate" : "neutral";
-    warnings.push("현재가가 주요 지지 후보에 가까워 강한 매도 후보로 보지 않습니다.");
+    warnings.push("현재가가 주요 지지 후보에 가까워 강한 매도 후보로 보기 어렵습니다.");
     deductions.push("주요 지지 후보 근접");
   }
 
@@ -185,41 +188,49 @@ function normalizeSignal(raw: AnalysisResponse) {
   return { signal, buyScore, sellScore, holdScore, warnings, deductions };
 }
 
+function koreanTrend(rawTrend?: string | null) {
+  const value = (rawTrend ?? "").toLowerCase();
+  if (value.includes("up") || value.includes("bull") || value.includes("상승")) return "상승 추세 후보";
+  if (value.includes("down") || value.includes("bear") || value.includes("하락")) return "하락 추세 후보";
+  if (value.includes("side") || value.includes("range") || value.includes("mixed") || value.includes("횡보")) return "횡보 또는 혼합 구간";
+  return rawTrend && /[가-힣]/.test(rawTrend) ? rawTrend : "추세 확인 필요";
+}
+
+function koreanStrategy(signal: string) {
+  if (signal.includes("buy")) return "지지 구간 반등 관찰";
+  if (signal.includes("sell") || signal.includes("reduce")) return "저항 구간 리스크 관리";
+  if (signal.includes("insufficient")) return "데이터 확인 대기";
+  return "관망";
+}
+
+function buildKoreanSummary(raw: AnalysisResponse, signal: string) {
+  const trend = koreanTrend(raw.aiAnalysis?.visualTrend);
+  if (signal.includes("buy")) {
+    return `현재 차트는 ${trend}로 해석되며, 지지 후보 구간과 보조지표 흐름을 함께 확인해야 하는 매수 후보 구간입니다.`;
+  }
+  if (signal.includes("sell") || signal.includes("reduce")) {
+    return `현재 차트는 ${trend}로 해석되지만, 저항 후보 또는 리스크 요인이 있어 비중 관리가 필요한 구간입니다.`;
+  }
+  if (signal.includes("insufficient")) {
+    return "가격축 또는 보조지표 근거가 부족해 강한 기술적 판단보다는 추가 확인이 필요한 상태입니다.";
+  }
+  return `현재 차트는 ${trend}로 해석되며, 매수와 매도 근거가 혼재되어 중립 또는 관망 후보가 우세합니다.`;
+}
+
 export function buildSignalSummary(raw: AnalysisResponse): AnalysisViewModel["signalSummary"] {
   const normalized = normalizeSignal(raw);
-  const finalLabel = formatSignalLabel(normalized.signal);
-  const currentState = firstText(
-    raw.advancedTradeSignal?.marketState,
-    raw.visualSummary?.currentState,
-    raw.marketRegime?.interpretation,
-    raw.aiAnalysis?.visualTrend,
-    "차트 상태 확인 필요",
-  );
-  const strategyTypeLabel = firstText(
-    raw.advancedTradeSignal?.strategyType,
-    normalized.signal.includes("buy") ? "눌림 반등 관찰" : "",
-    normalized.signal.includes("sell") ? "리스크 관리" : "",
-    normalized.signal === "neutral" ? "관망" : "",
-    "돌파 확인 대기",
-  );
-  const oneLineSummary = firstText(
-    raw.aiAnalysis?.patternSummary?.comment,
-    raw.aiAnalysis?.summary,
-    "이미지 기반 분석 결과를 바탕으로 기술적 신호 후보를 정리했습니다.",
-  );
-
   return {
-    finalLabel,
+    finalLabel: formatSignalLabel(normalized.signal),
     signalTone: signalTone(normalized.signal),
-    currentState,
-    strategyTypeLabel,
+    currentState: koreanTrend(raw.advancedTradeSignal?.marketState ?? raw.visualSummary?.currentState ?? raw.aiAnalysis?.visualTrend),
+    strategyTypeLabel: koreanStrategy(normalized.signal),
     buyScoreText: scoreText(normalized.buyScore),
     sellScoreText: scoreText(normalized.sellScore),
     holdScoreText: scoreText(normalized.holdScore),
     buyScoreLevel: scoreLevel(normalized.buyScore),
     sellScoreLevel: scoreLevel(normalized.sellScore),
     holdScoreLevel: scoreLevel(normalized.holdScore),
-    oneLineSummary,
+    oneLineSummary: buildKoreanSummary(raw, normalized.signal),
   };
 }
 
@@ -235,18 +246,8 @@ export function buildPriceStrategy(raw: AnalysisResponse): AnalysisViewModel["pr
   const current = getCurrentPrice(raw);
   const support = nearestBelow(current, supportLevels(raw));
   const resistance = nearestAbove(current, resistanceLevels(raw));
-  const entryFrom =
-    source?.summarySignal?.entryPriceCandidate?.from ??
-    source?.buyZone?.priceRange?.from ??
-    source?.sellZone?.priceRange?.from ??
-    support ??
-    null;
-  const entryTo =
-    source?.summarySignal?.entryPriceCandidate?.to ??
-    source?.buyZone?.priceRange?.to ??
-    source?.sellZone?.priceRange?.to ??
-    current ??
-    null;
+  const entryFrom = source?.summarySignal?.entryPriceCandidate?.from ?? source?.buyZone?.priceRange?.from ?? source?.sellZone?.priceRange?.from ?? support ?? null;
+  const entryTo = source?.summarySignal?.entryPriceCandidate?.to ?? source?.buyZone?.priceRange?.to ?? source?.sellZone?.priceRange?.to ?? current ?? null;
   const fallbackStop = support ? support * 0.98 : resistance ? resistance * 1.02 : null;
   const stopLoss = source?.stopLossCandidate?.price ?? fallbackStop;
   const target1 = source?.targetPriceCandidate?.primary ?? source?.summarySignal?.targetPriceCandidate?.primary ?? null;
@@ -255,37 +256,25 @@ export function buildPriceStrategy(raw: AnalysisResponse): AnalysisViewModel["pr
 
   return {
     entryZoneText: entryFrom && entryTo ? formatPriceRange(entryFrom, entryTo) : "명확한 진입 후보 구간 없음",
-    entryZoneBasis:
-      source?.summarySignal?.entryPriceCandidate?.basis ??
-      "이미지상 주요 지지 후보 구간과 현재 가격 위치를 기준으로 산정한 관찰 구간입니다.",
+    entryZoneBasis: "이미지상 주요 지지 후보 구간과 현재 가격 위치를 기준으로 산정한 관찰 구간입니다.",
     stopLossText: formatPrice(stopLoss),
-    stopLossBasis:
-      source?.stopLossCandidate?.basis ??
-      (support ? `주요 지지 후보 가격대인 ${formatPrice(support)}을 약 2% 이탈하는 구간입니다.` : "무효화 기준 가격이 명확하지 않아 보수적으로 확인이 필요합니다."),
+    stopLossBasis: support ? `주요 지지 후보 가격대인 ${formatPrice(support)}을 약 2% 이탈하는 구간입니다.` : "무효화 기준 가격이 명확하지 않아 보수적으로 확인이 필요합니다.",
     target1Text: target1 ? formatPrice(target1) : "확인 불가",
-    target1Basis:
-      source?.targetPriceCandidate?.basis ??
-      (target1 ? "최근 저항 후보로 반복 표시된 가격대입니다." : "최근 저항 후보가 명확히 확인되지 않아 표시하지 않습니다."),
+    target1Basis: target1 ? "최근 저항 후보로 반복 표시된 가격대입니다." : "최근 저항 후보가 명확히 확인되지 않아 표시하지 않습니다.",
     target2Text: target2 ? formatPrice(target2) : "확인 불가",
-    target2Basis: target2
-      ? "확장 목표 후보 또는 상단 지표 구간을 기준으로 산정했습니다."
-      : "볼린저밴드 상단 또는 확장 목표가 명확히 확인되지 않아 표시하지 않습니다.",
+    target2Basis: target2 ? "확장 목표 후보 또는 상단 지표 구간을 기준으로 산정했습니다." : "볼린저밴드 상단 또는 확장 목표가 명확히 확인되지 않아 표시하지 않습니다.",
     riskRewardText: riskRewardText(rr),
     riskRewardBasis: "진입 후보 가격, 손절 기준 후보, 1차 목표 가격 후보를 바탕으로 계산한 참고값입니다.",
-    priceBasisWarning: "이미지 기반 가격은 실제 가격과 다를 수 있습니다.",
+    priceBasisWarning: "이미지 기반 가격은 실제 가격과 차이가 있을 수 있습니다.",
   };
 }
 
 export function buildDecisionReasons(raw: AnalysisResponse): AnalysisViewModel["decisionReasons"] {
-  const source = getSignalSource(raw);
   const current = getCurrentPrice(raw);
   const support = nearestBelow(current, supportLevels(raw));
   const resistance = nearestAbove(current, resistanceLevels(raw));
   const normalized = normalizeSignal(raw);
-  const reasons: AnalysisViewModel["decisionReasons"] = [
-    ...(raw.advancedTradeSignal?.decisionReason ?? []).map((text) => ({ type: "neutral" as const, text })),
-    ...(raw.advancedTradeSignal?.blockedReasons ?? []).map((text) => ({ type: "negative" as const, text })),
-  ];
+  const reasons: AnalysisViewModel["decisionReasons"] = [];
 
   if (support) reasons.push({ type: "positive", text: "현재 가격이 주요 지지 후보 구간 위에 있습니다." });
   if (!raw.aiAnalysis?.patternCandidates?.length) reasons.push({ type: "neutral", text: "명확한 정석 패턴 후보가 부족합니다." });
@@ -293,7 +282,8 @@ export function buildDecisionReasons(raw: AnalysisResponse): AnalysisViewModel["
   if (normalized.buyScore !== null && normalized.sellScore !== null && Math.abs(normalized.buyScore - normalized.sellScore) < 10) {
     reasons.push({ type: "neutral", text: "매수 점수와 매도 점수 차이가 크지 않아 강한 방향성 판단은 어렵습니다." });
   }
-  if (source?.targetPriceCandidate?.riskRewardRatio !== undefined && (source.targetPriceCandidate.riskRewardRatio ?? 0) < 1.5) {
+  const rr = getSignalSource(raw)?.targetPriceCandidate?.riskRewardRatio;
+  if (rr !== undefined && (rr ?? 0) < 1.5) {
     reasons.push({ type: "negative", text: "손익비가 낮아 공격적 진입 후보로 보기 어렵습니다." });
   }
   reasons.push({ type: "negative", text: "이미지 기반 분석이므로 실제 OHLCV 검증이 필요합니다." });
@@ -306,12 +296,7 @@ export function buildScoreSummary(raw: AnalysisResponse): AnalysisViewModel["sco
   const normalized = normalizeSignal(raw);
   const buy = source?.conditionScores?.buy;
   const sell = source?.conditionScores?.sell;
-
-  const row = (group: string, label: string, score: number | null | undefined) => ({
-    group,
-    label,
-    score: clampScore(score),
-  });
+  const row = (group: string, label: string, score: number | null | undefined) => ({ group, label, score: clampScore(score) });
 
   return {
     buyScore: normalized.buyScore,
@@ -339,17 +324,16 @@ export function buildScoreSummary(raw: AnalysisResponse): AnalysisViewModel["sco
 
 export function buildMarketState(raw: AnalysisResponse): AnalysisViewModel["marketState"] {
   const pattern = raw.aiAnalysis?.patternCandidates?.[0];
+  const trend = koreanTrend(raw.marketRegime?.trendDirection ?? raw.visualSummary?.trendDirection ?? raw.aiAnalysis?.visualTrend);
+  const volatility = firstText(raw.marketRegime?.volatilityState, raw.visualSummary?.volatilityState);
+  const pricePosition = firstText(raw.marketRegime?.pricePosition, raw.visualSummary?.pricePosition);
+
   return {
-    trendDirection: firstText(raw.marketRegime?.trendDirection, raw.visualSummary?.trendDirection, raw.aiAnalysis?.visualTrend, "확인 필요"),
-    volatilityState: firstText(raw.marketRegime?.volatilityState, raw.visualSummary?.volatilityState, "보통 또는 확인 필요"),
-    pricePosition: firstText(raw.marketRegime?.pricePosition, raw.visualSummary?.pricePosition, "주요 가격대 확인 필요"),
-    patternState: pattern ? `${pattern.label} ${pattern.stage ? `(${pattern.stage})` : "후보"}` : "명확한 패턴 후보 없음",
-    interpretation: firstText(
-      raw.marketRegime?.interpretation,
-      raw.visualSummary?.marketInterpretation,
-      raw.aiAnalysis?.summary,
-      "시장 상태 해석 정보가 부족합니다.",
-    ),
+    trendDirection: trend,
+    volatilityState: volatility && /[가-힣]/.test(volatility) ? volatility : "보통 또는 확인 필요",
+    pricePosition: pricePosition && /[가-힣]/.test(pricePosition) ? pricePosition : "주요 가격대 확인 필요",
+    patternState: pattern ? `${pattern.label} 후보` : "명확한 패턴 후보 없음",
+    interpretation: `${trend}로 보이지만, 주요 지지·저항 후보와 보조지표 확인이 함께 필요합니다.`,
   };
 }
 
@@ -388,43 +372,35 @@ export function buildIndicatorView(raw: AnalysisResponse): AnalysisViewModel["in
       name: "RSI",
       status: formatStatus(indicators.rsi?.status),
       direction: indicators.rsi?.visible ? "확인됨" : "확인 부족",
-      interpretation: indicators.rsi?.visible ? "과매수/과매도 여부와 반등 후보를 보조 판단합니다." : "RSI 패널이 명확하지 않습니다.",
+      interpretation: indicators.rsi?.visible ? "과매수·과매도 여부와 반등 후보를 보조 판단합니다." : "RSI 패널이 명확하지 않습니다.",
       confidence: formatConfidence(indicators.rsi?.confidence),
     },
     {
       name: "MACD",
       status: formatStatus(indicators.macd?.status),
       direction: indicators.macd?.visible ? "확인됨" : "확인 부족",
-      interpretation: "상향/하향 교차 후보와 모멘텀 방향을 보조 판단합니다.",
+      interpretation: "상향·하향 교차 후보와 모멘텀 방향을 보조 판단합니다.",
       confidence: formatConfidence(indicators.macd?.confidence),
     },
     {
       name: "볼린저밴드",
       status: indicators.bollingerBands?.visible ? formatStatus(indicators.bollingerBands?.position ?? indicators.bollingerBands?.status) : "확인 불가",
       direction: indicators.bollingerBands?.visible ? "확인됨" : "확인 부족",
-      interpretation:
-        indicators.bollingerBands?.reason ??
-        (indicators.bollingerBands?.visible
-          ? "상단/중심/하단 밴드 위치로 변동성 또는 과열 후보를 보조 판단합니다."
-          : "차트에 명확한 볼린저밴드 구조가 보이지 않습니다."),
+      interpretation: indicators.bollingerBands?.visible ? "상단·중단·하단 밴드 위치로 변동성 또는 과열 후보를 보조 판단합니다." : "차트에 명확한 볼린저밴드 구조가 보이지 않습니다.",
       confidence: formatConfidence(indicators.bollingerBands?.confidence),
     },
     {
       name: "일목구름",
       status: indicators.ichimoku?.visible ? formatStatus(indicators.ichimoku?.pricePosition ?? indicators.ichimoku?.cloudPosition ?? indicators.ichimoku?.status) : "확인 불가",
       direction: indicators.ichimoku?.visible ? "확인됨" : "확인 부족",
-      interpretation:
-        indicators.ichimoku?.reason ??
-        (indicators.ichimoku?.visible
-          ? "구름 상단 저항 또는 구름 하단 지지 확인이 필요합니다."
-          : "차트에 구름 형태의 음영 영역이 명확하지 않습니다."),
+      interpretation: indicators.ichimoku?.visible ? "구름 상단 저항 또는 구름 하단 지지 확인이 필요합니다." : "차트에 구름 형태의 음영 영역이 명확하지 않습니다.",
       confidence: formatConfidence(indicators.ichimoku?.confidence),
     },
     {
       name: "이동평균선",
       status: formatStatus(indicators.movingAverages?.status),
       direction: indicators.movingAverages?.visible ? "확인됨" : "확인 부족",
-      interpretation: "가격이 주요 이평선 위/아래에 있는지 확인합니다.",
+      interpretation: "가격이 주요 이동평균선 위 또는 아래에 있는지 확인합니다.",
       confidence: formatConfidence(indicators.movingAverages?.confidence),
     },
     {
@@ -437,15 +413,51 @@ export function buildIndicatorView(raw: AnalysisResponse): AnalysisViewModel["in
   ];
 }
 
+function isMostlyEnglish(text: string) {
+  const letters = text.match(/[A-Za-z]/g)?.length ?? 0;
+  const korean = text.match(/[가-힣]/g)?.length ?? 0;
+  return letters >= 12 && korean === 0;
+}
+
+function koreanRiskFallback(text: string) {
+  const normalized = text.toLowerCase();
+  if (normalized.includes("not financial") || normalized.includes("investment advice")) {
+    return "본 분석은 투자 조언이 아니라 기술적 지표 기반 참고 정보입니다.";
+  }
+  if (normalized.includes("image") || normalized.includes("visual")) {
+    return "이미지 기반 추정값이므로 실제 가격과 차이가 있을 수 있습니다.";
+  }
+  if (normalized.includes("ohlcv") || normalized.includes("data")) {
+    return "실제 OHLCV 데이터 검증이 필요합니다.";
+  }
+  if (normalized.includes("volume")) {
+    return "거래량 확인이 부족해 신호 신뢰도가 낮을 수 있습니다.";
+  }
+  if (normalized.includes("risk")) {
+    return "리스크 요인이 있어 보수적인 확인이 필요합니다.";
+  }
+  return "";
+}
+
+function normalizeRiskText(text: string) {
+  if (!isMostlyEnglish(text)) return text;
+  return koreanRiskFallback(text);
+}
+
 export function buildRiskWarnings(raw: AnalysisResponse): string[] {
   const normalized = normalizeSignal(raw);
-  return unique([
+  const warnings = unique([
     ...(raw.aiAnalysis?.riskNotes ?? []),
     ...(raw.tradeSignal?.warnings ?? []),
     ...(raw.advancedTradeSignal?.warnings ?? []),
     ...normalized.warnings,
     "본 분석은 차트 이미지와 기술적 지표 기반 참고 정보이며 투자 조언이나 매수·매도 추천이 아닙니다.",
-  ]);
+  ])
+    .map(normalizeRiskText)
+    .filter(Boolean)
+    .filter((warning) => !isMostlyEnglish(warning));
+
+  return unique(warnings);
 }
 
 export function normalizeAnalysisResult(raw: AnalysisResponse): AnalysisViewModel {

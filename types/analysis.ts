@@ -445,6 +445,80 @@ export interface ImageInfo {
   };
 }
 
+export type FinalAction =
+  | "BUY_CANDIDATE"
+  | "WAIT"
+  | "HOLD"
+  | "TAKE_PROFIT"
+  | "SELL_RISK"
+  | "NO_TRADE";
+
+export interface TradingReport {
+  finalSummary: {
+    finalAction: FinalAction;
+    title: string;
+    oneLineConclusion: string;
+    confidence: Confidence | string;
+    reason: string;
+  };
+  userActionGuide: {
+    nonHolder: string;
+    holder: string;
+    shortTermTrader: string;
+    addBuyer: string;
+    stopLoss: string;
+  };
+  tradePlan: {
+    entry: {
+      pullbackEntry?: { priceZone: string; condition: string; action: string };
+      breakoutEntry?: { priceZone: string; condition: string; action: string };
+      noChaseZone?: { priceZone: string; reason: string };
+    };
+    stopLoss: { priceZone: string; condition: string; meaning: string };
+    targets: {
+      firstTarget: { priceZone: string; action: string };
+      secondTarget?: { priceZone: string; action: string };
+    };
+    invalidation: { condition: string; meaning: string };
+    riskReward: {
+      value: number | null;
+      label: "부적합" | "낮음" | "보통" | "좋음" | string;
+      interpretation: string;
+    };
+  };
+  keyLevels: {
+    supports: Array<{ label: string; priceZone: string; meaning: string; reliability: Confidence | string }>;
+    resistances: Array<{ label: string; priceZone: string; meaning: string; reliability: Confidence | string }>;
+  };
+  scenarios: {
+    bullish: { condition: string; expectedMove: string; action: string };
+    neutral: { condition: string; expectedMove: string; action: string };
+    bearish: { condition: string; expectedMove: string; action: string };
+  };
+  patternAnalysis: {
+    primaryPattern: {
+      name: string;
+      confidence: Confidence | string;
+      reason: string;
+      confirmationCondition: string;
+      invalidationCondition: string;
+      tradingMeaning: string;
+    };
+    secondaryPattern?: { name: string; confidence: Confidence | string; reason: string } | null;
+    excludedPatterns?: Array<{ name: string; reason: string }>;
+  };
+  indicatorAnalysis: {
+    confirmed: Array<{ name: string; signal: "bullish" | "bearish" | "neutral" | string; explanation: string }>;
+    unavailable: Array<{ name: string; reason: string }>;
+  };
+  evidence: {
+    positive: string[];
+    negative: string[];
+    riskFactors: string[];
+  };
+  disclaimer: string;
+}
+
 export interface AnalysisResponse {
   analysisId?: number;
   cacheHit?: boolean;
@@ -466,6 +540,7 @@ export interface AnalysisResponse {
   marketRegime?: MarketRegime | null;
   technicalAnalysis?: TechnicalAnalysis | null;
   tradeSignal?: TradeSignal | null;
+  tradingReport?: TradingReport | null;
   imageInfo?: ImageInfo;
   usageStatus?: UsageStatus;
 }

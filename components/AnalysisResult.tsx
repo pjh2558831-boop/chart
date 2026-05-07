@@ -4,18 +4,20 @@ import { useState } from "react";
 
 import { useAuth } from "../context/AuthContext";
 import { submitFeedback } from "../lib/api";
-import { normalizeAnalysisResult } from "../lib/analysisViewModel";
+import { normalizeTradingReport } from "../lib/tradingReportViewModel";
 import type { AnalysisResponse } from "../types/analysis";
-import DecisionReasonList from "./DecisionReasonList";
-import IndicatorAnalysisSection from "./IndicatorAnalysisSection";
-import MarketStateSection from "./MarketStateSection";
-import PatternCandidatesSection from "./PatternCandidatesSection";
-import PriceStrategyCards from "./PriceStrategyCards";
 import ResultSection from "./ResultSection";
-import RiskWarningsSection from "./RiskWarningsSection";
-import ScoreSummary from "./ScoreSummary";
-import SignalSummaryCard from "./SignalSummaryCard";
-import SupportResistanceSection from "./SupportResistanceSection";
+import {
+  EvidenceSection,
+  FinalActionCard,
+  ImageLimitNotice,
+  IndicatorSummarySection,
+  KeyLevelsSection,
+  PatternAnalysisSection,
+  ScenarioSection,
+  TradePlanTable,
+  UserActionGuideTable,
+} from "./TradingReportSections";
 
 interface AnalysisResultProps {
   result: AnalysisResponse | null;
@@ -31,14 +33,14 @@ function FeedbackSection({ analysisId }: { analysisId?: number }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  if (!analysisId) {
-    return null;
-  }
+  if (!analysisId) return null;
 
   if (!user) {
     return (
       <ResultSection title="피드백" description="피드백 제출은 로그인 사용자에게만 제공됩니다." tone="green">
-        <p className="text-sm text-slate-600">분석 품질 개선을 위한 피드백을 남기려면 Google 로그인이 필요합니다.</p>
+        <p className="text-sm text-slate-600">
+          분석 품질 개선을 위한 피드백을 남기려면 Google 로그인이 필요합니다.
+        </p>
       </ResultSection>
     );
   }
@@ -65,11 +67,7 @@ function FeedbackSection({ analysisId }: { analysisId?: number }) {
   };
 
   return (
-    <ResultSection
-      title="피드백"
-      description="분석 품질 개선을 위한 MVP 피드백 영역입니다."
-      tone="green"
-    >
+    <ResultSection title="피드백" description="분석 품질 개선을 위한 MVP 피드백 영역입니다." tone="green">
       <div className="grid gap-4 md:grid-cols-2">
         <label className="text-sm text-slate-700">
           <span className="mb-2 block font-semibold text-slate-900">별점</span>
@@ -113,7 +111,7 @@ function FeedbackSection({ analysisId }: { analysisId?: number }) {
             value={correctPattern}
             onChange={(event) => setCorrectPattern(event.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-2"
-            placeholder="예: 이중바닥, 박스권"
+            placeholder="예: 상승 채널, 박스권"
           />
         </label>
 
@@ -145,29 +143,22 @@ function FeedbackSection({ analysisId }: { analysisId?: number }) {
 }
 
 export default function AnalysisResult({ result }: AnalysisResultProps) {
-  if (!result) {
-    return null;
-  }
+  if (!result) return null;
 
-  const viewModel = normalizeAnalysisResult(result);
+  const report = normalizeTradingReport(result);
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-6">
-      <SignalSummaryCard summary={viewModel.signalSummary} />
-      <PriceStrategyCards strategy={viewModel.priceStrategy} />
-      <DecisionReasonList reasons={viewModel.decisionReasons} />
-      <ScoreSummary summary={viewModel.scoreSummary} />
-      <MarketStateSection state={viewModel.marketState} />
-      <SupportResistanceSection data={viewModel.supportResistance} />
-      <PatternCandidatesSection patternView={viewModel.patternView} />
-      <IndicatorAnalysisSection indicators={viewModel.indicatorView} />
-      <RiskWarningsSection warnings={viewModel.riskWarnings} />
+      <FinalActionCard report={report} />
+      <UserActionGuideTable guide={report.userActionGuide} />
+      <TradePlanTable plan={report.tradePlan} />
+      <KeyLevelsSection levels={report.keyLevels} />
+      <ScenarioSection scenarios={report.scenarios} />
+      <EvidenceSection evidence={report.evidence} />
+      <PatternAnalysisSection analysis={report.patternAnalysis} />
+      <IndicatorSummarySection analysis={report.indicatorAnalysis} />
+      <ImageLimitNotice disclaimer={report.disclaimer} />
       <FeedbackSection analysisId={result.analysisId} />
-
-      <section className="rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-900 shadow-soft">
-        본 분석은 차트 이미지와 기술적 지표 기반 참고 정보이며 투자 조언이나 매수·매도 추천이 아닙니다.
-        실제 투자 판단에는 실시간 가격, 거래량, OHLCV 데이터, 재무 정보, 시장 상황을 함께 확인해야 합니다.
-      </section>
     </div>
   );
 }

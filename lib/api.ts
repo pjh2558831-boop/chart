@@ -7,9 +7,20 @@ import { getAuthHeaders } from "./identity";
 export type AnalysisMode = "fast" | "standard" | "precision";
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+const DIRECT_ANALYZE_API_BASE_URL = (
+  process.env.NEXT_PUBLIC_ANALYZE_API_URL ??
+  process.env.NEXT_PUBLIC_BACKEND_API_URL ??
+  "https://chartbackend-production.up.railway.app"
+).replace(/\/$/, "");
 
 function apiUrl(path: string) {
   return `${API_BASE_URL}${path}`;
+}
+
+function analyzeApiUrl() {
+  return DIRECT_ANALYZE_API_BASE_URL
+    ? `${DIRECT_ANALYZE_API_BASE_URL}/analyze-chart`
+    : apiUrl("/api/analyze-chart");
 }
 
 export class ApiError extends Error {
@@ -63,8 +74,9 @@ export async function analyzeChartImage(
   const formData = new FormData();
   formData.append("file", file);
   formData.append("analysisMode", analysisMode);
+  formData.append("analysis_mode", analysisMode);
 
-  const response = await fetch(apiUrl("/api/analyze-chart"), {
+  const response = await fetch(analyzeApiUrl(), {
     method: "POST",
     headers: getAuthHeaders(session),
     body: formData,

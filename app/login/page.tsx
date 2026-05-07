@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { signInWithGoogle } from "../../lib/auth";
 import { useAuth } from "../../context/AuthContext";
+import { signInWithGoogle } from "../../lib/auth";
 
 export default function LoginPage() {
   const { user, loading } = useAuth();
@@ -14,9 +14,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (loading || !user) {
-      return;
-    }
+    if (loading || !user) return;
 
     const next = new URLSearchParams(window.location.search).get("next");
     router.replace(next || "/");
@@ -39,7 +37,7 @@ export default function LoginPage() {
         <p className="text-sm font-semibold uppercase text-blue-600">Chart Vision AI</p>
         <h1 className="mt-3 text-2xl font-bold text-slate-950">Google 로그인</h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          Supabase Auth로 로그인하면 새로고침 후에도 세션이 유지되고 보호된 분석 페이지를 사용할 수 있습니다.
+          Supabase Auth로 로그인하면 새로고침 후에도 세션이 유지되고, 분석 기록과 피드백 기능을 사용할 수 있습니다.
         </p>
 
         <button

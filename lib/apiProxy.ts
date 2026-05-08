@@ -20,18 +20,13 @@ function stripTrailingSlash(value: string) {
 }
 
 function getBackendUrl(request: NextRequest) {
-  const backendUrl = stripTrailingSlash(
-    process.env.BACKEND_API_URL || DEFAULT_BACKEND_API_URL,
-  );
+  const backendUrl = stripTrailingSlash(process.env.BACKEND_API_URL || DEFAULT_BACKEND_API_URL);
   const requestOrigin = stripTrailingSlash(request.nextUrl.origin);
   const productionOrigin = stripTrailingSlash(PRODUCTION_SITE_URL);
 
   if (backendUrl === requestOrigin || backendUrl === productionOrigin) {
     return {
-      error: jsonError(
-        500,
-        "BACKEND_API_URL은 Next.js 사이트 주소가 아니라 FastAPI 백엔드 주소여야 합니다.",
-      ),
+      error: jsonError(500, "BACKEND_API_URL은 Next.js 사이트 주소가 아니라 FastAPI 백엔드 주소여야 합니다."),
     };
   }
 
@@ -88,7 +83,7 @@ function mapBackendErrorStatus(status: number) {
 }
 
 async function proxyTextResponse(response: Response) {
-  const contentType = response.headers.get("content-type") ?? "application/json";
+  const contentType = response.headers.get("content-type") ?? "application/json; charset=utf-8";
   const bodyText = await response.text();
 
   return new NextResponse(bodyText, {
@@ -144,10 +139,7 @@ export async function proxyAnalyzeChart(request: NextRequest) {
     });
 
     if (!backendResponse.ok) {
-      const detail = await parseBackendError(
-        backendResponse,
-        "분석 서버 처리 중 오류가 발생했습니다.",
-      );
+      const detail = await parseBackendError(backendResponse, "분석 서버 처리 중 오류가 발생했습니다.");
       return jsonError(mapBackendErrorStatus(backendResponse.status), detail);
     }
 
@@ -182,10 +174,7 @@ export async function proxyUsageStatus(request: NextRequest) {
     });
 
     if (!response.ok) {
-      return jsonError(
-        response.status,
-        await parseBackendError(response, "사용량 조회 중 오류가 발생했습니다."),
-      );
+      return jsonError(response.status, await parseBackendError(response, "사용량 조회 중 오류가 발생했습니다."));
     }
 
     return proxyTextResponse(response);
@@ -193,10 +182,7 @@ export async function proxyUsageStatus(request: NextRequest) {
     if (error instanceof Error && error.name === "AbortError") {
       return jsonError(504, "사용량 조회 응답 시간이 초과되었습니다.");
     }
-    return jsonError(
-      502,
-      "분석 서버에 연결할 수 없어 임시 사용량 정보를 표시합니다.",
-    );
+    return jsonError(502, "분석 서버에 연결할 수 없어 임시 사용량 정보를 표시합니다.");
   } finally {
     clearTimeout(timeout);
   }
@@ -226,10 +212,7 @@ export async function proxyJsonToBackend(
     });
 
     if (!response.ok) {
-      return jsonError(
-        response.status,
-        await parseBackendError(response, "요청 처리 중 오류가 발생했습니다."),
-      );
+      return jsonError(response.status, await parseBackendError(response, "요청 처리 중 오류가 발생했습니다."));
     }
 
     return proxyTextResponse(response);
@@ -254,10 +237,7 @@ export async function proxyGetToBackend(request: NextRequest, backendPath: strin
     });
 
     if (!response.ok) {
-      return jsonError(
-        response.status,
-        await parseBackendError(response, "요청 처리 중 오류가 발생했습니다."),
-      );
+      return jsonError(response.status, await parseBackendError(response, "요청 처리 중 오류가 발생했습니다."));
     }
 
     return proxyTextResponse(response);

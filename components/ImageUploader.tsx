@@ -82,7 +82,7 @@ export default function ImageUploader({ file, disabled = false, onFileSelect }: 
           차트 이미지를 선택하거나 여기에 끌어다 놓으세요
         </span>
         <span className="mt-2 text-sm text-slate-600">
-          PNG, JPG, JPEG, WEBP · 최대 5MB · 최대 3000px x 3000px
+          PNG, JPG, JPEG, WEBP · 최대 5MB · 최대 3000px × 3000px
         </span>
       </label>
 

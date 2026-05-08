@@ -17,15 +17,15 @@ const modeLabels: Record<string, string> = {
 
 function planHelperText(status: UsageStatus) {
   if (status.plan === "guest") {
-    return "로그인하면 하루 2회, 월 10회까지 무료로 사용할 수 있습니다.";
+    return "로그인하면 하루 3회, 월 10회까지 무료로 분석할 수 있습니다.";
   }
   if (status.plan === "free") {
-    return "Plus로 업그레이드하면 하루 20회, 월 100회까지 사용할 수 있습니다.";
+    return "Plus 플랜은 월 100회 분석을 제공할 예정입니다.";
   }
   if (status.plan === "plus") {
-    return "Plus 플랜 기준으로 기본 분석과 고급 패턴 후보를 사용할 수 있습니다.";
+    return "Plus 플랜 기준으로 기본 분석과 리포트 저장 기능을 사용할 수 있습니다.";
   }
-  return "Pro 플랜 기준으로 정밀 분석과 향후 고급 리서치 기능을 사용할 수 있습니다.";
+  return "Pro 플랜 기준으로 정밀 분석과 고급 리서치 기능을 사용할 수 있습니다.";
 }
 
 export default function UsageStatusCard({
@@ -58,9 +58,11 @@ export default function UsageStatusCard({
     );
   }
 
-  const title = usageStatus.planLabel || planLabels[usageStatus.plan];
+  const title = usageStatus.planLabel ?? planLabels[usageStatus.plan] ?? "현재 플랜";
   const dailyUsed = Math.min(usageStatus.dailyUsed, usageStatus.dailyLimit);
   const monthlyUsed = Math.min(usageStatus.monthlyUsed, usageStatus.monthlyLimit);
+  const dailyRemaining = Math.max(0, usageStatus.dailyRemaining);
+  const monthlyRemaining = Math.max(0, usageStatus.monthlyRemaining);
   const modeLabel = modeLabels[usageStatus.analysisMode] ?? usageStatus.analysisMode;
 
   return (
@@ -77,14 +79,14 @@ export default function UsageStatusCard({
           <p className="mt-2 text-2xl font-bold text-slate-950">
             {dailyUsed} / {usageStatus.dailyLimit}
           </p>
-          <p className="mt-1 text-xs text-slate-500">남은 분석 {usageStatus.dailyRemaining}회</p>
+          <p className="mt-1 text-xs text-slate-500">남은 분석 {dailyRemaining}회</p>
         </div>
         <div>
           <p className="text-sm font-semibold text-slate-500">이번 달 사용량</p>
           <p className="mt-2 text-2xl font-bold text-slate-950">
             {monthlyUsed} / {usageStatus.monthlyLimit}
           </p>
-          <p className="mt-1 text-xs text-slate-500">남은 분석 {usageStatus.monthlyRemaining}회</p>
+          <p className="mt-1 text-xs text-slate-500">남은 분석 {monthlyRemaining}회</p>
         </div>
         <div>
           <p className="text-sm font-semibold text-slate-500">현재 분석 모드</p>

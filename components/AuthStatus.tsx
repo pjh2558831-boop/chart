@@ -48,7 +48,7 @@ export default function AuthStatus({ showLoginHint = false, onDismissHint }: Aut
             <p className="mt-1 text-xs leading-5">
               비로그인: 일 1회 / 월 3회
               <br />
-              로그인 무료: 일 2회 / 월 10회
+              로그인 무료: 일 3회 / 월 10회
             </p>
           </div>
         ) : null}

@@ -18,23 +18,35 @@ const plans: Array<{
   features: string[];
   button: string;
   highlighted?: boolean;
+  disabled?: boolean;
 }> = [
   {
     id: "free",
     name: "Free",
     price: "0원 / 월",
-    description: "가볍게 차트 분석을 체험할 수 있습니다.",
-    features: ["로그인 무료 제공", "일 2회 / 월 10회", "빠른 분석", "기본 차트 리포트", "분석 기록 저장"],
-    button: "로그인하고 무료로 사용",
+    description: "로그인하면 무료 분석 횟수가 늘어납니다.",
+    features: [
+      "비로그인: 일 1회 / 월 3회",
+      "로그인: 일 3회 / 월 10회",
+      "기본 차트 분석",
+      "분석 기록 저장",
+    ],
+    button: "로그인하고 무료로 시작",
   },
   {
     id: "plus",
     name: "Plus",
-    price: "5,900원 / 월",
-    description: "일반 투자자를 위한 표준 분석 플랜입니다.",
-    features: ["일 20회 / 월 100회", "기본 분석 모드", "고급 패턴 후보", "광고 제거", "리포트 저장"],
-    button: "Plus 시작하기",
+    price: "4,900원 / 월",
+    description: "일반 투자자를 위한 실사용 분석 플랜입니다.",
+    features: [
+      "일 20회 / 월 100회",
+      "광고 제거",
+      "리포트 저장",
+      "뉴스 기반 리서치 10회 제공 예정",
+    ],
+    button: "준비 중",
     highlighted: true,
+    disabled: true,
   },
   {
     id: "pro",
@@ -43,13 +55,13 @@ const plans: Array<{
     description: "더 깊은 분석이 필요한 사용자를 위한 플랜입니다.",
     features: [
       "일 50회 / 월 300회",
-      "정밀 분석 모드",
+      "더 정밀한 AI 분석",
       "고급 패턴 분석",
-      "분석 히스토리 비교",
-      "뉴스 기반 리서치 예정",
-      "실시간 정보 분석 예정",
+      "뉴스 기반 리서치 30회 제공 예정",
+      "심층 리서치 10회 제공 예정",
     ],
-    button: "Pro 시작하기",
+    button: "준비 중",
+    disabled: true,
   },
 ];
 
@@ -65,10 +77,7 @@ export default function PricingModal({
   const handlePlanClick = (planId: UserPlan) => {
     if (planId === "free" && !isLoggedIn) {
       onLogin();
-      return;
     }
-    if (planId === currentPlan) return;
-    window.alert("결제 기능은 업데이트 예정입니다.");
   };
 
   return (
@@ -77,9 +86,9 @@ export default function PricingModal({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase text-blue-600">Pricing</p>
-            <h2 className="mt-2 text-2xl font-bold text-slate-950">요금제 선택</h2>
+            <h2 className="mt-2 text-2xl font-bold text-slate-950">요금제 안내</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              결제 기능은 아직 준비 중입니다. 현재는 무료 플랜과 테스트용 플랜 상태만 표시합니다.
+              결제 기능은 아직 준비 중입니다. 현재는 비로그인 무료 체험과 로그인 Free 플랜을 사용할 수 있습니다.
             </p>
           </div>
           <button
@@ -94,11 +103,12 @@ export default function PricingModal({
         <div className="mt-6 grid gap-5 md:grid-cols-3">
           {plans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
+            const disabled = plan.disabled || isCurrent;
             return (
               <article
                 key={plan.id}
                 className={[
-                  "flex min-h-[520px] flex-col rounded-2xl border p-7",
+                  "flex min-h-[500px] flex-col rounded-2xl border p-7",
                   plan.highlighted ? "border-blue-200 bg-blue-50/60 shadow-sm" : "border-slate-200 bg-white",
                 ].join(" ")}
               >
@@ -108,6 +118,10 @@ export default function PricingModal({
                     <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
                       현재 플랜
                     </span>
+                  ) : plan.disabled ? (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">
+                      Coming Soon
+                    </span>
                   ) : null}
                 </div>
                 <p className="mt-5 text-4xl font-bold text-slate-950">{plan.price}</p>
@@ -116,10 +130,10 @@ export default function PricingModal({
                 <button
                   type="button"
                   onClick={() => handlePlanClick(plan.id)}
-                  disabled={isCurrent}
+                  disabled={disabled}
                   className={[
                     "mt-6 w-full rounded-full px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed",
-                    isCurrent
+                    disabled
                       ? "border border-slate-200 bg-white text-slate-400"
                       : plan.highlighted
                         ? "bg-blue-600 text-white hover:bg-blue-700"

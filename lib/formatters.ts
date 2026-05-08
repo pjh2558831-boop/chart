@@ -14,7 +14,7 @@ export function formatNumber(value?: number | null): string {
 }
 
 export function formatPrice(value?: number | null): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "계산 제한";
+  if (value === null || value === undefined || !Number.isFinite(value)) return "이미지 기반 분석으로 정확 계산 제한";
   return priceFormatter.format(value);
 }
 
@@ -57,9 +57,10 @@ export function formatStatus(status?: string | null): string {
       return "상승 추세";
     case "downtrend":
       return "하락 추세";
+    case "sideways":
     case "sideways_or_mixed":
     case "mixed":
-      return "혼합/횡보";
+      return "횡보 또는 혼조";
     case "overbought":
       return "과매수";
     case "oversold":
@@ -103,15 +104,15 @@ export function formatStatus(status?: string | null): string {
     case "short_below_long":
       return "장기선 우위";
     case "above_cloud":
-      return "구름 위";
+      return "구름대 위";
     case "inside_cloud":
-      return "구름 내부";
+      return "구름대 내부";
     case "below_cloud":
-      return "구름 아래";
+      return "구름대 아래";
     case "near_cloud_top":
-      return "구름 상단 근접";
+      return "구름대 상단 근접";
     case "near_cloud_bottom":
-      return "구름 하단 근접";
+      return "구름대 하단 근접";
     case "support_candidate":
       return "지지 후보";
     case "resistance_candidate":
@@ -309,7 +310,9 @@ export function formatSignalLabel(signal?: string | null): string {
 }
 
 export function formatPriceRange(from?: number | null, to?: number | null): string {
-  if (from === null || from === undefined || to === null || to === undefined) return "계산 제한";
+  if (from === null || from === undefined || to === null || to === undefined) {
+    return "이미지 기반 분석으로 정확 계산 제한";
+  }
   return `${formatPrice(from)} ~ ${formatPrice(to)}`;
 }
 

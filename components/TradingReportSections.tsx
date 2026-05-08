@@ -41,6 +41,10 @@ function signalLabel(value?: string | null) {
   return "중립";
 }
 
+function hasContent(value?: string | null) {
+  return Boolean(value && !value.includes("산정 제한") && !value.includes("확인 제한"));
+}
+
 function BulletList({ items, tone = "slate" }: { items: string[]; tone?: "green" | "red" | "amber" | "slate" }) {
   const color = {
     green: "border-emerald-100 bg-emerald-50 text-emerald-900",
@@ -65,7 +69,7 @@ function BulletList({ items, tone = "slate" }: { items: string[]; tone?: "green"
 }
 
 export function FinalActionCard({ report }: { report: TradingReport }) {
-  const { finalSummary, userActionGuide, tradePlan } = report;
+  const { finalSummary, userActionGuide, tradePlan, scoreSummary } = report;
   const tone = finalSummary.finalAction === "SELL_RISK"
     ? "danger"
     : finalSummary.finalAction === "BUY_CANDIDATE"
@@ -73,6 +77,11 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
       : finalSummary.finalAction === "TAKE_PROFIT"
         ? "warning"
         : "info";
+  const score = scoreSummary ?? {
+    totalScore: 50,
+    label: "관망 우세",
+    explanation: "이미지 기반 분석이므로 추가 확인 조건이 필요합니다.",
+  };
 
   return (
     <section className={`rounded-lg border p-5 shadow-soft ${actionTone[finalSummary.finalAction]}`}>
@@ -84,8 +93,10 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
           {finalSummary.reason ? <p className="mt-3 text-sm leading-6 opacity-80">{finalSummary.reason}</p> : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <StatusBadge label={actionLabel[finalSummary.finalAction]} tone={tone} />
+            <StatusBadge label={`분석 점수 ${score.totalScore} / 100 · ${score.label}`} tone="neutral" />
             <StatusBadge label={`신뢰도 ${confidenceLabel(finalSummary.confidence)}`} tone="neutral" />
           </div>
+          {score.explanation ? <p className="mt-3 text-sm leading-6 opacity-80">{score.explanation}</p> : null}
         </div>
 
         <div className="grid gap-3 text-sm">
@@ -109,8 +120,9 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
             </div>
           </div>
           <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
-            <p className="font-semibold">무효화 조건</p>
-            <p className="mt-1 leading-6">{tradePlan.invalidation.condition}</p>
+            <p className="font-semibold">분석 점수</p>
+            <p className="mt-1 text-lg font-bold">{score.totalScore} / 100</p>
+            <p className="mt-1">{score.label}</p>
           </div>
         </div>
       </div>
@@ -155,15 +167,21 @@ export function TradePlanTable({ plan }: { plan: TradingReport["tradePlan"] }) {
   const rows = [
     ["눌림목 진입", plan.entry.pullbackEntry?.priceZone, plan.entry.pullbackEntry?.condition, plan.entry.pullbackEntry?.action],
     ["돌파 진입", plan.entry.breakoutEntry?.priceZone, plan.entry.breakoutEntry?.condition, plan.entry.breakoutEntry?.action],
-    ["추격매수 금지", plan.entry.noChaseZone?.priceZone, plan.entry.noChaseZone?.reason, "신규 추격 진입보다 조건 확인을 우선합니다."],
-    ["손절 기준", plan.stopLoss.priceZone, plan.stopLoss.condition, plan.stopLoss.meaning],
-    ["1차 목표", plan.targets.firstTarget.priceZone, "주요 저항 또는 목표 후보", plan.targets.firstTarget.action],
-    ["2차 목표", plan.targets.secondTarget?.priceZone, "확장 목표 후보", plan.targets.secondTarget?.action],
-    ["무효화 조건", plan.invalidation.condition, "기존 판단 폐기 기준", plan.invalidation.meaning],
-  ].filter((row) => row[1]);
+    ["추격매수 금지", plan.entry.noChaseZone?.priceZone, plan.entry.noChaseZone?.reason, "현재 구간에서는 조건 확인을 우선합니다."],
+    ["단기 손절", plan.stopLoss.shortTerm?.priceZone, plan.stopLoss.shortTerm?.condition, plan.stopLoss.shortTerm?.meaning],
+    ["보수적 손절", plan.stopLoss.conservative?.priceZone, plan.stopLoss.conservative?.condition, plan.stopLoss.conservative?.meaning],
+    ["1차 목표", plan.targets.firstTarget.priceZone, "가장 가까운 저항 또는 목표 후보", plan.targets.firstTarget.action],
+    ["2차 목표", plan.targets.secondTarget?.priceZone, "다음 상단 저항 또는 확장 목표 후보", plan.targets.secondTarget?.action],
+    ["중기 관점 무효화", plan.invalidation.midTerm?.priceZone ?? plan.invalidation.condition, plan.invalidation.condition, plan.invalidation.meaning],
+  ].filter((row) => hasContent(row[1]));
 
   return (
     <ResultSection title="진입 / 손절 / 목표 / 무효화 조건" description="가격은 추천가가 아니라 기술적 조건 기준의 후보 구간입니다." tone="purple">
+      {plan.transitionLevel?.explanation ? (
+        <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+          {plan.transitionLevel.explanation}
+        </div>
+      ) : null}
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full min-w-[760px] border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-slate-600">
@@ -204,7 +222,7 @@ export function KeyLevelsSection({ levels }: { levels: TradingReport["keyLevels"
   ];
 
   return (
-    <ResultSection title="핵심 가격대" description="비슷한 가격대는 묶어서 표시하며, 지지와 저항은 각각 최대 3개까지만 보여줍니다." tone="green">
+    <ResultSection title="핵심 가격대" description="비슷한 가격대는 묶어서 지지와 저항을 각각 최대 3개만 표시합니다." tone="green">
       {rows.length === 0 ? (
         <p className="text-sm text-slate-500">이미지 기반 분석으로 핵심 가격대 산정이 제한됩니다.</p>
       ) : (
@@ -288,11 +306,11 @@ export function PatternAnalysisSection({ analysis }: { analysis: TradingReport["
   const primary = analysis.primaryPattern;
 
   return (
-    <ResultSection title="주요 패턴 분석" description="가장 유력한 패턴 1개와 보조 시나리오 1개만 우선 표시합니다." tone="purple">
+    <ResultSection title="주요 패턴 분석" description="확정 패턴이 아니라 이미지에서 관찰되는 후보 구조만 표시합니다." tone="purple">
       <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <article className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge label="주요 패턴" tone="info" />
+            <StatusBadge label="주요 패턴 후보" tone="info" />
             <StatusBadge label={`신뢰도 ${confidenceLabel(primary.confidence)}`} tone="neutral" />
           </div>
           <h3 className="mt-3 text-xl font-bold text-slate-950">{primary.name}</h3>
@@ -322,7 +340,7 @@ export function PatternAnalysisSection({ analysis }: { analysis: TradingReport["
             </article>
           ) : (
             <article className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-              보조 시나리오는 뚜렷하게 확인되지 않습니다.
+              보조 시나리오는 명확하게 확인되지 않습니다.
             </article>
           )}
           {analysis.excludedPatterns?.length ? (
@@ -343,7 +361,7 @@ export function PatternAnalysisSection({ analysis }: { analysis: TradingReport["
 
 export function IndicatorSummarySection({ analysis }: { analysis: TradingReport["indicatorAnalysis"] }) {
   return (
-    <ResultSection title="보조지표 분석" description="화면에서 확인 가능한 지표와 확인이 제한되는 지표를 분리해 표시합니다." tone="blue">
+    <ResultSection title="보조지표 분석" description="확인된 지표와 이미지에서 확인이 제한되는 지표를 분리해 표시합니다." tone="blue">
       <div className="grid gap-4 lg:grid-cols-2">
         <div>
           <h3 className="mb-2 text-sm font-bold text-slate-950">확인된 지표</h3>
@@ -377,9 +395,6 @@ export function ImageLimitNotice({ disclaimer }: { disclaimer: string }) {
     <ResultSection title="이미지 기반 한계 안내" tone="yellow">
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
         <p>{disclaimer}</p>
-        <p className="mt-2">
-          본 분석은 차트 이미지와 기술적 지표 기반 참고 정보이며 투자 조언이나 매수·매도 추천이 아닙니다. 실제 판단에는 실시간 가격, 거래량, OHLCV 데이터와 시장 상황을 함께 확인해야 합니다.
-        </p>
       </div>
     </ResultSection>
   );

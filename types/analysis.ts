@@ -461,6 +461,14 @@ export interface TradingReport {
     confidence: Confidence | string;
     reason: string;
   };
+  scoreSummary?: {
+    totalScore: number;
+    label: "매매 부적합" | "신규 진입 주의" | "관망 우세" | "조건부 매수 후보" | "매수 우위" | string;
+    buyScore: number;
+    holdScore: number;
+    riskScore: number;
+    explanation: string;
+  };
   userActionGuide: {
     nonHolder: string;
     holder: string;
@@ -474,16 +482,30 @@ export interface TradingReport {
       breakoutEntry?: { priceZone: string; condition: string; action: string };
       noChaseZone?: { priceZone: string; reason: string };
     };
-    stopLoss: { priceZone: string; condition: string; meaning: string };
+    stopLoss: {
+      priceZone: string;
+      condition: string;
+      meaning: string;
+      shortTerm?: { priceZone: string; condition: string; meaning: string };
+      conservative?: { priceZone: string; condition: string; meaning: string };
+    };
     targets: {
       firstTarget: { priceZone: string; action: string };
       secondTarget?: { priceZone: string; action: string };
     };
-    invalidation: { condition: string; meaning: string };
+    invalidation: {
+      condition: string;
+      meaning: string;
+      midTerm?: { priceZone: string; condition: string; meaning: string };
+    };
     riskReward: {
       value: number | null;
       label: "부적합" | "낮음" | "보통" | "좋음" | string;
       interpretation: string;
+    };
+    transitionLevel?: {
+      priceZone: string;
+      explanation: string;
     };
   };
   keyLevels: {

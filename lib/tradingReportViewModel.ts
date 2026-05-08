@@ -1,11 +1,46 @@
 import type { AnalysisResponse, Confidence, FinalAction, TradingReport } from "../types/analysis";
 
+const IMAGE_LIMIT_TEXT = "이미지 기반 분석으로 별도 가격 산정 제한";
+const DISCLAIMER =
+  "본 분석은 차트 이미지 기반의 기술적 분석 참고 정보입니다. 실제 투자 판단은 사용자가 직접 해야 하며, 이미지 기반 분석 특성상 실제 OHLCV 데이터와 차이가 있을 수 있습니다.";
+
+const patternLabels: Record<string, string> = {
+  box_range: "박스권",
+  rectangle_breakout: "박스권 돌파",
+  ascending_channel: "상승 채널",
+  descending_channel: "하락 채널",
+  triangle_consolidation: "삼각수렴",
+  ascending_triangle: "상승 삼각형",
+  descending_triangle: "하락 삼각형",
+  double_bottom: "이중바닥",
+  double_top: "이중천장",
+  head_and_shoulders: "헤드앤숄더",
+  inverse_head_and_shoulders: "역헤드앤숄더",
+  bull_flag: "불 플래그",
+  bear_flag: "베어 플래그",
+  wedge: "쐐기형",
+  support_retest: "지지선 리테스트",
+  resistance_retest: "저항선 리테스트",
+  breakout_pullback: "저항 돌파 후 눌림",
+  breakdown_retest: "지지 이탈 후 되돌림",
+  bollinger_squeeze: "볼린저밴드 스퀴즈",
+  cloud_consolidation: "일목구름 내부 횡보",
+  cloud_top_resistance: "구름 상단 저항",
+  cloud_bottom_support: "구름 하단 지지",
+  unknown: "명확한 패턴 없음",
+};
+
 function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function clamp(value: unknown, fallback = 0) {
+  const number = finite(value) ? value : fallback;
+  return Math.max(0, Math.min(100, Math.round(number)));
+}
+
 function formatPrice(value?: number | null, suffix = "") {
-  if (!finite(value) || value <= 0) return "이미지 기반 분석으로 정확 계산 제한";
+  if (!finite(value) || value <= 0) return IMAGE_LIMIT_TEXT;
   const text = Math.abs(value) >= 100
     ? value.toLocaleString("ko-KR", { maximumFractionDigits: 0 })
     : value.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
@@ -13,7 +48,7 @@ function formatPrice(value?: number | null, suffix = "") {
 }
 
 function formatZone(value?: number | null) {
-  return finite(value) && value > 0 ? formatPrice(value, " 부근") : "이미지 기반 분석으로 정확 계산 제한";
+  return finite(value) && value > 0 ? formatPrice(value, " 부근") : IMAGE_LIMIT_TEXT;
 }
 
 function cleanText(value?: string | null, fallback = "추가 확인 조건이 필요합니다.") {
@@ -32,7 +67,7 @@ function cleanText(value?: string | null, fallback = "추가 확인 조건이 �
     .replace(/\brisk reward\b/gi, "손익비");
 }
 
-function uniqueNumbers(values: Array<number | null | undefined>, current?: number | null) {
+function uniqueNumbers(values: Array<number | null | undefined>, current?: number | null, side?: "support" | "resistance") {
   const sorted = values.filter(finite).filter((value) => value > 0).sort((a, b) => a - b);
   const merged: number[] = [];
 
@@ -46,6 +81,8 @@ function uniqueNumbers(values: Array<number | null | undefined>, current?: numbe
   }
 
   if (!finite(current)) return merged.slice(0, 3);
+  if (side === "support") return merged.filter((value) => value <= current * 1.005).sort((a, b) => b - a).slice(0, 3);
+  if (side === "resistance") return merged.filter((value) => value >= current * 0.995).sort((a, b) => a - b).slice(0, 3);
   return merged.sort((a, b) => Math.abs(a - current) - Math.abs(b - current)).slice(0, 3);
 }
 
@@ -74,28 +111,39 @@ function getLevels(raw: AnalysisResponse) {
     raw.tradeSignal?.targetPriceCandidate?.secondary,
   ];
 
-  const supports = uniqueNumbers(supportValues, current).filter((value) => !finite(current) || value <= current * 1.005);
-  const resistances = uniqueNumbers(resistanceValues, current).filter((value) => !finite(current) || value >= current * 0.995);
+  const supports = uniqueNumbers(supportValues, current, "support");
+  const resistances = uniqueNumbers(resistanceValues, current, "resistance");
 
   return {
     current,
     supports,
     resistances,
-    support: supports[0] ?? null,
-    resistance: resistances[0] ?? null,
+    shortStop: supports[0] ?? null,
+    conservativeStop: supports[1] ?? null,
+    midInvalidation: supports[2] ?? null,
+    firstResistance: resistances[0] ?? null,
   };
 }
 
 function statusKo(value?: string | null) {
   const text = (value ?? "").toLowerCase();
-  if (text.includes("up") || text.includes("bull") || text.includes("상승")) return "상승 추세";
-  if (text.includes("down") || text.includes("bear") || text.includes("하락")) return "하락 추세";
+  if (text.includes("up") || text.includes("bull") || text.includes("상승") || text.includes("above")) return "상승 추세";
+  if (text.includes("down") || text.includes("bear") || text.includes("하락") || text.includes("below")) return "하락 추세";
   if (text.includes("side") || text.includes("range") || text.includes("횡보")) return "횡보";
-  if (text.includes("overbought")) return "과열 후보";
-  if (text.includes("oversold")) return "과매도 후보";
-  if (text.includes("near_upper")) return "상단 근접";
-  if (text.includes("near_lower")) return "하단 근접";
   return "중립";
+}
+
+function confidence(value?: string | null): Confidence {
+  if (value === "high" || value === "medium") return value;
+  return "low";
+}
+
+function scoreLabel(score: number) {
+  if (score < 30) return "매매 부적합";
+  if (score < 50) return "신규 진입 주의";
+  if (score < 65) return "관망 우세";
+  if (score < 80) return "조건부 매수 후보";
+  return "매수 우위";
 }
 
 function riskReward(entry: number | null, stop: number | null, target: number | null) {
@@ -106,178 +154,284 @@ function riskReward(entry: number | null, stop: number | null, target: number | 
   const risk = entry - stop;
   const reward = target - entry;
   if (risk <= 0 || reward <= 0) {
-    return { value: null, label: "부적합" as const, interpretation: "현재 구간은 목표가와 가까워 신규 진입에는 불리합니다." };
+    return { value: null, label: "부적합" as const, interpretation: "현재 구간은 목표가와 가깝거나 손절 기준이 불리해 신규 진입에는 부적합합니다." };
   }
 
   const value = Math.round((reward / risk) * 100) / 100;
   if (value < 1) return { value, label: "부적합" as const, interpretation: "목표가 대비 손절폭이 커서 신규 진입에는 불리합니다." };
-  if (value < 1.5) return { value, label: "낮음" as const, interpretation: "손익비가 낮아 조건 확인 전 신규 진입은 보수적으로 봐야 합니다." };
-  if (value < 2) return { value, label: "보통" as const, interpretation: "조건 충족 시 진입 후보로 참고할 수 있습니다." };
-  return { value, label: "좋음" as const, interpretation: "손익비가 양호해 조건 충족 시 진입 후보로 볼 수 있습니다." };
-}
-
-function confidence(value?: string | null): Confidence {
-  if (value === "high" || value === "medium") return value;
-  return "low";
+  if (value < 1.5) return { value, label: "낮음" as const, interpretation: "손익비가 낮아 조건 확인 전 공격적 진입은 보수적으로 봐야 합니다." };
+  if (value < 2) return { value, label: "보통" as const, interpretation: "조건 충족 시 진입 후보로 볼 수 있습니다." };
+  return { value, label: "좋음" as const, interpretation: "손익비가 양호해 조건 충족 시 진입 후보로 참고할 수 있습니다." };
 }
 
 function indicatorSignal(value?: string | null): "bullish" | "bearish" | "neutral" {
   const text = (value ?? "").toLowerCase();
-  if (text.includes("bull") || text.includes("up") || text.includes("above")) return "bullish";
-  if (text.includes("bear") || text.includes("down") || text.includes("below")) return "bearish";
+  if (text.includes("bull") || text.includes("up") || text.includes("above") || text.includes("상승")) return "bullish";
+  if (text.includes("bear") || text.includes("down") || text.includes("below") || text.includes("하락")) return "bearish";
   return "neutral";
 }
 
+function looksBrokenText(value?: string | null) {
+  return Boolean(value && /�|遑|媛|蹂|鍮|李|濡|\?대|\?쒕|毓/.test(value));
+}
+
+function candidateName(candidate?: { name?: string | null; label?: string | null } | null) {
+  if (!candidate) return undefined;
+  const canonical = candidate.name?.trim();
+  if (canonical && patternLabels[canonical]) return patternLabels[canonical];
+  const label = candidate.label?.trim();
+  if (label && !looksBrokenText(label)) return label;
+  return canonical || label;
+}
+
+function ensureCandidateLabel(name?: string | null) {
+  const label = name?.trim() || "명확한 패턴 없음";
+  if (label === "명확한 패턴 없음" || label.includes("후보") || label.includes("시나리오")) return label;
+  return `${label} 후보`;
+}
+
+function visibleIndicatorCount(raw: AnalysisResponse) {
+  return Object.values(raw.aiAnalysis?.indicatorReadings ?? {}).filter((item) => {
+    return typeof item === "object" && item !== null && "visible" in item && Boolean(item.visible);
+  }).length;
+}
+
+function buildScoreSummary(raw: AnalysisResponse, nearResistance: boolean, rr: ReturnType<typeof riskReward>, supportBroken: boolean) {
+  let total = 50;
+  const trend = statusKo(raw.aiAnalysis?.visualTrend);
+  const visibleCount = visibleIndicatorCount(raw);
+  if (trend === "상승 추세") total += 15;
+  if (!supportBroken) total += 10;
+  if (visibleCount >= 3) total += 5;
+  if (nearResistance) total -= 15;
+  if (rr.value === null || rr.value < 1) total -= 15;
+  if (visibleCount < 3) total -= 5;
+  total -= 5;
+
+  const buyScore = clamp(raw.tradeSignal?.buyScore, 0);
+  let holdScore = clamp(60 + (trend === "상승 추세" ? 15 : 0) + (supportBroken ? -30 : 10) - (nearResistance ? 5 : 0), 55);
+  const riskScore = clamp(35 + (nearResistance ? 20 : 0) + (rr.value === null || rr.value < 1 ? 20 : 0) + (visibleCount < 3 ? 10 : 0) + (supportBroken ? 20 : 0), 40);
+
+  if (nearResistance || rr.value === null || rr.value < 1) total = Math.min(total, 64);
+  if (riskScore >= 70) total = Math.min(total, 79);
+  const clampedTotal = clamp(total, 50);
+  const label = scoreLabel(clampedTotal);
+  if (label === "관망 우세" || label === "신규 진입 주의") holdScore = Math.max(holdScore, buyScore);
+
+  return {
+    totalScore: clampedTotal,
+    label,
+    buyScore: nearResistance || rr.value === null || rr.value < 1 ? Math.min(buyScore, 55) : buyScore,
+    holdScore,
+    riskScore,
+    explanation: nearResistance
+      ? "상승 추세는 유지될 수 있지만 현재 가격이 저항 구간에 가까워 신규 진입보다는 보유 관망이 유리합니다."
+      : "주요 조건을 종합하면 추가 확인 조건을 기다리는 관망 우세 구간입니다.",
+  };
+}
+
+function normalizeExistingReport(report: TradingReport): TradingReport {
+  const first = report.tradePlan.targets.firstTarget.priceZone;
+  const second = report.tradePlan.targets.secondTarget?.priceZone;
+  const firstNumber = Number(first?.replace(/[^\d.]/g, ""));
+  const secondNumber = Number(second?.replace(/[^\d.]/g, ""));
+  let targets = report.tradePlan.targets;
+  if (second && finite(firstNumber) && finite(secondNumber) && firstNumber > secondNumber && report.finalSummary.finalAction !== "SELL_RISK") {
+    targets = {
+      firstTarget: { ...report.tradePlan.targets.firstTarget, priceZone: second },
+      secondTarget: report.tradePlan.targets.secondTarget
+        ? { ...report.tradePlan.targets.secondTarget, priceZone: first }
+        : report.tradePlan.targets.secondTarget,
+    };
+  }
+
+  const scoreSummary = report.scoreSummary ?? {
+    totalScore: 50,
+    label: "관망 우세",
+    buyScore: 40,
+    holdScore: 60,
+    riskScore: 55,
+    explanation: "이미지 기반 분석이므로 추가 확인 조건이 필요합니다.",
+  };
+  if ((report.finalSummary.finalAction === "WAIT" || report.finalSummary.finalAction === "HOLD") && scoreSummary.holdScore < scoreSummary.buyScore) {
+    scoreSummary.holdScore = scoreSummary.buyScore;
+  }
+  if ((report.finalSummary.finalAction === "WAIT" || report.finalSummary.finalAction === "HOLD") && scoreSummary.totalScore >= 80) {
+    scoreSummary.totalScore = 64;
+    scoreSummary.label = scoreLabel(scoreSummary.totalScore);
+  }
+  if (report.finalSummary.finalAction === "SELL_RISK" && scoreSummary.totalScore > 49) {
+    scoreSummary.totalScore = 49;
+    scoreSummary.label = scoreLabel(scoreSummary.totalScore);
+  }
+
+  return {
+    ...report,
+    scoreSummary,
+    tradePlan: {
+      ...report.tradePlan,
+      targets,
+    },
+    patternAnalysis: {
+      ...report.patternAnalysis,
+      primaryPattern: {
+        ...report.patternAnalysis.primaryPattern,
+        name: ensureCandidateLabel(report.patternAnalysis.primaryPattern.name),
+      },
+      secondaryPattern: report.patternAnalysis.secondaryPattern
+        ? { ...report.patternAnalysis.secondaryPattern, name: ensureCandidateLabel(report.patternAnalysis.secondaryPattern.name) }
+        : report.patternAnalysis.secondaryPattern,
+    },
+    disclaimer: DISCLAIMER,
+  };
+}
+
 function buildFallbackReport(raw: AnalysisResponse): TradingReport {
-  const { current, supports, resistances, support, resistance } = getLevels(raw);
-  const stopLoss = raw.tradeSignal?.stopLossCandidate?.price ?? (finite(support) ? support * 0.98 : null);
-  const firstTarget = raw.tradeSignal?.targetPriceCandidate?.primary ?? resistance;
-  const secondTarget = raw.tradeSignal?.targetPriceCandidate?.secondary ?? resistances[1] ?? null;
-  const rr = riskReward(support, stopLoss, firstTarget);
-  const buyScore = Math.max(0, Math.min(100, Math.round(raw.tradeSignal?.buyScore ?? 0)));
-  const sellScore = Math.max(0, Math.min(100, Math.round(raw.tradeSignal?.sellScore ?? 0)));
-  const nearResistance = finite(current) && finite(resistance) && resistance >= current && ((resistance - current) / resistance) * 100 <= 2.5;
-  const supportBroken = finite(current) && finite(stopLoss) && current < stopLoss;
+  const levels = getLevels(raw);
+  const targets = uniqueNumbers([
+    ...levels.resistances,
+    raw.tradeSignal?.targetPriceCandidate?.primary,
+    raw.tradeSignal?.targetPriceCandidate?.secondary,
+  ], levels.current, "resistance").sort((a, b) => a - b);
+  const shortStop = levels.shortStop;
+  const conservativeStop = levels.conservativeStop;
+  const midInvalidation = levels.midInvalidation;
+  const firstTarget = targets[0] ?? null;
+  const secondTarget = targets[1] ?? null;
+  const entry = levels.firstResistance ?? null;
+  const rr = riskReward(entry, shortStop, firstTarget);
+  const nearResistance = finite(levels.current) && finite(levels.firstResistance) && levels.firstResistance >= levels.current && ((levels.firstResistance - levels.current) / levels.firstResistance) * 100 <= 2.5;
+  const supportBroken = finite(levels.current) && finite(shortStop) && levels.current < shortStop;
+  const scoreSummary = buildScoreSummary(raw, nearResistance, rr, supportBroken);
 
   let finalAction: FinalAction = "HOLD";
   let title = "보유 관망";
-  let oneLineConclusion = "강한 신규 진입보다 지지와 저항 반응을 확인하며 대응할 구간입니다.";
-
+  let oneLineConclusion = "주요 지지선 이탈 전까지는 보유 관망이 우세합니다.";
   if (supportBroken) {
     finalAction = "SELL_RISK";
     title = "손절 위험";
-    oneLineConclusion = "주요 지지 기준을 이탈해 기존 상승 또는 반등 관점이 약화되는 구간입니다.";
-  } else if (nearResistance || rr.label === "부적합") {
+    oneLineConclusion = "단기 지지선을 이탈해 손절 위험이 커졌습니다.";
+  } else if (nearResistance && (rr.value === null || rr.value < 1)) {
     finalAction = "WAIT";
     title = "신규 진입 보류 / 보유자는 관망";
-    oneLineConclusion = "현재 가격이 저항 또는 목표 구간에 가까워 신규 추격매수에는 불리합니다.";
-  } else if (buyScore >= 70 && rr.value !== null && rr.value >= 1.5) {
+    oneLineConclusion = "저항 구간에 가까워 신규 추격매수는 비추천입니다.";
+  } else if (scoreSummary.buyScore >= 70 && rr.value !== null && rr.value >= 1.5 && !nearResistance) {
     finalAction = "BUY_CANDIDATE";
-    title = "매수 후보";
-    oneLineConclusion = "지지 반응과 손익비 조건이 충족될 경우 매수 후보로 참고할 수 있습니다.";
-  } else if (sellScore >= 60 && nearResistance) {
-    finalAction = "TAKE_PROFIT";
-    title = "일부 익절 고려";
-    oneLineConclusion = "저항 구간에 가까워 보유자는 일부 익절 또는 돌파 확인을 고려할 수 있습니다.";
+    title = "조건부 매수 후보";
+    oneLineConclusion = "손익비와 추세 조건이 충족되어 조건부 매수 후보로 볼 수 있습니다.";
   }
 
+  if ((finalAction === "WAIT" || finalAction === "HOLD") && scoreSummary.holdScore < scoreSummary.buyScore) {
+    scoreSummary.holdScore = scoreSummary.buyScore;
+  }
+  if ((finalAction === "WAIT" || finalAction === "HOLD") && scoreSummary.totalScore >= 80) {
+    scoreSummary.totalScore = 64;
+    scoreSummary.label = scoreLabel(scoreSummary.totalScore);
+  }
+
+  const resistanceText = formatPrice(levels.firstResistance);
+  const transitionNote = finite(levels.firstResistance)
+    ? `${resistanceText}는 현재 가장 중요한 전환 가격대입니다. ${resistanceText} 아래에서는 저항으로 작용하지만, 돌파 후 재지지에 성공하면 단기 상승 지속 근거가 됩니다.`
+    : "전환 가격대는 이미지 기반 분석만으로 명확히 산정하기 어렵습니다.";
+  const stopSummary = `단기 ${formatPrice(shortStop)} 이탈 / 보수적 ${formatPrice(conservativeStop)} 이탈`;
+  const targetSummary = `1차 ${formatPrice(firstTarget)} / 2차 ${formatPrice(secondTarget)}`;
+  const indicators = raw.aiAnalysis?.indicatorReadings ?? {};
   const primaryPattern = raw.aiAnalysis?.patternCandidates?.[0];
   const secondaryPattern = raw.aiAnalysis?.patternCandidates?.[1];
-  const indicators = raw.aiAnalysis?.indicatorReadings ?? {};
-  const indicatorLabels: Array<[keyof typeof indicators, string]> = [
+  const indicatorLabels = [
     ["rsi", "RSI"],
     ["macd", "MACD"],
     ["bollingerBands", "볼린저밴드"],
     ["ichimoku", "일목균형표"],
     ["movingAverages", "이동평균선"],
     ["volume", "거래량"],
-  ];
-
-  const resistanceText = formatZone(resistance);
-  const supportText = formatZone(support);
-  const stopText = formatPrice(stopLoss);
+  ] as const;
 
   return {
     finalSummary: {
       finalAction,
       title,
       oneLineConclusion,
-      confidence: confidence(raw.tradeSignal?.confidence),
-      reason: rr.interpretation,
+      confidence: visibleIndicatorCount(raw) >= 3 ? "medium" : "low",
+      reason: transitionNote,
     },
+    scoreSummary,
     userActionGuide: {
-      nonHolder: `${supportText} 지지 확인 또는 ${formatPrice(resistance)} 돌파 후 재지지까지 대기하는 편이 보수적입니다.`,
-      holder: `${stopText} 이탈 전까지는 보유 관망이 가능합니다. ${resistanceText}에서는 일부 익절 또는 돌파 확인을 고려할 수 있습니다.`,
+      nonHolder: `${formatZone(shortStop)} 지지 확인 또는 ${resistanceText} 돌파 후 재지지까지 대기하는 것이 보수적입니다.`,
+      holder: `주요 지지선 이탈 전까지 보유 관망 가능. 단, ${resistanceText} 부근에서는 일부 익절 또는 돌파 확인이 필요합니다.`,
       shortTermTrader: `${resistanceText} 저항 구간에서는 신규 진입보다 일부 익절 또는 돌파 확인이 우선입니다.`,
-      addBuyer: `${supportText} 지지 확인 또는 ${formatPrice(resistance)} 돌파 후 재지지 확인 전까지 추가 매수는 보류합니다.`,
-      stopLoss: `${stopText} 이탈 시 기존 상승 또는 반등 관점은 약화됩니다.`,
+      addBuyer: `${formatZone(shortStop)} 지지 확인 또는 ${resistanceText} 돌파 후 재지지 확인 전까지 추가 매수는 보류합니다.`,
+      stopLoss: stopSummary,
     },
     tradePlan: {
       entry: {
-        pullbackEntry: { priceZone: supportText, condition: "주요 지지 구간에서 반등 확인", action: "눌림목 지지 확인 후 진입 후보로 참고" },
-        breakoutEntry: { priceZone: `${formatPrice(resistance)} 돌파 후 재지지`, condition: "주요 저항 돌파 후 안착", action: "돌파 안착 확인 후 진입 후보로 참고" },
-        noChaseZone: { priceZone: resistanceText, reason: "현재 구간이 목표가 또는 저항과 가까우면 신규 추격매수에는 불리합니다." },
+        pullbackEntry: { priceZone: formatZone(shortStop), condition: "주요 지지 구간에서 하락이 멈추고 반등 확인", action: "눌림목 지지 확인 전까지 대기" },
+        breakoutEntry: { priceZone: resistanceText, condition: "저항 돌파 후 해당 가격 위에서 재지지", action: "돌파 후 안착 확인 시 진입 후보" },
+        noChaseZone: { priceZone: resistanceText, reason: "저항 또는 목표가 근처에서는 신규 추격매수보다 확인이 우선입니다." },
       },
-      stopLoss: { priceZone: stopText, condition: "주요 지지 또는 무효화 기준 이탈", meaning: "이탈 시 기존 상승 또는 반등 관점을 폐기합니다." },
+      stopLoss: {
+        priceZone: stopSummary,
+        condition: `${formatPrice(shortStop)} 이탈 시 단기 손절 기준, ${formatPrice(conservativeStop)} 이탈 시 보수적 손절 기준`,
+        meaning: "단기 손절은 가장 가까운 지지선 이탈, 보수적 손절은 다음 지지선 이탈 기준입니다.",
+        shortTerm: { priceZone: formatPrice(shortStop), condition: "가까운 주요 지지선 이탈", meaning: "단기 매매 관점의 손절 기준입니다." },
+        conservative: { priceZone: formatPrice(conservativeStop), condition: "다음 주요 지지선 이탈", meaning: "보수적 손절 기준입니다." },
+      },
       targets: {
-        firstTarget: { priceZone: formatPrice(firstTarget), action: "1차 저항 또는 목표 후보 구간" },
-        secondTarget: { priceZone: formatPrice(secondTarget), action: "돌파가 이어질 때만 확장 목표 후보로 참고" },
+        firstTarget: { priceZone: formatPrice(firstTarget), action: "가장 가까운 저항 또는 1차 익절 후보" },
+        secondTarget: { priceZone: formatPrice(secondTarget), action: "다음 상단 저항 또는 확장 목표 후보" },
       },
-      invalidation: { condition: `${stopText} 이탈`, meaning: "기존 상승 채널, 반등 또는 돌파 관점이 약화됩니다." },
+      invalidation: {
+        condition: `${formatPrice(midInvalidation)} 이탈 시 중기 상승 관점을 폐기합니다.`,
+        meaning: "중기 관점 무효화 가격은 손익비 계산에 사용하지 않습니다.",
+        midTerm: { priceZone: formatPrice(midInvalidation), condition: "구조적 지지 이탈", meaning: "중기 상승 관점 무효화 기준입니다." },
+      },
       riskReward: rr,
+      transitionLevel: finite(levels.firstResistance)
+        ? { priceZone: resistanceText, explanation: transitionNote }
+        : undefined,
     },
     keyLevels: {
-      supports: supports.slice(0, 3).map((value, index) => ({
-        label: `${index + 1}차 지지`,
-        priceZone: formatZone(value),
-        meaning: "이탈 시 단기 추세가 약화될 수 있는 가격대입니다.",
-        reliability: index === 0 ? "medium" : "low",
-      })),
-      resistances: resistances.slice(0, 3).map((value, index) => ({
-        label: `${index + 1}차 저항`,
-        priceZone: formatZone(value),
-        meaning: "돌파 여부가 단기 방향성 판단의 핵심 가격대입니다.",
-        reliability: index === 0 ? "medium" : "low",
-      })),
+      supports: levels.supports.map((value, index) => ({ label: `${index + 1}차 지지`, priceZone: formatZone(value), meaning: index === 0 ? "단기 손절 기준으로 참고할 수 있는 가까운 지지 구간입니다." : "추가 하락 시 확인할 하단 지지 후보입니다.", reliability: index === 0 ? "medium" : "low" })),
+      resistances: levels.resistances.map((value, index) => ({ label: `${index + 1}차 저항`, priceZone: formatZone(value), meaning: index === 0 ? "아래에서는 저항, 돌파 후 재지지 성공 시 단기 상승 지속 근거가 되는 전환 가격대입니다." : "상승 시 다음 목표 후보입니다.", reliability: index === 0 ? "medium" : "low" })),
     },
     scenarios: {
-      bullish: { condition: `${formatPrice(resistance)} 돌파 후 재지지`, expectedMove: "단기 상승 흐름이 연장될 가능성", action: "돌파 안착 확인 후 진입 후보로 참고" },
-      neutral: { condition: `${supportText}부터 ${resistanceText} 사이 등락`, expectedMove: "박스권 또는 채널 내 움직임 지속", action: "상단 추격보다 하단 지지 확인 우선" },
-      bearish: { condition: `${stopText} 이탈`, expectedMove: "기존 상승 또는 반등 관점 약화", action: "손절 또는 비중 축소 후보로 대응" },
+      bullish: { condition: `${resistanceText} 돌파 후 재지지`, expectedMove: `${formatPrice(firstTarget)} → ${formatPrice(secondTarget)} 순서로 상승 시도 가능`, action: "돌파 후 안착 확인 시 진입 후보" },
+      neutral: { condition: `${formatZone(shortStop)} ~ ${resistanceText} 사이 등락`, expectedMove: "박스권 또는 수렴 구간 지속", action: "상단 추격매수보다 하단 지지 확인 우선" },
+      bearish: { condition: `${formatPrice(shortStop)} 이탈`, expectedMove: "단기 상승 관점 약화", action: `손절 또는 비중 축소 고려. ${formatPrice(midInvalidation)} 이탈 시 중기 상승 관점 폐기` },
     },
     patternAnalysis: {
       primaryPattern: {
-        name: primaryPattern?.label ?? "명확한 패턴 없음",
+        name: ensureCandidateLabel(candidateName(primaryPattern)),
         confidence: confidence(primaryPattern?.confidence),
-        reason: cleanText(primaryPattern?.evidence?.slice(0, 2).join(" / "), "우선순위로 볼 만한 정석 패턴 후보가 뚜렷하지 않습니다."),
-        confirmationCondition: cleanText(primaryPattern?.confirmationCondition, "주요 지지선 또는 저항선에서 추가 반응 확인이 필요합니다."),
-        invalidationCondition: cleanText(primaryPattern?.invalidationCondition, "현재 구조만으로는 별도 패턴 무효화 가격을 특정하기 어렵습니다."),
-        tradingMeaning: cleanText(primaryPattern?.tradingImplication || primaryPattern?.entryLogic, "패턴보다 지지·저항과 손익비를 우선 확인해야 하는 구간입니다."),
+        reason: cleanText(primaryPattern?.evidence?.slice(0, 3).join(" / "), "가격 구조상 주요 패턴 후보로 참고할 수 있습니다."),
+        confirmationCondition: cleanText(primaryPattern?.confirmationCondition, "상단 추세선 또는 주요 저항 돌파 후 안착이 필요합니다."),
+        invalidationCondition: cleanText(primaryPattern?.invalidationCondition, "하단 추세선 또는 주요 지지선 이탈 시 패턴 후보가 약화됩니다."),
+        tradingMeaning: cleanText(primaryPattern?.tradingImplication || primaryPattern?.entryLogic, "패턴 내부 예측 진입보다 이탈 방향 확인 후 대응하는 것이 보수적입니다."),
       },
-      secondaryPattern: secondaryPattern
-        ? {
-          name: secondaryPattern.label,
-          confidence: confidence(secondaryPattern.confidence),
-          reason: cleanText(secondaryPattern.evidence?.slice(0, 2).join(" / "), "보조 시나리오로만 참고합니다."),
-        }
-        : null,
-      excludedPatterns: raw.aiAnalysis?.patternCandidates?.slice(2, 5).map((item) => ({
-        name: item.label || item.name,
-        reason: "주요 패턴보다 우선순위가 낮아 하단 참고로만 분류했습니다.",
-      })) ?? [],
+      secondaryPattern: secondaryPattern ? { name: ensureCandidateLabel(candidateName(secondaryPattern)), confidence: confidence(secondaryPattern.confidence), reason: cleanText(secondaryPattern.evidence?.slice(0, 2).join(" / "), "보조 시나리오로만 참고합니다.") } : null,
+      excludedPatterns: raw.aiAnalysis?.patternCandidates?.slice(2, 5).map((item) => ({ name: ensureCandidateLabel(candidateName(item)), reason: "주요 패턴 후보보다 우선순위가 낮아 참고 항목으로 분류했습니다." })) ?? [],
     },
     indicatorAnalysis: {
       confirmed: indicatorLabels.flatMap(([key, label]) => {
-        const item = indicators[key] as {
-          visible?: boolean;
-          status?: string | null;
-          position?: string | null;
-          pricePosition?: string | null;
-          cloudPosition?: string | null;
-          reason?: string | null;
-        } | undefined;
+        const item = indicators[key] as { visible?: boolean; status?: string | null; position?: string | null; pricePosition?: string | null; cloudPosition?: string | null; reason?: string | null } | undefined;
         if (!item?.visible) return [];
         const rawStatus = item.status ?? item.position ?? item.pricePosition ?? item.cloudPosition;
-        return [{
-          name: label,
-          signal: indicatorSignal(rawStatus),
-          explanation: item.reason ? cleanText(item.reason) : `${label}은 ${statusKo(rawStatus)}로 해석됩니다.`,
-        }];
+        return [{ name: label, signal: indicatorSignal(rawStatus), explanation: item.reason ? cleanText(item.reason) : `${label}: ${statusKo(rawStatus)}로 해석됩니다.` }];
       }),
       unavailable: indicatorLabels.flatMap(([key, label]) => {
-        const item = indicators[key] as { visible?: boolean } | undefined;
-        return item?.visible ? [] : [{ name: label, reason: "이미지에서 명확히 확인되지 않습니다." }];
+        const item = indicators[key] as { visible?: boolean; reason?: string | null } | undefined;
+        return item?.visible ? [] : [{ name: label, reason: "이미지에서 명확히 확인되지 않음" }];
       }),
     },
     evidence: {
-      positive: [`${statusKo(raw.aiAnalysis?.visualTrend)} 흐름이 관찰됩니다.`, `${supportText} 지지 후보가 확인됩니다.`],
-      negative: [`${resistanceText} 저항 후보가 가까워 추격 진입은 불리할 수 있습니다.`, rr.interpretation],
-      riskFactors: ["이미지 기반 추정값이므로 실제 가격과 차이가 있을 수 있습니다.", "실제 OHLCV, 거래량, 시장 상황을 함께 확인해야 합니다."],
+      positive: ["주요 지지선 위에서 가격이 유지되는지 확인이 필요합니다."],
+      negative: nearResistance ? ["현재 가격이 저항 구간에 가까워 신규 추격매수에는 불리합니다."] : [],
+      riskFactors: ["이미지 기반 분석이므로 실제 OHLCV 데이터 검증이 필요합니다.", rr.interpretation],
     },
-    disclaimer: "본 리포트는 차트 이미지와 기술적 지표 기반 참고 정보이며 투자 조언이나 매수·매도 추천이 아닙니다.",
+    disclaimer: DISCLAIMER,
   };
 }
 
 export function normalizeTradingReport(raw: AnalysisResponse): TradingReport {
-  return raw.tradingReport ?? buildFallbackReport(raw);
+  return normalizeExistingReport(raw.tradingReport ?? buildFallbackReport(raw));
 }

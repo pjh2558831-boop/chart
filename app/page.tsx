@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -33,7 +33,7 @@ const analysisModeOptions: Array<{ value: AnalysisMode; label: string; descripti
   {
     value: "standard",
     label: "기본 분석",
-    description: "속도와 리포트 품질의 균형을 맞춘 기본 모드입니다.",
+    description: "속도와 리포트 품질의 균형을 맞춘 기본 분석 모드입니다.",
   },
   {
     value: "precision",
@@ -49,7 +49,13 @@ const allowedModesByPlan: Record<UserPlan, AnalysisMode[]> = {
   pro: ["fast", "standard", "precision"],
 };
 
-function createGuestFallbackUsageStatus(message?: string): UsageStatus {
+const modeLabelByValue: Record<AnalysisMode, string> = {
+  fast: "빠른 분석",
+  standard: "기본 분석",
+  precision: "정밀 분석",
+};
+
+function createGuestFallbackUsageStatus(): UsageStatus {
   const guestId = typeof window === "undefined" ? "server-guest" : getOrCreateGuestId();
   return {
     identityType: "guest",
@@ -57,7 +63,7 @@ function createGuestFallbackUsageStatus(message?: string): UsageStatus {
     userId: null,
     guestId,
     plan: "guest",
-    planLabel: "鍮꾨줈洹몄씤 臾대즺 泥댄뿕",
+    planLabel: "비로그인 무료 체험",
     price: 0,
     dailyLimit: 1,
     monthlyLimit: 3,
@@ -82,32 +88,36 @@ function normalizeModeForPlan(mode: AnalysisMode, plan: UserPlan): AnalysisMode 
 }
 
 function buildLimitMessage(code: string | undefined, usageStatus: UsageStatus | null) {
+  if (!code) return null;
+  const normalizedCode = code.toLowerCase();
+  const isLimitCode =
+    code === "LIMIT_REACHED" ||
+    normalizedCode.includes("limit") ||
+    normalizedCode.includes("daily_limit_exceeded") ||
+    normalizedCode.includes("monthly_limit_exceeded");
+  if (!isLimitCode) return null;
+
   const plan = usageStatus?.plan ?? "guest";
-  if (code === "daily_limit_exceeded") {
-    if (plan === "guest") {
-      return "?ㅻ뒛 鍮꾨줈洹몄씤 臾대즺 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. 濡쒓렇?명븯硫??섎（ 2?뚭퉴吏 臾대즺濡??ъ슜?????덉뒿?덈떎.";
-    }
-    if (plan === "free") {
-      return "?ㅻ뒛 Free 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. Plus ?뚮옖? ?섎（ 20?뚭퉴吏 ?ъ슜?????덉뒿?덈떎.";
-    }
-    if (plan === "plus") {
-      return "?ㅻ뒛 Plus 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. Pro ?뚮옖? ?섎（ 50?뚭퉴吏 ?ъ슜?????덉뒿?덈떎.";
-    }
-    return "?ㅻ뒛 Pro 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎.";
+  const isMonthly = normalizedCode.includes("monthly");
+
+  if (plan === "guest") {
+    return isMonthly
+      ? "이번 달 비로그인 무료 분석 횟수를 모두 사용했습니다. 로그인하면 월 10회까지 무료로 분석할 수 있습니다."
+      : "오늘 무료 분석 횟수를 모두 사용했습니다. 로그인하면 하루 3회, 월 10회까지 무료로 분석할 수 있습니다.";
   }
-  if (code === "monthly_limit_exceeded") {
-    if (plan === "guest") {
-      return "?대쾲 ??鍮꾨줈洹몄씤 臾대즺 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. 濡쒓렇?명븯硫???10?뚭퉴吏 臾대즺濡??ъ슜?????덉뒿?덈떎.";
-    }
-    if (plan === "free") {
-      return "Free 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. Plus ?뚮옖? ??100?뚭퉴吏 ?ъ슜?????덉뒿?덈떎.";
-    }
-    if (plan === "plus") {
-      return "Plus 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎. Pro ?뚮옖? ??300?뚭퉴吏 ?ъ슜?????덉뒿?덈떎.";
-    }
-    return "?대쾲 ??Pro 遺꾩꽍 ?잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎.";
+  if (plan === "free") {
+    return isMonthly
+      ? "이번 달 Free 분석 횟수를 모두 사용했습니다. Plus 플랜은 월 100회 분석을 제공할 예정입니다."
+      : "Free 분석 횟수를 모두 사용했습니다. Plus 플랜은 월 100회 분석을 제공할 예정입니다.";
   }
-  return null;
+  if (plan === "plus") {
+    return isMonthly
+      ? "이번 달 Plus 분석 횟수를 모두 사용했습니다. Pro 플랜은 월 300회 분석을 제공할 예정입니다."
+      : "오늘 Plus 분석 횟수를 모두 사용했습니다. Pro 플랜은 하루 50회 분석을 제공할 예정입니다.";
+  }
+  return isMonthly
+    ? "이번 달 Pro 분석 횟수를 모두 사용했습니다."
+    : "오늘 Pro 분석 횟수를 모두 사용했습니다.";
 }
 
 function LoadingAnalysisCard({ stepIndex }: { stepIndex: number }) {
@@ -116,9 +126,9 @@ function LoadingAnalysisCard({ stepIndex }: { stepIndex: number }) {
       <div className="flex gap-4">
         <div className="mt-1 h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-bold text-slate-950">李⑦듃 ?대?吏瑜?遺꾩꽍 以묒엯?덈떎.</h2>
+          <h2 className="text-lg font-bold text-slate-950">차트 이미지를 분석 중입니다.</h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">
-            ?대?吏 援ъ“, 蹂댁“吏?? 吏吏쨌????꾨낫, 湲곗닠???좏샇瑜??쒖꽌?濡??뺤씤?섍퀬 ?덉뒿?덈떎.
+            이미지 구조, 보조지표, 지지·저항 후보, 기술적 신호를 순서대로 확인하고 있습니다.
           </p>
           <ol className="mt-4 grid gap-2 md:grid-cols-5">
             {loadingSteps.map((step, index) => {
@@ -185,9 +195,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (authLoading) {
-      return;
-    }
+    if (authLoading) return;
 
     let cancelled = false;
     const loadUsageStatus = async () => {
@@ -207,14 +215,12 @@ export default function Home() {
           setUsageError(
             requestError instanceof Error
               ? requestError.message
-              : "?ъ슜???뺣낫瑜?遺덈윭?ㅼ? 紐삵빐 ?꾩떆 ?뺣낫瑜??쒖떆?⑸땲??",
+              : "사용량 정보를 불러오지 못해 임시 정보를 표시합니다.",
           );
           setAnalysisMode((current) => normalizeModeForPlan(current, fallback.plan));
         }
       } finally {
-        if (!cancelled) {
-          setUsageLoading(false);
-        }
+        if (!cancelled) setUsageLoading(false);
       }
     };
 
@@ -226,9 +232,7 @@ export default function Home() {
 
   useEffect(() => {
     return () => {
-      if (loadingTimerRef.current) {
-        clearInterval(loadingTimerRef.current);
-      }
+      if (loadingTimerRef.current) clearInterval(loadingTimerRef.current);
       abortControllerRef.current?.abort();
     };
   }, []);
@@ -240,9 +244,7 @@ export default function Home() {
 
   const startLoadingSteps = () => {
     setLoadingStepIndex(0);
-    if (loadingTimerRef.current) {
-      clearInterval(loadingTimerRef.current);
-    }
+    if (loadingTimerRef.current) clearInterval(loadingTimerRef.current);
     loadingTimerRef.current = setInterval(() => {
       setLoadingStepIndex((current) => Math.min(current + 1, loadingSteps.length - 1));
     }, 1800);
@@ -273,18 +275,16 @@ export default function Home() {
   };
 
   const handleAnalyze = async () => {
-    if (!selectedFile) {
-      return;
-    }
+    if (!selectedFile) return;
     if (isUsageExceeded) {
-      setError(buildLimitMessage("daily_limit_exceeded", usageStatus) ?? "遺꾩꽍 媛???잛닔瑜?紐⑤몢 ?ъ슜?덉뒿?덈떎.");
+      setError(buildLimitMessage("LIMIT_REACHED", usageStatus) ?? "분석 가능한 횟수를 모두 사용했습니다.");
       setIsPricingOpen(true);
       return;
     }
 
     const requestKey = fileKey(selectedFile, safeAnalysisMode);
     if (isLoading && inFlightKeyRef.current === requestKey) {
-      setError("?대? 媛숈? ?대?吏 遺꾩꽍??吏꾪뻾 以묒엯?덈떎.");
+      setError("이미 같은 이미지 분석이 진행 중입니다.");
       return;
     }
 
@@ -314,11 +314,9 @@ export default function Home() {
         }
         const limitMessage = buildLimitMessage(requestError.code || requestError.message, requestError.usageStatus ?? usageStatus);
         setError(limitMessage || requestError.message);
-        if (requestError.status === 429 || requestError.status === 403) {
-          setIsPricingOpen(true);
-        }
+        if (requestError.status === 429 || requestError.status === 403) setIsPricingOpen(true);
       } else {
-        setError(requestError instanceof Error ? requestError.message : "AI 遺꾩꽍 ?붿껌 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.");
+        setError(requestError instanceof Error ? requestError.message : "AI 분석 요청 중 오류가 발생했습니다.");
       }
     } finally {
       stopLoadingSteps();
@@ -332,13 +330,12 @@ export default function Home() {
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-8">
         <header className="space-y-4">
-          <p className="text-sm font-semibold uppercase text-blue-600">Chart Vision AI</p>
+          <p className="text-sm font-semibold uppercase text-blue-600">CHART VISION AI</p>
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
-              <h1 className="text-3xl font-bold text-slate-950 sm:text-4xl">AI 二쇱떇 李⑦듃 ?대?吏 遺꾩꽍</h1>
+              <h1 className="text-3xl font-bold text-slate-950 sm:text-4xl">AI 주식 차트 분석, 이제 더 쉽게</h1>
               <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">
-                李⑦듃 ?대?吏瑜??낅줈?쒗븯硫?AI媛 湲곗닠??遺꾩꽍???섑뻾?섏뿬 ?꾩옱 ?쒖옣 ?곹깭, 二쇱슂 媛寃⑸?, ?⑦꽩 ?꾨낫,
-                吏꾩엯쨌?먯젅쨌紐⑺몴 援ш컙??吏곴??곸쑝濡??쒓났?⑸땲??
+                차트 이미지를 업로드하면 AI가 추세, 지지선, 저항선, 패턴 후보와 매매 참고 구간을 빠르게 분석합니다.
               </p>
             </div>
             <AuthStatus showLoginHint={showLoginHint} onDismissHint={dismissLoginHint} />
@@ -346,10 +343,9 @@ export default function Home() {
         </header>
 
         <section className="rounded-lg border border-blue-100 bg-blue-50 px-5 py-4 text-sm leading-6 text-blue-900 shadow-soft">
-          <p className="font-semibold text-blue-950">湲곗닠??吏??李멸퀬 ?덈궡</p>
+          <p className="font-semibold text-blue-950">이미지만 올리면 끝나는 차트 분석</p>
           <p className="mt-2">
-            遺꾩꽍 寃곌낵??湲곗닠??吏??湲곕컲 李멸퀬 ?뺣낫?낅땲?? RSI, MACD, 蹂쇰┛?諛대뱶, ?대룞?됯퇏?? 嫄곕옒?됱쓣 李멸퀬?섎ŉ,
-            ?대떦 蹂댁“吏?쒕? 李⑦듃??耳쒕몢硫?AI媛 ?대?吏?먯꽌 ?몄떇?????덉뒿?덈떎.
+            복잡한 설정 없이 차트 이미지만 업로드하세요. RSI, MACD, 이동평균선, 거래량, 지지선과 저항선을 종합해 현재 차트 흐름을 분석합니다.
           </p>
         </section>
 
@@ -365,14 +361,14 @@ export default function Home() {
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
           <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">AI 遺꾩꽍 ?붿껌</h2>
+              <h2 className="text-base font-semibold text-slate-900">AI 차트 분석</h2>
               <p className="mt-1 text-sm text-slate-500">
-                ?좏깮???붽툑?쒖뿉 ?곕씪 ?ъ슜?????덈뒗 遺꾩꽍 紐⑤뱶媛 ?쒗븳?⑸땲?? 理쒖쥌 ?쒗븳? ?쒕쾭?먯꽌 ?ㅼ떆 寃利앺빀?덈떎.
+                업로드한 차트 이미지를 기반으로 추세, 지지선, 저항선, 패턴 후보와 매매 참고 구간을 분석합니다.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <label className="text-sm text-slate-700">
-                <span className="mb-2 block font-semibold text-slate-900">遺꾩꽍 紐⑤뱶</span>
+                <span className="mb-2 block font-semibold text-slate-900">분석 모드</span>
                 <select
                   value={safeAnalysisMode}
                   disabled={isLoading}
@@ -390,11 +386,11 @@ export default function Home() {
               </label>
               <button
                 type="button"
-                disabled={!selectedFile || isLoading || isUsageExceeded || usageLoading}
+                disabled={!selectedFile || isLoading || usageLoading}
                 onClick={handleAnalyze}
                 className="rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                {isLoading ? "遺꾩꽍 以?.." : "AI 遺꾩꽍 ?쒖옉"}
+                {isLoading ? "분석 중..." : "AI 차트 분석 시작"}
               </button>
             </div>
           </div>
@@ -407,7 +403,7 @@ export default function Home() {
               onClick={() => setIsPricingOpen(true)}
               className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
             >
-              ?붽툑???뺤씤?섍린
+              사용량 안내 보기
             </button>
           ) : null}
         </section>
@@ -416,26 +412,49 @@ export default function Home() {
 
         {!analysisResult && !isLoading && !error ? (
           <section className="rounded-lg border border-blue-100 bg-blue-50 px-5 py-4 text-sm leading-6 text-blue-800">
-            濡쒓렇?명븯吏 ?딆븘??鍮꾨줈洹몄씤 臾대즺 泥댄뿕?쇰줈 李⑦듃 遺꾩꽍???쒖옉?????덉뒿?덈떎. 濡쒓렇?명븯硫?臾대즺 ?ъ슜?됯낵
-            遺꾩꽍 湲곕줉 ???湲곕뒫??怨꾩젙 湲곗??쇰줈 ?쒓났?⑸땲??
+            로그인하지 않아도 비로그인 무료 체험으로 차트 분석을 시작할 수 있습니다. 로그인하면 무료 사용량과 분석 기록 저장 기능을 계정 기준으로 사용할 수 있습니다.
           </section>
         ) : null}
 
         {error ? (
-          <section className="rounded-lg border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700">
-            {error}
+          <section
+            className={
+              error.includes("분석 횟수") || error.includes("무료 분석")
+                ? "rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-800"
+                : "rounded-lg border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700"
+            }
+          >
+            <p>{error}</p>
+            {usageStatus?.plan === "guest" && (error.includes("분석 횟수") || error.includes("무료 분석")) ? (
+              <button
+                type="button"
+                onClick={() => router.push("/login")}
+                className="mt-3 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                로그인하고 무료 분석 더 받기
+              </button>
+            ) : null}
+            {usageStatus?.plan === "free" && (error.includes("분석 횟수") || error.includes("무료 분석")) ? (
+              <button
+                type="button"
+                disabled
+                className="mt-3 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-400"
+              >
+                Plus 준비 중
+              </button>
+            ) : null}
           </section>
         ) : null}
 
         {analysisResult?.cacheHit ? (
           <div className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-            ?댁쟾 遺꾩꽍 寃곌낵瑜?遺덈윭?붿뒿?덈떎.
+            이전 분석 결과를 불러왔습니다.
           </div>
         ) : null}
 
         {analysisResult?.appliedAnalysisMode && analysisResult.appliedAnalysisMode !== analysisMode ? (
           <div className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-            ?꾩옱 ?붽툑?쒖뿉 留욎떠 {analysisResult.appliedAnalysisMode} 紐⑤뱶濡?遺꾩꽍?덉뒿?덈떎.
+            현재 플랜에 맞춰 {modeLabelByValue[analysisResult.appliedAnalysisMode as AnalysisMode] ?? analysisResult.appliedAnalysisMode} 모드로 분석했습니다.
           </div>
         ) : null}
 
@@ -444,6 +463,10 @@ export default function Home() {
             <AnalysisResult result={analysisResult} />
           </div>
         ) : null}
+
+        <p className="text-xs leading-6 text-slate-500">
+          투자 판단은 본인의 책임입니다. 본 서비스는 차트 기반 기술적 분석 참고 자료를 제공하며, 매수·매도 추천이나 수익 보장을 의미하지 않습니다.
+        </p>
       </div>
 
       <PricingModal

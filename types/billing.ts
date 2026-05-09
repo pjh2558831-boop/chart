@@ -22,6 +22,8 @@ export interface UsageStatus {
   isPaidPlan?: boolean;
 }
 
+export type LimitOfferType = "login" | "upgrade";
+
 export interface AnalysisLogRecord {
   id: number;
   userId?: string | null;

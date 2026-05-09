@@ -76,7 +76,7 @@ export async function parseBackendError(response: Response, fallback: string) {
 }
 
 function mapBackendErrorStatus(status: number) {
-  if ([400, 403, 404, 413, 429, 502, 504].includes(status)) {
+  if ([400, 401, 403, 404, 413, 429, 502, 503, 504].includes(status)) {
     return status;
   }
   return 502;
@@ -125,6 +125,9 @@ export async function proxyAnalyzeChart(request: NextRequest) {
   const backendFormData = new FormData();
   backendFormData.append("file", file);
   backendFormData.append("analysis_mode", analysisMode);
+  if (guestId) {
+    backendFormData.append("guest_id", guestId);
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);

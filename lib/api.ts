@@ -1,68 +1,69 @@
 ﻿import type { Session } from "@supabase/supabase-js";
 
 import type { AnalysisResponse } from "../types/analysis";
-import type { AnalysisLogRecord, FeedbackRecord, UsageStatus } from "../types/billing";
-import { getAuthHeaders } from "./identity";
+import type { AnalysisLogRecord, FeedbackRecord, LimitOfferType, UsageStatus } from "../types/billing";
+import { getAuthHeaders, getOrCreateGuestId } from "./identity";
 
 export type AnalysisMode = "fast" | "standard" | "precision";
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
-const DIRECT_ANALYZE_API_BASE_URL = (
-  process.env.NEXT_PUBLIC_ANALYZE_API_URL ??
-  process.env.NEXT_PUBLIC_BACKEND_API_URL ??
-  ""
-).replace(/\/$/, "");
 
 function apiUrl(path: string) {
   return `${API_BASE_URL}${path}`;
 }
 
-function directAnalyzeApiUrl() {
-  return DIRECT_ANALYZE_API_BASE_URL
-    ? `${DIRECT_ANALYZE_API_BASE_URL}/analyze-chart`
-    : null;
-}
-
 export class ApiError extends Error {
   status: number;
   code?: string;
+  offerType?: LimitOfferType;
   usageStatus?: UsageStatus;
 
-  constructor(message: string, status: number, code?: string, usageStatus?: UsageStatus) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    usageStatus?: UsageStatus,
+    offerType?: LimitOfferType,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.usageStatus = usageStatus;
+    this.offerType = offerType;
   }
 }
 
 async function parseError(response: Response): Promise<never> {
   let message = "요청 처리 중 오류가 발생했습니다.";
   let code: string | undefined;
+  let offerType: LimitOfferType | undefined;
   let usageStatus: UsageStatus | undefined;
 
   try {
     const body = (await response.json()) as {
-      detail?: string | { code?: string; message?: string; usageStatus?: UsageStatus };
+      detail?: string | { code?: string; message?: string; usageStatus?: UsageStatus; offerType?: LimitOfferType };
       error?: string;
       message?: string;
       usageStatus?: UsageStatus;
+      offerType?: LimitOfferType;
     };
 
     if (typeof body.detail === "object" && body.detail !== null) {
       code = body.detail.code;
+      offerType = body.detail.offerType;
       usageStatus = body.detail.usageStatus;
       message = body.detail.message || code || message;
     } else {
       message = body.detail || body.error || body.message || message;
       usageStatus = body.usageStatus;
+      offerType = body.offerType;
     }
   } catch {
     message = response.statusText || message;
   }
 
-  throw new ApiError(message, response.status, code, usageStatus);
+  throw new ApiError(message, response.status, code, usageStatus, offerType);
 }
 
 async function postAnalysisRequest(
@@ -76,6 +77,7 @@ async function postAnalysisRequest(
   formData.append("file", file);
   formData.append("analysisMode", analysisMode);
   formData.append("analysis_mode", analysisMode);
+  formData.append("guest_id", getOrCreateGuestId());
 
   return fetch(url, {
     method: "POST",
@@ -91,18 +93,8 @@ export async function analyzeChartImage(
   signal?: AbortSignal,
   session?: Session | null,
 ): Promise<AnalysisResponse> {
-  const directUrl = directAnalyzeApiUrl();
   const proxyUrl = apiUrl("/api/analyze-chart");
-  let response: Response;
-
-  try {
-    response = await postAnalysisRequest(directUrl ?? proxyUrl, file, analysisMode, signal, session);
-  } catch (error) {
-    if (!directUrl || signal?.aborted) {
-      throw error;
-    }
-    response = await postAnalysisRequest(proxyUrl, file, analysisMode, signal, session);
-  }
+  const response = await postAnalysisRequest(proxyUrl, file, analysisMode, signal, session);
 
   if (!response.ok) {
     await parseError(response);

@@ -41,7 +41,7 @@ const plans: Array<{
     features: [
       "일 20회 / 월 100회",
       "광고 제거",
-      "리포트 저장",
+      "리포트 저장 최근 50회",
       "뉴스 기반 리서치 10회 제공 예정",
     ],
     button: "준비 중",
@@ -55,8 +55,10 @@ const plans: Array<{
     description: "더 깊은 분석이 필요한 사용자를 위한 플랜입니다.",
     features: [
       "일 50회 / 월 300회",
+      "광고 제거",
       "더 정밀한 AI 분석",
       "고급 패턴 분석",
+      "리포트 저장 최근 200회",
       "뉴스 기반 리서치 30회 제공 예정",
       "심층 리서치 10회 제공 예정",
     ],
@@ -120,7 +122,7 @@ export default function PricingModal({
                     </span>
                   ) : plan.disabled ? (
                     <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">
-                      Coming Soon
+                      제공 예정
                     </span>
                   ) : null}
                 </div>

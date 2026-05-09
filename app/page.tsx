@@ -14,8 +14,6 @@ import { getOrCreateGuestId } from "../lib/identity";
 import type { AnalysisResponse } from "../types/analysis";
 import type { UsageStatus, UserPlan } from "../types/billing";
 
-const LOGIN_HINT_DISMISSED_KEY = "chart_vision_login_hint_dismissed";
-
 const loadingSteps = [
   "이미지 최적화 중",
   "차트 구조 분석 중",
@@ -108,12 +106,12 @@ function buildLimitMessage(code: string | undefined, usageStatus: UsageStatus | 
   if (plan === "free") {
     return isMonthly
       ? "이번 달 Free 분석 횟수를 모두 사용했습니다. Plus 플랜은 월 100회 분석을 제공할 예정입니다."
-      : "Free 분석 횟수를 모두 사용했습니다. Plus 플랜은 월 100회 분석을 제공할 예정입니다.";
+      : "오늘 Free 분석 횟수를 모두 사용했습니다. Plus 플랜은 일 20회, 월 100회 분석을 제공할 예정입니다.";
   }
   if (plan === "plus") {
     return isMonthly
       ? "이번 달 Plus 분석 횟수를 모두 사용했습니다. Pro 플랜은 월 300회 분석을 제공할 예정입니다."
-      : "오늘 Plus 분석 횟수를 모두 사용했습니다. Pro 플랜은 하루 50회 분석을 제공할 예정입니다.";
+      : "오늘 Plus 분석 횟수를 모두 사용했습니다. Pro 플랜은 일 50회, 월 300회 분석을 제공할 예정입니다.";
   }
   return isMonthly
     ? "이번 달 Pro 분석 횟수를 모두 사용했습니다."
@@ -189,7 +187,6 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      setLoginHintDismissed(window.localStorage.getItem(LOGIN_HINT_DISMISSED_KEY) === "true");
       getOrCreateGuestId();
     }
   }, []);
@@ -239,7 +236,6 @@ export default function Home() {
 
   const dismissLoginHint = () => {
     setLoginHintDismissed(true);
-    window.localStorage.setItem(LOGIN_HINT_DISMISSED_KEY, "true");
   };
 
   const startLoadingSteps = () => {
@@ -325,6 +321,8 @@ export default function Home() {
       abortControllerRef.current = null;
     }
   };
+
+  const isLimitError = Boolean(error && (error.includes("분석 횟수") || error.includes("무료 분석")));
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
@@ -412,29 +410,29 @@ export default function Home() {
 
         {!analysisResult && !isLoading && !error ? (
           <section className="rounded-lg border border-blue-100 bg-blue-50 px-5 py-4 text-sm leading-6 text-blue-800">
-            로그인하지 않아도 비로그인 무료 체험으로 차트 분석을 시작할 수 있습니다. 로그인하면 무료 사용량과 분석 기록 저장 기능을 계정 기준으로 사용할 수 있습니다.
+            로그인하지 않아도 비로그인 무료 체험으로 차트 분석을 시작할 수 있습니다. 로그인하면 하루 3회, 월 10회까지 무료로 사용할 수 있습니다.
           </section>
         ) : null}
 
         {error ? (
           <section
             className={
-              error.includes("분석 횟수") || error.includes("무료 분석")
+              isLimitError
                 ? "rounded-lg border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-800"
                 : "rounded-lg border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700"
             }
           >
             <p>{error}</p>
-            {usageStatus?.plan === "guest" && (error.includes("분석 횟수") || error.includes("무료 분석")) ? (
+            {usageStatus?.plan === "guest" && isLimitError ? (
               <button
                 type="button"
                 onClick={() => router.push("/login")}
                 className="mt-3 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
               >
-                로그인하고 무료 분석 더 받기
+                Google로 로그인하고 추가 분석 받기
               </button>
             ) : null}
-            {usageStatus?.plan === "free" && (error.includes("분석 횟수") || error.includes("무료 분석")) ? (
+            {usageStatus?.plan === "free" && isLimitError ? (
               <button
                 type="button"
                 disabled

@@ -463,11 +463,20 @@ export interface TradingReport {
   };
   scoreSummary?: {
     totalScore: number;
-    label: "매매 부적합" | "신규 진입 주의" | "관망 우세" | "조건부 매수 후보" | "매수 우위" | string;
+    totalLabel: "매매 부적합" | "신규 진입 주의" | "관망 우세" | "조건부 매수 후보" | "매수 우위" | string;
+    label?: "매매 부적합" | "신규 진입 주의" | "관망 우세" | "조건부 매수 후보" | "매수 우위" | string;
     buyScore: number;
+    buyLabel: "매수 부적합" | "매수 주의" | "조건부 대기" | "매수 후보" | "매수 우위" | string;
     holdScore: number;
+    holdLabel: "보유 부적합" | "비중 축소 고려" | "관망 가능" | "보유 우세" | "강한 보유" | string;
     riskScore: number;
+    riskLabel: "낮음" | "보통" | "주의" | "높음" | "매우 높음" | string;
     explanation: string;
+    scoreFactors: {
+      positive: Array<{ label: string; scoreImpact: number; reason: string }>;
+      negative: Array<{ label: string; scoreImpact: number; reason: string }>;
+      risk: Array<{ label: string; scoreImpact: number; reason: string }>;
+    };
   };
   userActionGuide: {
     nonHolder: string;

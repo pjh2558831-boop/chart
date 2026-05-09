@@ -45,6 +45,17 @@ function hasContent(value?: string | null) {
   return Boolean(value && !value.includes("산정 제한") && !value.includes("확인 제한"));
 }
 
+function scoreTone(score: number, mode: "normal" | "risk" = "normal") {
+  if (mode === "risk") {
+    if (score < 40) return "border-emerald-200 bg-emerald-50 text-emerald-900";
+    if (score < 60) return "border-amber-200 bg-amber-50 text-amber-900";
+    return "border-rose-200 bg-rose-50 text-rose-900";
+  }
+  if (score < 50) return "border-rose-200 bg-rose-50 text-rose-900";
+  if (score < 65) return "border-blue-200 bg-blue-50 text-blue-900";
+  return "border-emerald-200 bg-emerald-50 text-emerald-900";
+}
+
 function BulletList({ items, tone = "slate" }: { items: string[]; tone?: "green" | "red" | "amber" | "slate" }) {
   const color = {
     green: "border-emerald-100 bg-emerald-50 text-emerald-900",
@@ -79,9 +90,18 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
         : "info";
   const score = scoreSummary ?? {
     totalScore: 50,
+    totalLabel: "관망 우세",
     label: "관망 우세",
+    buyScore: 40,
+    buyLabel: "매수 주의",
+    holdScore: 60,
+    holdLabel: "관망 가능",
+    riskScore: 55,
+    riskLabel: "주의",
     explanation: "이미지 기반 분석이므로 추가 확인 조건이 필요합니다.",
+    scoreFactors: { positive: [], negative: [], risk: [] },
   };
+  const totalLabel = score.totalLabel ?? score.label ?? "관망 우세";
 
   return (
     <section className={`rounded-lg border p-5 shadow-soft ${actionTone[finalSummary.finalAction]}`}>
@@ -93,7 +113,7 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
           {finalSummary.reason ? <p className="mt-3 text-sm leading-6 opacity-80">{finalSummary.reason}</p> : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <StatusBadge label={actionLabel[finalSummary.finalAction]} tone={tone} />
-            <StatusBadge label={`분석 점수 ${score.totalScore} / 100 · ${score.label}`} tone="neutral" />
+            <StatusBadge label={`분석 점수 ${score.totalScore} / 100 · ${totalLabel}`} tone="neutral" />
             <StatusBadge label={`신뢰도 ${confidenceLabel(finalSummary.confidence)}`} tone="neutral" />
           </div>
           {score.explanation ? <p className="mt-3 text-sm leading-6 opacity-80">{score.explanation}</p> : null}
@@ -121,12 +141,74 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
           </div>
           <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
             <p className="font-semibold">분석 점수</p>
-            <p className="mt-1 text-lg font-bold">{score.totalScore} / 100</p>
-            <p className="mt-1">{score.label}</p>
+            <p className="mt-1 text-lg font-bold">종합 {score.totalScore} / 100</p>
+            <p className="mt-1">{totalLabel}</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <div className={`rounded-md border px-3 py-2 ${scoreTone(score.buyScore)}`}>
+                <p className="text-xs font-semibold">신규 진입</p>
+                <p className="mt-1 font-bold">{score.buyScore} / 100</p>
+                <p className="text-xs">{score.buyLabel}</p>
+              </div>
+              <div className={`rounded-md border px-3 py-2 ${scoreTone(score.holdScore)}`}>
+                <p className="text-xs font-semibold">보유 관망</p>
+                <p className="mt-1 font-bold">{score.holdScore} / 100</p>
+                <p className="text-xs">{score.holdLabel}</p>
+              </div>
+              <div className={`rounded-md border px-3 py-2 ${scoreTone(score.riskScore, "risk")}`}>
+                <p className="text-xs font-semibold">위험도</p>
+                <p className="mt-1 font-bold">{score.riskScore} / 100</p>
+                <p className="text-xs">{score.riskLabel} · 높을수록 위험</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+export function ScoreFactorsSection({ scoreSummary }: { scoreSummary?: TradingReport["scoreSummary"] }) {
+  if (!scoreSummary) return null;
+  const factors = scoreSummary.scoreFactors ?? { positive: [], negative: [], risk: [] };
+  const renderFactor = (items: Array<{ label: string; scoreImpact: number; reason: string }>, tone: "green" | "red" | "amber") => {
+    if (!items.length) return <p className="text-sm text-slate-500">표시할 근거가 제한적입니다.</p>;
+    const color = {
+      green: "border-emerald-100 bg-emerald-50 text-emerald-900",
+      red: "border-rose-100 bg-rose-50 text-rose-900",
+      amber: "border-amber-100 bg-amber-50 text-amber-900",
+    }[tone];
+    return (
+      <div className="space-y-2">
+        {items.map((item) => (
+          <div key={`${item.label}-${item.scoreImpact}-${item.reason}`} className={`rounded-lg border px-4 py-3 text-sm ${color}`}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-semibold">{item.label}</span>
+              <span className="font-bold">{item.scoreImpact > 0 ? `+${item.scoreImpact}` : item.scoreImpact}</span>
+            </div>
+            <p className="mt-1 leading-6 opacity-85">{item.reason}</p>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <ResultSection title="점수 산정 근거" description="실제 점수 계산에 반영된 요인을 긍정, 감점, 위험 요인으로 나눠 표시합니다." tone="blue">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div>
+          <h3 className="mb-2 text-sm font-bold text-emerald-800">긍정 요인</h3>
+          {renderFactor(factors.positive, "green")}
+        </div>
+        <div>
+          <h3 className="mb-2 text-sm font-bold text-rose-800">감점 요인</h3>
+          {renderFactor(factors.negative, "red")}
+        </div>
+        <div>
+          <h3 className="mb-2 text-sm font-bold text-amber-800">위험 요인</h3>
+          {renderFactor(factors.risk, "amber")}
+        </div>
+      </div>
+    </ResultSection>
   );
 }
 

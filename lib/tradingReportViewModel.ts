@@ -146,6 +146,30 @@ function scoreLabel(score: number) {
   return "매수 우위";
 }
 
+function buyScoreLabel(score: number) {
+  if (score < 30) return "매수 부적합";
+  if (score < 50) return "매수 주의";
+  if (score < 65) return "조건부 대기";
+  if (score < 80) return "매수 후보";
+  return "매수 우위";
+}
+
+function holdScoreLabel(score: number) {
+  if (score < 30) return "보유 부적합";
+  if (score < 50) return "비중 축소 고려";
+  if (score < 65) return "관망 가능";
+  if (score < 80) return "보유 우세";
+  return "강한 보유";
+}
+
+function riskScoreLabel(score: number) {
+  if (score < 20) return "낮음";
+  if (score < 40) return "보통";
+  if (score < 60) return "주의";
+  if (score < 80) return "높음";
+  return "매우 높음";
+}
+
 function riskReward(entry: number | null, stop: number | null, target: number | null) {
   if (!finite(entry) || !finite(stop) || !finite(target)) {
     return { value: null, label: "부적합" as const, interpretation: "이미지 기반 분석으로 손익비를 정확히 계산하기 어렵습니다." };
@@ -198,35 +222,94 @@ function visibleIndicatorCount(raw: AnalysisResponse) {
 
 function buildScoreSummary(raw: AnalysisResponse, nearResistance: boolean, rr: ReturnType<typeof riskReward>, supportBroken: boolean) {
   let total = 50;
+  let buyScore = 50;
+  let holdScore = 50;
+  let riskScore = 40;
+  const positive: Array<{ label: string; scoreImpact: number; reason: string }> = [];
+  const negative: Array<{ label: string; scoreImpact: number; reason: string }> = [];
+  const risk: Array<{ label: string; scoreImpact: number; reason: string }> = [];
   const trend = statusKo(raw.aiAnalysis?.visualTrend);
   const visibleCount = visibleIndicatorCount(raw);
-  if (trend === "상승 추세") total += 15;
-  if (!supportBroken) total += 10;
+  if (trend === "상승 추세") {
+    total += 15;
+    buyScore += 10;
+    holdScore += 15;
+    positive.push({ label: "상승 추세 유지", scoreImpact: 15, reason: "차트의 큰 방향이 아직 상승 쪽으로 해석됩니다." });
+  }
+  if (!supportBroken) {
+    total += 10;
+    holdScore += 15;
+    riskScore -= 10;
+    positive.push({ label: "주요 지지선 위 가격 유지", scoreImpact: 10, reason: "가까운 지지 후보를 아직 이탈하지 않았습니다." });
+  }
   if (visibleCount >= 3) total += 5;
-  if (nearResistance) total -= 15;
-  if (rr.value === null || rr.value < 1) total -= 15;
-  if (visibleCount < 3) total -= 5;
+  if (nearResistance) {
+    total -= 15;
+    buyScore -= 20;
+    holdScore -= 5;
+    riskScore += 15;
+    negative.push({ label: "저항 구간 근접", scoreImpact: -15, reason: "현재 가격이 주요 저항에 가까워 신규 추격매수에는 불리합니다." });
+  }
+  if (rr.value === null || rr.value < 1) {
+    total -= 15;
+    buyScore -= 20;
+    riskScore += 20;
+    negative.push({ label: "손익비 부족", scoreImpact: -15, reason: rr.interpretation });
+  } else if (rr.value >= 1.5) {
+    buyScore += 15;
+    riskScore -= 10;
+    positive.push({ label: "손익비 1.5 이상", scoreImpact: 15, reason: "단기 손절 기준 대비 목표 여지가 있습니다." });
+  }
+  if (visibleCount < 3) {
+    total -= 5;
+    buyScore -= 5;
+    riskScore += 5;
+    negative.push({ label: "RSI/MACD 등 주요 지표 확인 제한", scoreImpact: -5, reason: "보조지표가 명확하지 않아 신뢰도를 보수적으로 봅니다." });
+    risk.push({ label: "RSI/MACD 확인 불가", scoreImpact: 5, reason: "과매수 여부와 모멘텀 전환 신뢰도가 제한됩니다." });
+  }
   total -= 5;
+  riskScore += 5;
+  negative.push({ label: "이미지 기반 분석 한계", scoreImpact: -5, reason: "실제 OHLCV 데이터 검증이 없어 점수를 보수적으로 조정합니다." });
+  risk.push({ label: "이미지 기반 분석 한계", scoreImpact: 5, reason: "이미지 추정값은 실제 가격 데이터와 차이가 있을 수 있습니다." });
 
-  const buyScore = clamp(raw.tradeSignal?.buyScore, 0);
-  let holdScore = clamp(60 + (trend === "상승 추세" ? 15 : 0) + (supportBroken ? -30 : 10) - (nearResistance ? 5 : 0), 55);
-  const riskScore = clamp(35 + (nearResistance ? 20 : 0) + (rr.value === null || rr.value < 1 ? 20 : 0) + (visibleCount < 3 ? 10 : 0) + (supportBroken ? 20 : 0), 40);
+  if (supportBroken) {
+    total -= 30;
+    holdScore -= 30;
+    riskScore += 30;
+    negative.push({ label: "주요 지지선 이탈", scoreImpact: -30, reason: "단기 손절 기준을 이탈한 상태로 해석됩니다." });
+    risk.push({ label: "주요 지지선 이탈", scoreImpact: 30, reason: "단기 상승 관점이 약화됩니다." });
+  }
 
   if (nearResistance || rr.value === null || rr.value < 1) total = Math.min(total, 64);
+  if (buyScore < 50 && riskScore >= 50) total = Math.min(total, 64);
   if (riskScore >= 70) total = Math.min(total, 79);
+  if (riskScore >= 60) total = Math.min(total, 64);
+  if (riskScore >= 70) total = Math.min(total, 49);
   const clampedTotal = clamp(total, 50);
-  const label = scoreLabel(clampedTotal);
-  if (label === "관망 우세" || label === "신규 진입 주의") holdScore = Math.max(holdScore, buyScore);
+  const clampedBuy = clamp(nearResistance || rr.value === null || rr.value < 1 ? Math.min(buyScore, 55) : buyScore, 50);
+  let clampedHold = clamp(holdScore, 50);
+  const clampedRisk = clamp(riskScore, 40);
+  const totalLabel = scoreLabel(clampedTotal);
+  if (totalLabel === "관망 우세" || totalLabel === "신규 진입 주의") clampedHold = Math.max(clampedHold, clampedBuy);
 
   return {
     totalScore: clampedTotal,
-    label,
-    buyScore: nearResistance || rr.value === null || rr.value < 1 ? Math.min(buyScore, 55) : buyScore,
-    holdScore,
-    riskScore,
+    totalLabel,
+    label: totalLabel,
+    buyScore: clampedBuy,
+    buyLabel: buyScoreLabel(clampedBuy),
+    holdScore: clampedHold,
+    holdLabel: holdScoreLabel(clampedHold),
+    riskScore: clampedRisk,
+    riskLabel: riskScoreLabel(clampedRisk),
     explanation: nearResistance
       ? "상승 추세는 유지될 수 있지만 현재 가격이 저항 구간에 가까워 신규 진입보다는 보유 관망이 유리합니다."
       : "주요 조건을 종합하면 추가 확인 조건을 기다리는 관망 우세 구간입니다.",
+    scoreFactors: {
+      positive: positive.slice(0, 5),
+      negative: negative.slice(0, 5),
+      risk: risk.slice(0, 5),
+    },
   };
 }
 
@@ -247,23 +330,37 @@ function normalizeExistingReport(report: TradingReport): TradingReport {
 
   const scoreSummary = report.scoreSummary ?? {
     totalScore: 50,
+    totalLabel: "관망 우세",
     label: "관망 우세",
     buyScore: 40,
+    buyLabel: "매수 주의",
     holdScore: 60,
+    holdLabel: "관망 가능",
     riskScore: 55,
+    riskLabel: "주의",
     explanation: "이미지 기반 분석이므로 추가 확인 조건이 필요합니다.",
+    scoreFactors: {
+      positive: [],
+      negative: [{ label: "이미지 기반 분석 한계", scoreImpact: -5, reason: "실제 OHLCV 데이터 검증이 필요합니다." }],
+      risk: [{ label: "이미지 기반 분석 한계", scoreImpact: 5, reason: "이미지 추정값은 실제 가격 데이터와 차이가 있을 수 있습니다." }],
+    },
   };
   if ((report.finalSummary.finalAction === "WAIT" || report.finalSummary.finalAction === "HOLD") && scoreSummary.holdScore < scoreSummary.buyScore) {
     scoreSummary.holdScore = scoreSummary.buyScore;
   }
   if ((report.finalSummary.finalAction === "WAIT" || report.finalSummary.finalAction === "HOLD") && scoreSummary.totalScore >= 80) {
     scoreSummary.totalScore = 64;
-    scoreSummary.label = scoreLabel(scoreSummary.totalScore);
+    scoreSummary.totalLabel = scoreLabel(scoreSummary.totalScore);
+    scoreSummary.label = scoreSummary.totalLabel;
   }
   if (report.finalSummary.finalAction === "SELL_RISK" && scoreSummary.totalScore > 49) {
     scoreSummary.totalScore = 49;
-    scoreSummary.label = scoreLabel(scoreSummary.totalScore);
+    scoreSummary.totalLabel = scoreLabel(scoreSummary.totalScore);
+    scoreSummary.label = scoreSummary.totalLabel;
   }
+  scoreSummary.buyLabel = buyScoreLabel(scoreSummary.buyScore);
+  scoreSummary.holdLabel = holdScoreLabel(scoreSummary.holdScore);
+  scoreSummary.riskLabel = riskScoreLabel(scoreSummary.riskScore);
 
   return {
     ...report,
@@ -311,6 +408,14 @@ function buildFallbackReport(raw: AnalysisResponse): TradingReport {
     finalAction = "SELL_RISK";
     title = "손절 위험";
     oneLineConclusion = "단기 지지선을 이탈해 손절 위험이 커졌습니다.";
+  } else if (scoreSummary.riskScore >= 70) {
+    finalAction = "NO_TRADE";
+    title = "매매 부적합";
+    oneLineConclusion = "위험 점수가 높아 신규 진입보다 리스크 관리가 우선입니다.";
+  } else if (scoreSummary.buyScore < 50 && scoreSummary.riskScore >= 50) {
+    finalAction = "WAIT";
+    title = "신규 진입 보류 / 보유자는 관망";
+    oneLineConclusion = "위험 요인이 신규 진입 점수보다 커서 추가 확인 전까지 대기가 우선입니다.";
   } else if (nearResistance && (rr.value === null || rr.value < 1)) {
     finalAction = "WAIT";
     title = "신규 진입 보류 / 보유자는 관망";
@@ -326,8 +431,12 @@ function buildFallbackReport(raw: AnalysisResponse): TradingReport {
   }
   if ((finalAction === "WAIT" || finalAction === "HOLD") && scoreSummary.totalScore >= 80) {
     scoreSummary.totalScore = 64;
-    scoreSummary.label = scoreLabel(scoreSummary.totalScore);
+    scoreSummary.totalLabel = scoreLabel(scoreSummary.totalScore);
+    scoreSummary.label = scoreSummary.totalLabel;
   }
+  scoreSummary.buyLabel = buyScoreLabel(scoreSummary.buyScore);
+  scoreSummary.holdLabel = holdScoreLabel(scoreSummary.holdScore);
+  scoreSummary.riskLabel = riskScoreLabel(scoreSummary.riskScore);
 
   const resistanceText = formatPrice(levels.firstResistance);
   const transitionNote = finite(levels.firstResistance)

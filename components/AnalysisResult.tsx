@@ -15,6 +15,7 @@ import {
   KeyLevelsSection,
   PatternAnalysisSection,
   ScenarioSection,
+  ScoreFactorsSection,
   TradePlanTable,
   UserActionGuideTable,
 } from "./TradingReportSections";
@@ -154,6 +155,7 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
       <TradePlanTable plan={report.tradePlan} />
       <KeyLevelsSection levels={report.keyLevels} />
       <ScenarioSection scenarios={report.scenarios} />
+      <ScoreFactorsSection scoreSummary={report.scoreSummary} />
       <EvidenceSection evidence={report.evidence} />
       <PatternAnalysisSection analysis={report.patternAnalysis} />
       <IndicatorSummarySection analysis={report.indicatorAnalysis} />

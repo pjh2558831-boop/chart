@@ -3,8 +3,8 @@
 import type { UsageStatus, UserPlan } from "../types/billing";
 
 const planLabels: Record<UserPlan, string> = {
-  guest: "비로그인 무료 체험",
-  free: "Free",
+  guest: "비로그인",
+  free: "free",
   plus: "Plus",
   pro: "Pro",
 };
@@ -15,7 +15,7 @@ const fallbackGuestUsage: UsageStatus = {
   userId: null,
   guestId: "guest",
   plan: "guest",
-  planLabel: "비로그인 무료 체험",
+  planLabel: "비로그인",
   price: 0,
   dailyLimit: 1,
   monthlyLimit: 3,
@@ -40,7 +40,7 @@ export default function UsageStatusCard({
   onOpenPricing: () => void;
 }) {
   const status = usageStatus ?? fallbackGuestUsage;
-  const title = status.planLabel ?? planLabels[status.plan] ?? "현재 플랜";
+  const title = planLabels[status.plan] ?? "비로그인";
   const dailyUsed = Math.min(Math.max(status.dailyUsed, 0), status.dailyLimit);
   const monthlyUsed = Math.min(Math.max(status.monthlyUsed, 0), status.monthlyLimit);
   const dailyRemaining = Math.max(0, status.dailyRemaining);

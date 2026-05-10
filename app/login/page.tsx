@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "../../context/AuthContext";
 import { signInWithGoogle } from "../../lib/auth";
+import { isSupabaseConfigured } from "../../lib/supabase";
 
 export default function LoginPage() {
   const { user, loading } = useAuth();
@@ -21,6 +22,10 @@ export default function LoginPage() {
   }, [loading, router, user]);
 
   const handleGoogleLogin = async () => {
+    if (!isSupabaseConfigured) {
+      setError("로그인 기능 설정이 필요합니다. 비로그인 분석 모드로 이용해주세요.");
+      return;
+    }
     setError(null);
     setIsLoading(true);
     try {
@@ -43,10 +48,10 @@ export default function LoginPage() {
         <button
           type="button"
           onClick={handleGoogleLogin}
-          disabled={isLoading || loading}
+          disabled={isLoading || loading || !isSupabaseConfigured}
           className="mt-6 w-full rounded-md bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          {isLoading ? "로그인 이동 중..." : "Google로 계속하기"}
+          {!isSupabaseConfigured ? "로그인 설정 필요" : isLoading ? "로그인 이동 중..." : "Google로 계속하기"}
         </button>
 
         {error ? (

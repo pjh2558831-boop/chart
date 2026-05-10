@@ -10,7 +10,9 @@ import PricingModal from "../components/PricingModal";
 import UsageStatusCard from "../components/UsageStatusCard";
 import { useAuth } from "../context/AuthContext";
 import { analyzeChartImage, ApiError, getUsageStatus, type AnalysisMode } from "../lib/api";
+import { getGuestFallbackUsageStatus, recordGuestFallbackAnalysisSuccess } from "../lib/guestUsageFallback";
 import { getOrCreateGuestId } from "../lib/identity";
+import { buildUsageStatusFromCounts } from "../lib/planLimits";
 import type { AnalysisResponse } from "../types/analysis";
 import type { UsageStatus, UserPlan } from "../types/billing";
 
@@ -55,25 +57,14 @@ const modeLabelByValue: Record<AnalysisMode, string> = {
 
 function createGuestFallbackUsageStatus(): UsageStatus {
   const guestId = typeof window === "undefined" ? "server-guest" : getOrCreateGuestId();
-  return {
+  return buildUsageStatusFromCounts({
     identityType: "guest",
     id: guestId,
-    userId: null,
     guestId,
     plan: "guest",
-    planLabel: "비로그인",
-    price: 0,
-    dailyLimit: 1,
-    monthlyLimit: 3,
     dailyUsed: 0,
     monthlyUsed: 0,
-    dailyRemaining: 1,
-    monthlyRemaining: 3,
-    analysisMode: "fast",
-    enabledFeatures: ["image_analysis"],
-    isLoggedIn: false,
-    isPaidPlan: false,
-  };
+  });
 }
 
 function fileKey(file: File, analysisMode: AnalysisMode) {
@@ -163,6 +154,7 @@ export default function Home() {
   const [usageStatus, setUsageStatus] = useState<UsageStatus | null>(null);
   const [usageLoading, setUsageLoading] = useState(true);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [useGuestFallbackUsage, setUseGuestFallbackUsage] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -202,17 +194,19 @@ export default function Home() {
         const nextUsageStatus = await getUsageStatus(session);
         if (!cancelled) {
           setUsageStatus(nextUsageStatus);
+          setUseGuestFallbackUsage(false);
           setAnalysisMode((current) => normalizeModeForPlan(current, nextUsageStatus.plan));
         }
       } catch (requestError) {
         console.error("Failed to load usage status", requestError);
         if (!cancelled) {
-          const fallback = createGuestFallbackUsageStatus();
+          const fallback = session?.user ? createGuestFallbackUsageStatus() : getGuestFallbackUsageStatus();
           setUsageStatus(fallback);
+          setUseGuestFallbackUsage(true);
           setUsageError(
-            requestError instanceof Error
-              ? requestError.message
-              : "사용량 정보를 불러오지 못해 임시 정보를 표시합니다.",
+            session?.user
+              ? "로그인 기능 설정이 필요합니다. 비로그인 분석 모드로 실행합니다."
+              : "Supabase 사용량 조회에 실패해 비로그인 임시 제한으로 실행합니다.",
           );
           setAnalysisMode((current) => normalizeModeForPlan(current, fallback.plan));
         }
@@ -264,9 +258,14 @@ export default function Home() {
     try {
       const nextUsageStatus = await getUsageStatus(session);
       setUsageStatus(nextUsageStatus);
+      setUseGuestFallbackUsage(false);
       setAnalysisMode((current) => normalizeModeForPlan(current, nextUsageStatus.plan));
     } catch (requestError) {
       console.error("Failed to refresh usage status", requestError);
+      if (!session?.user) {
+        setUseGuestFallbackUsage(true);
+        setUsageStatus(getGuestFallbackUsageStatus());
+      }
     }
   };
 
@@ -294,9 +293,18 @@ export default function Home() {
     startLoadingSteps();
 
     try {
-      const result = await analyzeChartImage(selectedFile, safeAnalysisMode, abortController.signal, session);
+      const requestSession = useGuestFallbackUsage ? null : session;
+      const result = await analyzeChartImage(
+        selectedFile,
+        safeAnalysisMode,
+        abortController.signal,
+        requestSession,
+        useGuestFallbackUsage,
+      );
       setAnalysisResult(result);
-      if (result.usageStatus) {
+      if (useGuestFallbackUsage) {
+        setUsageStatus(recordGuestFallbackAnalysisSuccess());
+      } else if (result.usageStatus) {
         setUsageStatus(result.usageStatus);
         setAnalysisMode((current) => normalizeModeForPlan(current, result.usageStatus!.plan));
       } else {
@@ -307,6 +315,12 @@ export default function Home() {
         if (requestError.usageStatus) {
           setUsageStatus(requestError.usageStatus);
           setAnalysisMode((current) => normalizeModeForPlan(current, requestError.usageStatus!.plan));
+        }
+        if (!session?.user && requestError.status === 503) {
+          setUseGuestFallbackUsage(true);
+          setUsageStatus(getGuestFallbackUsageStatus());
+          setError("Supabase 사용량 조회에 실패해 비로그인 임시 제한으로 전환했습니다. 다시 분석을 시도해주세요.");
+          return;
         }
         const limitMessage = buildLimitMessage(requestError.code || requestError.message, requestError.usageStatus ?? usageStatus);
         setError(limitMessage || requestError.message);

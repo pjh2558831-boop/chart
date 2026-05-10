@@ -1,6 +1,7 @@
 "use client";
 
 import type { UsageStatus } from "../types/billing";
+import type { UserPlan } from "../types/billing";
 import { PLAN_DISPLAY_LABELS } from "../lib/planLimits";
 
 const fallbackGuestUsage: UsageStatus = {
@@ -27,20 +28,23 @@ export default function UsageStatusCard({
   usageStatus,
   loading,
   error,
+  fallbackPlan = "guest",
   onOpenPricing,
 }: {
   usageStatus: UsageStatus | null;
   loading: boolean;
   error?: string | null;
+  fallbackPlan?: UserPlan;
   onOpenPricing: () => void;
 }) {
   if (error && !usageStatus) {
+    const fallbackTitle = PLAN_DISPLAY_LABELS[fallbackPlan] ?? "GUEST";
     return (
       <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-soft">
         <div className="grid gap-4 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-center">
           <div>
             <p className="text-sm font-semibold text-amber-700">현재 플랜</p>
-            <p className="mt-2 text-2xl font-bold text-slate-950">확인 중</p>
+            <p className="mt-2 text-2xl font-bold text-slate-950">{fallbackTitle}</p>
           </div>
           <p className="text-sm leading-6 text-amber-800 md:col-span-2">{error}</p>
           <button

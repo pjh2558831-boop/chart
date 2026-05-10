@@ -61,7 +61,7 @@ function createGuestFallbackUsageStatus(): UsageStatus {
     userId: null,
     guestId,
     plan: "guest",
-    planLabel: "비로그인 무료 체험",
+    planLabel: "비로그인",
     price: 0,
     dailyLimit: 1,
     monthlyLimit: 3,
@@ -385,7 +385,7 @@ export default function Home() {
                 <span className="mb-2 block font-semibold text-slate-900">분석 모드</span>
                 <select
                   value={safeAnalysisMode}
-                  disabled={isLoading}
+                  disabled={isLoading || usageLoading || isUsageExceeded}
                   onChange={(event) => setAnalysisMode(event.target.value as AnalysisMode)}
                   className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm disabled:cursor-not-allowed disabled:bg-slate-100 sm:w-44"
                 >
@@ -400,7 +400,7 @@ export default function Home() {
               </label>
               <button
                 type="button"
-                disabled={!selectedFile || isLoading || usageLoading}
+                disabled={!selectedFile || isLoading || usageLoading || isUsageExceeded}
                 onClick={handleAnalyze}
                 className="rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               >

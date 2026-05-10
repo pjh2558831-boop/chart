@@ -12,7 +12,6 @@ import { useAuth } from "../context/AuthContext";
 import { analyzeChartImage, ApiError, getUsageStatus, type AnalysisMode } from "../lib/api";
 import { getGuestFallbackUsageStatus, recordGuestFallbackAnalysisSuccess } from "../lib/guestUsageFallback";
 import { getOrCreateGuestId } from "../lib/identity";
-import { buildUsageStatusFromCounts } from "../lib/planLimits";
 import type { AnalysisResponse } from "../types/analysis";
 import type { UsageStatus, UserPlan } from "../types/billing";
 
@@ -54,18 +53,6 @@ const modeLabelByValue: Record<AnalysisMode, string> = {
   standard: "기본 분석",
   precision: "정밀 분석",
 };
-
-function createGuestFallbackUsageStatus(): UsageStatus {
-  const guestId = typeof window === "undefined" ? "server-guest" : getOrCreateGuestId();
-  return buildUsageStatusFromCounts({
-    identityType: "guest",
-    id: guestId,
-    guestId,
-    plan: "guest",
-    dailyUsed: 0,
-    monthlyUsed: 0,
-  });
-}
 
 function fileKey(file: File, analysisMode: AnalysisMode) {
   return `${file.name}:${file.size}:${file.lastModified}:${analysisMode}`;
@@ -200,15 +187,17 @@ export default function Home() {
       } catch (requestError) {
         console.error("Failed to load usage status", requestError);
         if (!cancelled) {
-          const fallback = session?.user ? createGuestFallbackUsageStatus() : getGuestFallbackUsageStatus();
-          setUsageStatus(fallback);
-          setUseGuestFallbackUsage(true);
-          setUsageError(
-            session?.user
-              ? "로그인 기능 설정이 필요합니다. 비로그인 분석 모드로 실행합니다."
-              : "Supabase 사용량 조회에 실패해 비로그인 임시 제한으로 실행합니다.",
-          );
-          setAnalysisMode((current) => normalizeModeForPlan(current, fallback.plan));
+          if (session?.user) {
+            setUsageStatus(null);
+            setUseGuestFallbackUsage(false);
+            setUsageError("사용량 확인 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.");
+          } else {
+            const fallback = getGuestFallbackUsageStatus();
+            setUsageStatus(fallback);
+            setUseGuestFallbackUsage(true);
+            setUsageError(null);
+            setAnalysisMode((current) => normalizeModeForPlan(current, fallback.plan));
+          }
         }
       } finally {
         if (!cancelled) setUsageLoading(false);
@@ -265,6 +254,9 @@ export default function Home() {
       if (!session?.user) {
         setUseGuestFallbackUsage(true);
         setUsageStatus(getGuestFallbackUsageStatus());
+        setUsageError(null);
+      } else {
+        setUsageError("사용량 확인 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.");
       }
     }
   };
@@ -316,10 +308,44 @@ export default function Home() {
           setUsageStatus(requestError.usageStatus);
           setAnalysisMode((current) => normalizeModeForPlan(current, requestError.usageStatus!.plan));
         }
-        if (!session?.user && requestError.status === 503) {
+        if (!session?.user && requestError.status === 503 && !useGuestFallbackUsage) {
+          const fallbackStatus = getGuestFallbackUsageStatus();
           setUseGuestFallbackUsage(true);
-          setUsageStatus(getGuestFallbackUsageStatus());
-          setError("Supabase 사용량 조회에 실패해 비로그인 임시 제한으로 전환했습니다. 다시 분석을 시도해주세요.");
+          setUsageStatus(fallbackStatus);
+          setUsageError(null);
+          if (fallbackStatus.dailyRemaining <= 0 || fallbackStatus.monthlyRemaining <= 0) {
+            setError(buildLimitMessage("LIMIT_REACHED", fallbackStatus) ?? "무료 분석 횟수를 모두 사용했습니다.");
+            setIsPricingOpen(true);
+            return;
+          }
+
+          try {
+            const fallbackResult = await analyzeChartImage(
+              selectedFile,
+              safeAnalysisMode,
+              abortController.signal,
+              null,
+              true,
+            );
+            setAnalysisResult(fallbackResult);
+            setUsageStatus(recordGuestFallbackAnalysisSuccess());
+            return;
+          } catch (fallbackError) {
+            if (fallbackError instanceof ApiError) {
+              const limitMessage = buildLimitMessage(
+                fallbackError.code || fallbackError.message,
+                fallbackError.usageStatus ?? fallbackStatus,
+              );
+              setError(limitMessage || fallbackError.message);
+              if (fallbackError.status === 429 || fallbackError.status === 403) setIsPricingOpen(true);
+              return;
+            }
+            setError(fallbackError instanceof Error ? fallbackError.message : "AI 분석 요청 중 오류가 발생했습니다.");
+            return;
+          }
+        }
+        if (session?.user && requestError.status === 503) {
+          setError("사용량 확인 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.");
           return;
         }
         const limitMessage = buildLimitMessage(requestError.code || requestError.message, requestError.usageStatus ?? usageStatus);

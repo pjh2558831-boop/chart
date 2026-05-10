@@ -38,15 +38,18 @@ export function getAuthHeaders(
   session?: Session | null,
   options: { guestUsageFallback?: boolean } = {},
 ): Record<string, string> {
+  const guestId = getOrCreateGuestId();
+
   if (session?.user?.id) {
     return {
       Authorization: `Bearer ${session.access_token}`,
       "X-User-Id": session.user.id,
+      "X-Guest-Id": guestId,
     };
   }
 
   const headers: Record<string, string> = {
-    "X-Guest-Id": getOrCreateGuestId(),
+    "X-Guest-Id": guestId,
   };
   if (options.guestUsageFallback) {
     headers["X-Guest-Usage-Fallback"] = "local";

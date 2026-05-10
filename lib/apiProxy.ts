@@ -54,7 +54,7 @@ function getForwardedIdentityHeaders(request: NextRequest) {
   if (guestId) headers.set("X-Guest-Id", guestId);
   if (authorization) headers.set("Authorization", authorization);
 
-  return { headers, userId, guestId };
+  return { headers, userId, guestId, authorization };
 }
 
 function normalizeAnalysisMode(value: FormDataEntryValue | null) {
@@ -96,8 +96,8 @@ export async function proxyAnalyzeChart(request: NextRequest) {
   const backend = getBackendUrl(request);
   if (backend.error) return backend.error;
 
-  const { headers, userId, guestId } = getForwardedIdentityHeaders(request);
-  if (!userId && !guestId) {
+  const { headers, guestId, authorization } = getForwardedIdentityHeaders(request);
+  if (!authorization && !guestId) {
     return jsonError(400, "로그인 정보 또는 게스트 식별자가 필요합니다.");
   }
 
@@ -161,8 +161,8 @@ export async function proxyUsageStatus(request: NextRequest) {
   const backend = getBackendUrl(request);
   if (backend.error) return backend.error;
 
-  const { headers, userId, guestId } = getForwardedIdentityHeaders(request);
-  if (!userId && !guestId) {
+  const { headers, guestId, authorization } = getForwardedIdentityHeaders(request);
+  if (!authorization && !guestId) {
     return jsonError(400, "로그인 정보 또는 게스트 식별자가 필요합니다.");
   }
 
@@ -199,8 +199,8 @@ export async function proxyJsonToBackend(
   const backend = getBackendUrl(request);
   if (backend.error) return backend.error;
 
-  const { headers, userId, guestId } = getForwardedIdentityHeaders(request);
-  if (!userId && !guestId) {
+  const { headers, guestId, authorization } = getForwardedIdentityHeaders(request);
+  if (!authorization && !guestId) {
     return jsonError(400, "로그인 정보 또는 게스트 식별자가 필요합니다.");
   }
 
@@ -228,8 +228,8 @@ export async function proxyGetToBackend(request: NextRequest, backendPath: strin
   const backend = getBackendUrl(request);
   if (backend.error) return backend.error;
 
-  const { headers, userId, guestId } = getForwardedIdentityHeaders(request);
-  if (!userId && !guestId) {
+  const { headers, guestId, authorization } = getForwardedIdentityHeaders(request);
+  if (!authorization && !guestId) {
     return jsonError(400, "로그인 정보 또는 게스트 식별자가 필요합니다.");
   }
 

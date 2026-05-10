@@ -9,7 +9,7 @@ const fallbackGuestUsage: UsageStatus = {
   userId: null,
   guestId: "guest",
   plan: "guest",
-  planLabel: "비로그인",
+  planLabel: "GUEST",
   price: 0,
   dailyLimit: 1,
   monthlyLimit: 3,
@@ -26,6 +26,7 @@ const fallbackGuestUsage: UsageStatus = {
 export default function UsageStatusCard({
   usageStatus,
   loading,
+  error,
   onOpenPricing,
 }: {
   usageStatus: UsageStatus | null;
@@ -33,8 +34,29 @@ export default function UsageStatusCard({
   error?: string | null;
   onOpenPricing: () => void;
 }) {
+  if (error && !usageStatus) {
+    return (
+      <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-soft">
+        <div className="grid gap-4 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-center">
+          <div>
+            <p className="text-sm font-semibold text-amber-700">현재 플랜</p>
+            <p className="mt-2 text-2xl font-bold text-slate-950">확인 중</p>
+          </div>
+          <p className="text-sm leading-6 text-amber-800 md:col-span-2">{error}</p>
+          <button
+            type="button"
+            onClick={onOpenPricing}
+            className="rounded-md border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+          >
+            요금제 보기
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   const status = usageStatus ?? fallbackGuestUsage;
-  const title = PLAN_DISPLAY_LABELS[status.plan] ?? "비로그인";
+  const title = PLAN_DISPLAY_LABELS[status.plan] ?? "GUEST";
   const dailyUsed = Math.min(Math.max(status.dailyUsed, 0), status.dailyLimit);
   const monthlyUsed = Math.min(Math.max(status.monthlyUsed, 0), status.monthlyLimit);
   const dailyRemaining = Math.max(0, status.dailyRemaining);

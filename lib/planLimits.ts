@@ -41,8 +41,8 @@ export const PLAN_LIMITS: Record<
 };
 
 export const PLAN_DISPLAY_LABELS: Record<UserPlan, string> = {
-  guest: "비로그인",
-  free: "free",
+  guest: "GUEST",
+  free: "FREE",
   plus: "Plus",
   pro: "Pro",
 };

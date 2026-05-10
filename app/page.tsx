@@ -331,9 +331,11 @@ export default function Home() {
           <p className="text-sm font-semibold uppercase text-blue-600">CHART VISION AI</p>
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
-              <h1 className="text-3xl font-bold text-slate-950 sm:text-4xl">AI 주식 차트 분석, 이제 더 쉽게</h1>
+              <h1 className="text-3xl font-bold text-slate-950 sm:text-4xl">
+                CHART VISION AI - AI 주식 차트 분석
+              </h1>
               <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">
-                차트 이미지를 업로드하면 AI가 추세, 지지선, 저항선, 패턴 후보와 매매 참고 구간을 빠르게 분석합니다.
+                CHART VISION AI는 주식 차트 이미지를 업로드하면 AI가 추세, 지지선, 저항선, 패턴 후보, RSI, MACD 등 기술적 분석 요소를 바탕으로 차트 해석을 도와주는 서비스입니다.
               </p>
             </div>
             <AuthStatus showLoginHint={showLoginHint} onDismissHint={dismissLoginHint} />
@@ -345,6 +347,20 @@ export default function Home() {
           <p className="mt-2">
             복잡한 설정 없이 차트 이미지만 업로드하세요. RSI, MACD, 이동평균선, 거래량, 지지선과 저항선을 종합해 현재 차트 흐름을 분석합니다.
           </p>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[
+            ["AI 차트 이미지 분석", "업로드한 차트 이미지를 기반으로 현재 추세와 주요 가격 구간을 정리합니다."],
+            ["지지선과 저항선 분석", "이미지에서 확인되는 지지 후보와 저항 후보를 분리해 대응 기준을 보여줍니다."],
+            ["RSI, MACD 기반 기술적 분석", "보조지표가 보이는 경우 RSI, MACD, 이동평균선 등 기술적 분석 요소를 함께 해석합니다."],
+            ["투자 판단 보조용 분석 리포트", "매수·매도 추천이 아니라 차트 기반 참고 리포트로 진입, 손절, 목표 후보를 정리합니다."],
+          ].map(([title, description]) => (
+            <article key={title} className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
+              <h2 className="text-base font-semibold text-slate-950">{title}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+            </article>
+          ))}
         </section>
 
         <UsageStatusCard

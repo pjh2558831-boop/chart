@@ -6,10 +6,8 @@ import { getAuthHeaders, getOrCreateGuestId } from "./identity";
 
 export type AnalysisMode = "fast" | "standard" | "precision";
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
-
 function apiUrl(path: string) {
-  return `${API_BASE_URL}${path}`;
+  return path;
 }
 
 export class ApiError extends Error {
@@ -72,6 +70,7 @@ async function postAnalysisRequest(
   analysisMode: AnalysisMode,
   signal: AbortSignal | undefined,
   session: Session | null | undefined,
+  useGuestUsageFallback = false,
 ) {
   const formData = new FormData();
   formData.append("file", file);
@@ -81,7 +80,7 @@ async function postAnalysisRequest(
 
   return fetch(url, {
     method: "POST",
-    headers: getAuthHeaders(session),
+    headers: getAuthHeaders(session, { guestUsageFallback: useGuestUsageFallback }),
     body: formData,
     signal,
   });
@@ -92,9 +91,17 @@ export async function analyzeChartImage(
   analysisMode: AnalysisMode = "standard",
   signal?: AbortSignal,
   session?: Session | null,
+  useGuestUsageFallback = false,
 ): Promise<AnalysisResponse> {
   const proxyUrl = apiUrl("/api/analyze-chart");
-  const response = await postAnalysisRequest(proxyUrl, file, analysisMode, signal, session);
+  const response = await postAnalysisRequest(
+    proxyUrl,
+    file,
+    analysisMode,
+    signal,
+    session,
+    useGuestUsageFallback,
+  );
 
   if (!response.ok) {
     await parseError(response);

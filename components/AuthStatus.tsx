@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { useAuth } from "../context/AuthContext";
+import { isSupabaseConfigured } from "../lib/supabase";
 
 type AuthStatusProps = {
   showLoginHint?: boolean;
@@ -52,12 +53,18 @@ export default function AuthStatus({ showLoginHint = false, onDismissHint }: Aut
             </p>
           </div>
         ) : null}
-        <Link
-          href="/login"
-          className="inline-flex items-center justify-center rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-        >
-          Google 로그인
-        </Link>
+        {isSupabaseConfigured ? (
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
+            Google 로그인
+          </Link>
+        ) : (
+          <span className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-500">
+            로그인 설정 필요
+          </span>
+        )}
       </div>
     );
   }

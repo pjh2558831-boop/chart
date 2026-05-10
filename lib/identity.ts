@@ -1,6 +1,7 @@
 import type { Session } from "@supabase/supabase-js";
 
-const GUEST_ID_STORAGE_KEY = "chart_guest_id";
+const GUEST_ID_STORAGE_KEY = "chartvision_guest_id";
+const RECENT_GUEST_ID_STORAGE_KEY = "chart_guest_id";
 const LEGACY_GUEST_ID_STORAGE_KEY = "chart_vision_guest_id";
 
 function createGuestId() {
@@ -20,10 +21,12 @@ export function getOrCreateGuestId(): string {
     return existing;
   }
 
-  const legacyGuestId = window.localStorage.getItem(LEGACY_GUEST_ID_STORAGE_KEY);
-  if (legacyGuestId) {
-    window.localStorage.setItem(GUEST_ID_STORAGE_KEY, legacyGuestId);
-    return legacyGuestId;
+  const migratedGuestId =
+    window.localStorage.getItem(RECENT_GUEST_ID_STORAGE_KEY) ??
+    window.localStorage.getItem(LEGACY_GUEST_ID_STORAGE_KEY);
+  if (migratedGuestId) {
+    window.localStorage.setItem(GUEST_ID_STORAGE_KEY, migratedGuestId);
+    return migratedGuestId;
   }
 
   const nextGuestId = createGuestId();
@@ -31,7 +34,10 @@ export function getOrCreateGuestId(): string {
   return nextGuestId;
 }
 
-export function getAuthHeaders(session?: Session | null): Record<string, string> {
+export function getAuthHeaders(
+  session?: Session | null,
+  options: { guestUsageFallback?: boolean } = {},
+): Record<string, string> {
   if (session?.user?.id) {
     return {
       Authorization: `Bearer ${session.access_token}`,
@@ -39,7 +45,11 @@ export function getAuthHeaders(session?: Session | null): Record<string, string>
     };
   }
 
-  return {
+  const headers: Record<string, string> = {
     "X-Guest-Id": getOrCreateGuestId(),
   };
+  if (options.guestUsageFallback) {
+    headers["X-Guest-Usage-Fallback"] = "local";
+  }
+  return headers;
 }

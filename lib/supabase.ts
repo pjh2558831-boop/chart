@@ -9,6 +9,12 @@ const supabaseAnonKey =
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
+if (!isSupabaseConfigured && typeof window !== "undefined") {
+  console.warn(
+    "Supabase public environment variables are not configured. Login is disabled, but guest analysis can still run.",
+  );
+}
+
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl as string, supabaseAnonKey as string, {
       auth: {

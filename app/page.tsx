@@ -407,6 +407,7 @@ export default function Home() {
           usageStatus={usageStatus}
           loading={usageLoading}
           error={usageError}
+          fallbackPlan={session?.user ? "free" : "guest"}
           onOpenPricing={() => setIsPricingOpen(true)}
         />
 

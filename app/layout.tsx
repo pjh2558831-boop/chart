@@ -60,7 +60,7 @@ export const metadata: Metadata = {
     description: seoDescription,
   },
   verification: {
-    google: "NmkXlZGD_Zt8v2oYontUUxErWP2ru-fAtk3i_DHfekg",
+    google: "cdgS99SDtWbWNT8XcWAaiszDs6nGgjGuzua_uQbcDPM",
     other: {
       "naver-site-verification": "4d2870f7dd55548f78db396d5af2d7295a211ae7",
     },

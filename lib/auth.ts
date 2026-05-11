@@ -2,7 +2,7 @@
 
 import { supabase } from "./supabase";
 
-const PRODUCTION_SITE_URL = "https://chart-umber.vercel.app";
+const PRODUCTION_SITE_URL = "https://www.chartvisionai.site";
 
 function getSiteUrl() {
   const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");

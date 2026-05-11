@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const DEFAULT_BACKEND_API_URL = "https://chartbackend-production.up.railway.app";
-const PRODUCTION_SITE_URL = "https://chart-umber.vercel.app";
+const PRODUCTION_SITE_URL = "https://www.chartvisionai.site";
 
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -26,7 +26,10 @@ function getBackendUrl(request: NextRequest) {
 
   if (backendUrl === requestOrigin || backendUrl === productionOrigin) {
     return {
-      error: jsonError(500, "BACKEND_API_URL은 Next.js 사이트 주소가 아니라 FastAPI 백엔드 주소여야 합니다."),
+      error: jsonError(
+        500,
+        "BACKEND_API_URL은 Next.js 사이트 주소가 아니라 FastAPI 백엔드 주소여야 합니다.",
+      ),
     };
   }
 

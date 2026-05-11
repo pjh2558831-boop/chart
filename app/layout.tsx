@@ -8,13 +8,12 @@ const siteUrl = "https://www.chartvisionai.site";
 const seoTitle = "CHART VISION AI | AI 주식 차트 분석";
 const seoDescription =
   "차트 이미지를 업로드하면 AI가 추세, 지지선, 저항선, 패턴을 분석합니다.";
-const jsonLd = {
+const organizationJsonLd = {
   "@context": "https://schema.org",
-  "@type": "WebSite",
+  "@type": "Organization",
   name: "CHART VISION AI",
   url: siteUrl,
-  description: seoDescription,
-  inLanguage: "ko-KR",
+  logo: `${siteUrl}/logo.png`,
 };
 
 export const metadata: Metadata = {
@@ -31,11 +30,27 @@ export const metadata: Metadata = {
     "RSI 분석",
     "MACD 분석",
   ],
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/icon.png", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
   openGraph: {
     title: seoTitle,
     description: seoDescription,
     url: siteUrl,
     siteName: "CHART VISION AI",
+    images: [
+      {
+        url: `${siteUrl}/logo.png`,
+        width: 1200,
+        height: 630,
+        alt: "CHART VISION AI",
+      },
+    ],
     type: "website",
     locale: "ko_KR",
   },
@@ -65,12 +80,12 @@ export default function RootLayout({
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5178506221455818"
           crossOrigin="anonymous"
         />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
       </head>
       <body>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

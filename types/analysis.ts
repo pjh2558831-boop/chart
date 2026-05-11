@@ -1,16 +1,12 @@
 import type { UsageStatus } from "./billing";
 
 export type Confidence = "low" | "medium" | "high" | "unavailable";
-export type PatternCategory = "reversal" | "continuation" | "range" | "breakout" | "unknown";
-export type BreakoutDirection =
-  | "upside_candidate"
-  | "downside_candidate"
-  | "neutral"
-  | "unknown";
-export type RiskLevel = "low" | "medium" | "high";
-export type PatternDirection = "bullish" | "bearish" | "neutral" | "unknown";
-export type PatternStage = "candidate" | "confirmed" | "failed" | "invalid";
-export type PatternEntryType = "aggressive" | "conservative" | "wait" | "none";
+export type PatternCategory = "reversal" | "continuation" | "range" | "breakout" | "unknown" | string;
+export type BreakoutDirection = "upside_candidate" | "downside_candidate" | "neutral" | "unknown" | string;
+export type RiskLevel = "low" | "medium" | "high" | string;
+export type PatternDirection = "bullish" | "bearish" | "neutral" | "unknown" | string;
+export type PatternStage = "candidate" | "confirmed" | "failed" | "invalid" | string;
+export type PatternEntryType = "aggressive" | "conservative" | "wait" | "none" | string;
 
 export type ActionParameter =
   | "buy_candidate"
@@ -23,7 +19,8 @@ export type ActionParameter =
   | "hold_candidate"
   | "neutral"
   | "insufficient_data"
-  | "insufficient_visual_data";
+  | "insufficient_visual_data"
+  | string;
 
 export interface SymbolDetection {
   detectedName?: string | null;
@@ -38,9 +35,9 @@ export interface SymbolDetection {
 export interface PatternCandidate {
   name: string;
   label: string;
-  category: PatternCategory | string;
-  direction?: PatternDirection | string;
-  stage?: PatternStage | string;
+  category: PatternCategory;
+  direction?: PatternDirection;
+  stage?: PatternStage;
   confidence: Confidence | string;
   confidenceScore?: number | null;
   baseReliability?: {
@@ -58,7 +55,7 @@ export interface PatternCandidate {
     breakdownPrice?: number | null;
   };
   tradePlan?: {
-    entryType?: PatternEntryType | string;
+    entryType?: PatternEntryType;
     entryPriceAggressive?: number | null;
     entryPriceConservative?: number | null;
     stopLossPrice?: number | null;
@@ -67,13 +64,13 @@ export interface PatternCandidate {
     riskRewardRatio?: number | null;
   };
   evidence: string[];
-  breakoutDirection: BreakoutDirection | string;
+  breakoutDirection: BreakoutDirection;
   confirmationCondition: string;
   invalidationCondition: string;
   entryLogic: string;
   tradingImplication?: string | null;
   exitLogic?: string;
-  riskLevel: RiskLevel | string;
+  riskLevel: RiskLevel;
   warnings?: string[];
   calculation?: {
     patternHeight?: number | null;
@@ -84,7 +81,7 @@ export interface PatternCandidate {
 
 export interface PatternSummary {
   primaryPattern: string | null;
-  overallPatternBias: "bullish" | "bearish" | "neutral";
+  overallPatternBias: "bullish" | "bearish" | "neutral" | string;
   bestEntryZone: string | null;
   keyInvalidationPrice: number | null;
   keyTargetPrice: number | null;
@@ -445,15 +442,95 @@ export interface ImageInfo {
   };
 }
 
+export interface AnalysisMeta {
+  symbol?: string;
+  chartTimeframe?: string;
+  currentPriceZone?: string;
+  keyPivotPrice?: string;
+  mainSupports?: string[];
+  mainResistances?: string[];
+  analyzedAt?: string;
+  dataBasis?: "image_only" | "image_with_ohlcv" | "unknown";
+}
+
 export type FinalAction =
+  | "NO_NEW_ENTRY_HOLD_OK"
+  | "WAIT_FOR_BREAKOUT"
+  | "WAIT_FOR_PULLBACK"
+  | "CONDITIONAL_BUY"
+  | "PULLBACK_BUY_CANDIDATE"
+  | "BREAKOUT_BUY_CANDIDATE"
+  | "HOLD_AND_WATCH"
+  | "PARTIAL_TAKE_PROFIT"
+  | "REDUCE_POSITION"
+  | "SELL_RISK"
+  | "NO_TRADE"
   | "BUY_CANDIDATE"
   | "WAIT"
   | "HOLD"
-  | "TAKE_PROFIT"
-  | "SELL_RISK"
-  | "NO_TRADE";
+  | "TAKE_PROFIT";
+
+export interface ScoreFactor {
+  label: string;
+  scoreImpact: number;
+  reason: string;
+}
+
+export interface ScoreSummary {
+  totalScore: number;
+  totalLabel: string;
+  label?: string;
+  buyScore: number;
+  buyLabel: string;
+  holdScore: number;
+  holdLabel: string;
+  riskScore: number;
+  riskLabel: string;
+  explanation: string;
+  scoreFactors?: {
+    positive?: ScoreFactor[];
+    negative?: ScoreFactor[];
+    risk?: ScoreFactor[];
+  };
+}
+
+export interface PriceRoles {
+  current?: {
+    priceZone: string;
+    meaning: string;
+  };
+  pivot?: {
+    priceZone: string;
+    meaning: string;
+  };
+  pullbackEntry?: {
+    priceZone: string;
+    condition: string;
+  };
+  breakoutEntry?: {
+    priceZone: string;
+    condition: string;
+  };
+  stopLoss?: {
+    shortTerm: string;
+    conservative: string;
+    invalidation: string;
+  };
+  targets?: {
+    pullbackTargets?: string[];
+    breakoutTargets?: string[];
+    holderTargets?: string[];
+  };
+}
+
+export interface RiskRewardDetail {
+  value: number | null;
+  label: string;
+  interpretation: string;
+}
 
 export interface TradingReport {
+  analysisMeta?: AnalysisMeta;
   finalSummary: {
     finalAction: FinalAction;
     title: string;
@@ -461,23 +538,8 @@ export interface TradingReport {
     confidence: Confidence | string;
     reason: string;
   };
-  scoreSummary?: {
-    totalScore: number;
-    totalLabel: "매매 부적합" | "신규 진입 주의" | "관망 우세" | "조건부 매수 후보" | "매수 우위" | string;
-    label?: "매매 부적합" | "신규 진입 주의" | "관망 우세" | "조건부 매수 후보" | "매수 우위" | string;
-    buyScore: number;
-    buyLabel: "매수 부적합" | "매수 주의" | "조건부 대기" | "매수 후보" | "매수 우위" | string;
-    holdScore: number;
-    holdLabel: "보유 부적합" | "비중 축소 고려" | "관망 가능" | "보유 우세" | "강한 보유" | string;
-    riskScore: number;
-    riskLabel: "낮음" | "보통" | "주의" | "높음" | "매우 높음" | string;
-    explanation: string;
-    scoreFactors: {
-      positive: Array<{ label: string; scoreImpact: number; reason: string }>;
-      negative: Array<{ label: string; scoreImpact: number; reason: string }>;
-      risk: Array<{ label: string; scoreImpact: number; reason: string }>;
-    };
-  };
+  scoreSummary?: ScoreSummary;
+  priceRoles?: PriceRoles;
   userActionGuide: {
     nonHolder: string;
     holder: string;
@@ -501,16 +563,26 @@ export interface TradingReport {
     targets: {
       firstTarget: { priceZone: string; action: string };
       secondTarget?: { priceZone: string; action: string };
+      pullbackTargets?: {
+        firstTarget?: { priceZone: string; action: string };
+        secondTarget?: { priceZone: string; action: string };
+        thirdTarget?: { priceZone: string; action: string };
+      };
+      breakoutTargets?: {
+        firstTarget?: { priceZone: string; action: string };
+        secondTarget?: { priceZone: string; action: string };
+      };
     };
     invalidation: {
       condition: string;
       meaning: string;
       midTerm?: { priceZone: string; condition: string; meaning: string };
     };
-    riskReward: {
-      value: number | null;
-      label: "부적합" | "낮음" | "보통" | "좋음" | string;
-      interpretation: string;
+    riskReward: RiskRewardDetail;
+    riskRewardByEntry?: {
+      current?: RiskRewardDetail;
+      pullback?: RiskRewardDetail;
+      breakout?: RiskRewardDetail;
     };
     transitionLevel?: {
       priceZone: string;

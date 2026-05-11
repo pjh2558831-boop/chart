@@ -1,25 +1,43 @@
 "use client";
 
-import type { FinalAction, TradingReport } from "../types/analysis";
+import type { FinalAction, RiskRewardDetail, TradingReport } from "../types/analysis";
 import ResultSection from "./ResultSection";
 import StatusBadge from "./StatusBadge";
 
 const actionTone: Record<FinalAction, string> = {
-  BUY_CANDIDATE: "border-emerald-500 bg-emerald-50 text-emerald-950",
-  WAIT: "border-blue-400 bg-blue-50 text-blue-950",
-  HOLD: "border-violet-400 bg-violet-50 text-violet-950",
-  TAKE_PROFIT: "border-orange-400 bg-orange-50 text-orange-950",
+  NO_NEW_ENTRY_HOLD_OK: "border-blue-300 bg-blue-50 text-blue-950",
+  WAIT_FOR_BREAKOUT: "border-blue-300 bg-blue-50 text-blue-950",
+  WAIT_FOR_PULLBACK: "border-slate-300 bg-slate-50 text-slate-950",
+  CONDITIONAL_BUY: "border-emerald-300 bg-emerald-50 text-emerald-950",
+  PULLBACK_BUY_CANDIDATE: "border-emerald-400 bg-emerald-50 text-emerald-950",
+  BREAKOUT_BUY_CANDIDATE: "border-emerald-400 bg-emerald-50 text-emerald-950",
+  HOLD_AND_WATCH: "border-violet-300 bg-violet-50 text-violet-950",
+  PARTIAL_TAKE_PROFIT: "border-orange-300 bg-orange-50 text-orange-950",
+  REDUCE_POSITION: "border-amber-400 bg-amber-50 text-amber-950",
   SELL_RISK: "border-red-500 bg-red-50 text-red-950",
   NO_TRADE: "border-slate-300 bg-slate-100 text-slate-950",
+  BUY_CANDIDATE: "border-emerald-400 bg-emerald-50 text-emerald-950",
+  WAIT: "border-blue-300 bg-blue-50 text-blue-950",
+  HOLD: "border-violet-300 bg-violet-50 text-violet-950",
+  TAKE_PROFIT: "border-orange-300 bg-orange-50 text-orange-950",
 };
 
 const actionLabel: Record<FinalAction, string> = {
+  NO_NEW_ENTRY_HOLD_OK: "신규 진입 부적합 / 보유 관망 가능",
+  WAIT_FOR_BREAKOUT: "신규 진입 주의 / 돌파 확인 대기",
+  WAIT_FOR_PULLBACK: "신규 진입 보류 / 눌림목 대기",
+  CONDITIONAL_BUY: "조건부 매수 후보",
+  PULLBACK_BUY_CANDIDATE: "눌림목 매수 후보",
+  BREAKOUT_BUY_CANDIDATE: "돌파 매수 후보",
+  HOLD_AND_WATCH: "보유 관망 우세",
+  PARTIAL_TAKE_PROFIT: "일부 익절 고려",
+  REDUCE_POSITION: "비중 축소 고려",
+  SELL_RISK: "손절 위험",
+  NO_TRADE: "매매 부적합",
   BUY_CANDIDATE: "매수 후보",
   WAIT: "신규 진입 보류",
   HOLD: "보유 관망",
   TAKE_PROFIT: "일부 익절 고려",
-  SELL_RISK: "손절 위험",
-  NO_TRADE: "매매 부적합",
 };
 
 function confidenceLabel(value?: string | null) {
@@ -41,10 +59,6 @@ function signalLabel(value?: string | null) {
   return "중립";
 }
 
-function hasContent(value?: string | null) {
-  return Boolean(value && !value.includes("산정 제한") && !value.includes("확인 제한"));
-}
-
 function scoreTone(score: number, mode: "normal" | "risk" = "normal") {
   if (mode === "risk") {
     if (score < 40) return "border-emerald-200 bg-emerald-50 text-emerald-900";
@@ -54,6 +68,19 @@ function scoreTone(score: number, mode: "normal" | "risk" = "normal") {
   if (score < 50) return "border-rose-200 bg-rose-50 text-rose-900";
   if (score < 65) return "border-blue-200 bg-blue-50 text-blue-900";
   return "border-emerald-200 bg-emerald-50 text-emerald-900";
+}
+
+function hasContent(value?: string | null) {
+  return Boolean(value && value !== "이미지 기준 추정 불가" && value !== "미확인");
+}
+
+function riskRewardText(value?: RiskRewardDetail | null) {
+  if (!value) return "확인 필요";
+  return value.value === null ? value.label || "확인 필요" : `${value.value} / ${value.label}`;
+}
+
+function riskRewardDescription(value?: RiskRewardDetail | null) {
+  return value?.interpretation || "진입가, 손절가, 목표가 중 일부가 명확하지 않아 손익비 계산을 보류합니다.";
 }
 
 function BulletList({ items, tone = "slate" }: { items: string[]; tone?: "green" | "red" | "amber" | "slate" }) {
@@ -79,29 +106,59 @@ function BulletList({ items, tone = "slate" }: { items: string[]; tone?: "green"
   );
 }
 
+export function AnalysisMetaCard({ meta }: { meta: TradingReport["analysisMeta"] }) {
+  if (!meta) return null;
+  const dataBasisLabel = {
+    image_only: "이미지 기반 분석",
+    image_with_ohlcv: "이미지 + 가격 데이터 기반",
+    unknown: "데이터 기준 미확인",
+  }[meta.dataBasis ?? "image_only"];
+  const rows = [
+    ["종목", meta.symbol || "미확인"],
+    ["차트", meta.chartTimeframe || "추정 불가"],
+    ["현재가/추정 현재가", meta.currentPriceZone || "이미지 기준 추정 불가"],
+    ["핵심 전환 가격", meta.keyPivotPrice || "미확인"],
+    ["주요 지지", meta.mainSupports?.length ? meta.mainSupports.join(" / ") : "미확인"],
+    ["주요 저항", meta.mainResistances?.length ? meta.mainResistances.join(" / ") : "미확인"],
+    ["분석 시각", meta.analyzedAt || "분석 시각 미확인"],
+    ["데이터 기준", dataBasisLabel],
+  ];
+
+  return (
+    <ResultSection title="분석 기준 요약" description="이미지에서 확인 가능한 기준 정보만 표시합니다." tone="blue">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold text-slate-500">{label}</p>
+            <p className="mt-1 text-sm font-bold text-slate-950">{value}</p>
+          </div>
+        ))}
+      </div>
+    </ResultSection>
+  );
+}
+
 export function FinalActionCard({ report }: { report: TradingReport }) {
-  const { finalSummary, userActionGuide, tradePlan, scoreSummary } = report;
-  const tone = finalSummary.finalAction === "SELL_RISK"
-    ? "danger"
-    : finalSummary.finalAction === "BUY_CANDIDATE"
-      ? "success"
-      : finalSummary.finalAction === "TAKE_PROFIT"
-        ? "warning"
-        : "info";
-  const score = scoreSummary ?? {
+  const { finalSummary, userActionGuide, tradePlan } = report;
+  const score = report.scoreSummary ?? {
     totalScore: 50,
     totalLabel: "관망 우세",
-    label: "관망 우세",
     buyScore: 40,
     buyLabel: "매수 주의",
     holdScore: 60,
     holdLabel: "관망 가능",
-    riskScore: 55,
+    riskScore: 50,
     riskLabel: "주의",
-    explanation: "이미지 기반 분석이므로 추가 확인 조건이 필요합니다.",
+    explanation: "이미지 기반 분석으로 추가 확인 조건이 필요합니다.",
     scoreFactors: { positive: [], negative: [], risk: [] },
   };
-  const totalLabel = score.totalLabel ?? score.label ?? "관망 우세";
+  const tone = finalSummary.finalAction === "SELL_RISK" || finalSummary.finalAction === "REDUCE_POSITION"
+    ? "danger"
+    : finalSummary.finalAction.includes("BUY") || finalSummary.finalAction === "CONDITIONAL_BUY"
+      ? "success"
+      : finalSummary.finalAction === "PARTIAL_TAKE_PROFIT" || finalSummary.finalAction === "TAKE_PROFIT"
+        ? "warning"
+        : "info";
 
   return (
     <section className={`rounded-lg border p-5 shadow-soft ${actionTone[finalSummary.finalAction]}`}>
@@ -113,7 +170,7 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
           {finalSummary.reason ? <p className="mt-3 text-sm leading-6 opacity-80">{finalSummary.reason}</p> : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <StatusBadge label={actionLabel[finalSummary.finalAction]} tone={tone} />
-            <StatusBadge label={`분석 점수 ${score.totalScore} / 100 · ${totalLabel}`} tone="neutral" />
+            <StatusBadge label={`분석 점수 ${score.totalScore} / 100 · ${score.totalLabel}`} tone="neutral" />
             <StatusBadge label={`신뢰도 ${confidenceLabel(finalSummary.confidence)}`} tone="neutral" />
           </div>
           {score.explanation ? <p className="mt-3 text-sm leading-6 opacity-80">{score.explanation}</p> : null}
@@ -142,7 +199,7 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
           <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
             <p className="font-semibold">분석 점수</p>
             <p className="mt-1 text-lg font-bold">종합 {score.totalScore} / 100</p>
-            <p className="mt-1">{totalLabel}</p>
+            <p className="mt-1">{score.totalLabel}</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               <div className={`rounded-md border px-3 py-2 ${scoreTone(score.buyScore)}`}>
                 <p className="text-xs font-semibold">신규 진입</p>
@@ -170,7 +227,7 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
 export function ScoreFactorsSection({ scoreSummary }: { scoreSummary?: TradingReport["scoreSummary"] }) {
   if (!scoreSummary) return null;
   const factors = scoreSummary.scoreFactors ?? { positive: [], negative: [], risk: [] };
-  const renderFactor = (items: Array<{ label: string; scoreImpact: number; reason: string }>, tone: "green" | "red" | "amber") => {
+  const renderFactor = (items: Array<{ label: string; scoreImpact: number; reason: string }> = [], tone: "green" | "red" | "amber") => {
     if (!items.length) return <p className="text-sm text-slate-500">표시할 근거가 제한적입니다.</p>;
     const color = {
       green: "border-emerald-100 bg-emerald-50 text-emerald-900",
@@ -193,7 +250,7 @@ export function ScoreFactorsSection({ scoreSummary }: { scoreSummary?: TradingRe
   };
 
   return (
-    <ResultSection title="점수 산정 근거" description="실제 점수 계산에 반영된 요인을 긍정, 감점, 위험 요인으로 나눠 표시합니다." tone="blue">
+    <ResultSection title="점수 산정 근거" description="실제 점수 계산에 반영된 요인을 긍정, 감점, 위험 요인으로 나누어 표시합니다." tone="blue">
       <div className="grid gap-4 lg:grid-cols-3">
         <div>
           <h3 className="mb-2 text-sm font-bold text-emerald-800">긍정 요인</h3>
@@ -245,20 +302,33 @@ export function UserActionGuideTable({ guide }: { guide: TradingReport["userActi
   );
 }
 
-export function TradePlanTable({ plan }: { plan: TradingReport["tradePlan"] }) {
+export function TradePlanTable({ plan, priceRoles }: { plan: TradingReport["tradePlan"]; priceRoles?: TradingReport["priceRoles"] }) {
+  const pullbackTargets = priceRoles?.targets?.pullbackTargets ?? [
+    plan.targets.pullbackTargets?.firstTarget?.priceZone,
+    plan.targets.pullbackTargets?.secondTarget?.priceZone,
+    plan.targets.pullbackTargets?.thirdTarget?.priceZone,
+  ].filter(Boolean) as string[];
+  const breakoutTargets = priceRoles?.targets?.breakoutTargets ?? [
+    plan.targets.breakoutTargets?.firstTarget?.priceZone,
+    plan.targets.breakoutTargets?.secondTarget?.priceZone,
+    plan.targets.firstTarget.priceZone,
+    plan.targets.secondTarget?.priceZone,
+  ].filter(Boolean) as string[];
   const rows = [
     ["눌림목 진입", plan.entry.pullbackEntry?.priceZone, plan.entry.pullbackEntry?.condition, plan.entry.pullbackEntry?.action],
     ["돌파 진입", plan.entry.breakoutEntry?.priceZone, plan.entry.breakoutEntry?.condition, plan.entry.breakoutEntry?.action],
-    ["추격매수 금지", plan.entry.noChaseZone?.priceZone, plan.entry.noChaseZone?.reason, "현재 구간에서는 조건 확인을 우선합니다."],
+    ["추격매수 금지", plan.entry.noChaseZone?.priceZone, plan.entry.noChaseZone?.reason, "현재 구간에서는 조건 확인이 우선입니다."],
     ["단기 손절", plan.stopLoss.shortTerm?.priceZone, plan.stopLoss.shortTerm?.condition, plan.stopLoss.shortTerm?.meaning],
     ["보수적 손절", plan.stopLoss.conservative?.priceZone, plan.stopLoss.conservative?.condition, plan.stopLoss.conservative?.meaning],
-    ["1차 목표", plan.targets.firstTarget.priceZone, "가장 가까운 저항 또는 목표 후보", plan.targets.firstTarget.action],
-    ["2차 목표", plan.targets.secondTarget?.priceZone, "다음 상단 저항 또는 확장 목표 후보", plan.targets.secondTarget?.action],
+    ["눌림목 1차 목표", pullbackTargets[0], "눌림목 진입 기준 가까운 저항", "보유자에게는 일부 익절 또는 돌파 확인 구간입니다."],
+    ["눌림목 2차 목표", pullbackTargets[1], "눌림목 진입 기준 다음 저항", "1차 저항 돌파 후 확인할 목표 후보입니다."],
+    ["돌파 1차 목표", breakoutTargets[0], "핵심 전환 가격 돌파 후 다음 저항", "돌파 진입 기준 1차 목표 후보입니다."],
+    ["돌파 2차 목표", breakoutTargets[1], "돌파 후 확장 저항", "돌파 진입 기준 2차 목표 후보입니다."],
     ["중기 관점 무효화", plan.invalidation.midTerm?.priceZone ?? plan.invalidation.condition, plan.invalidation.condition, plan.invalidation.meaning],
   ].filter((row) => hasContent(row[1]));
 
   return (
-    <ResultSection title="진입 / 손절 / 목표 / 무효화 조건" description="가격은 추천가가 아니라 기술적 조건 기준의 후보 구간입니다." tone="purple">
+    <ResultSection title="진입 / 손절 / 목표 / 무효화 조건" description="가격은 추천가가 아니라 이미지 기반 기술적 조건 후보입니다." tone="purple">
       {plan.transitionLevel?.explanation ? (
         <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
           {plan.transitionLevel.explanation}
@@ -287,24 +357,56 @@ export function TradePlanTable({ plan }: { plan: TradingReport["tradePlan"] }) {
         </table>
       </div>
       <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <p className="text-sm font-semibold text-slate-600">손익비</p>
-        <p className="mt-1 text-xl font-bold text-slate-950">
-          {plan.riskReward.value === null ? plan.riskReward.label : `${plan.riskReward.value} / ${plan.riskReward.label}`}
-        </p>
-        <p className="mt-2 text-sm leading-6 text-slate-600">{plan.riskReward.interpretation}</p>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold text-slate-600">손익비</p>
+            <p className="mt-1 text-xs text-slate-500">중기 무효화 가격은 제외하고 단기 손절 기준으로 계산합니다.</p>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          {[
+            ["현재가 기준", plan.riskRewardByEntry?.current],
+            ["눌림목 기준", plan.riskRewardByEntry?.pullback],
+            ["돌파 기준", plan.riskRewardByEntry?.breakout ?? plan.riskReward],
+          ].map(([label, value]) => (
+            <article key={String(label)} className="rounded-lg border border-slate-200 bg-white p-3">
+              <p className="text-xs font-semibold text-slate-500">{label as string}</p>
+              <p className="mt-1 text-lg font-bold text-slate-950">{riskRewardText(value as RiskRewardDetail | undefined)}</p>
+              <p className="mt-2 text-xs leading-5 text-slate-600">{riskRewardDescription(value as RiskRewardDetail | undefined)}</p>
+            </article>
+          ))}
+        </div>
       </div>
     </ResultSection>
   );
 }
 
-export function KeyLevelsSection({ levels }: { levels: TradingReport["keyLevels"] }) {
+export function KeyLevelsSection({ levels, priceRoles }: { levels: TradingReport["keyLevels"]; priceRoles?: TradingReport["priceRoles"] }) {
   const rows = [
-    ...levels.supports.map((item) => ({ ...item, type: "지지" })),
-    ...levels.resistances.map((item) => ({ ...item, type: "저항" })),
+    ...(priceRoles?.current ? [{ label: "현재가", priceZone: priceRoles.current.priceZone, meaning: priceRoles.current.meaning, reliability: "low", type: "기준" }] : []),
+    ...(priceRoles?.pivot ? [{ label: "핵심 전환 가격", priceZone: priceRoles.pivot.priceZone, meaning: priceRoles.pivot.meaning, reliability: "medium", type: "전환" }] : []),
+    ...levels.supports.map((item, index) => ({
+      ...item,
+      type: "지지",
+      meaning: index === 0
+        ? "단기 지지 확인 구간이며 이탈 시 단기 손절 기준으로 참고합니다."
+        : index === 1
+          ? "보수적 손절 기준으로 참고할 수 있는 하단 지지입니다."
+          : "중기 관점 무효화 기준으로 참고할 수 있는 구조적 지지입니다.",
+    })),
+    ...levels.resistances.map((item, index) => ({
+      ...item,
+      type: "저항",
+      meaning: index === 0
+        ? "돌파 확인 가격입니다. 아래에서는 저항, 돌파 후 재지지 시 지지 전환 근거가 됩니다."
+        : index === 1
+          ? "돌파 진입 기준 1차 목표 후보입니다."
+          : "확장 목표 후보입니다.",
+    })),
   ];
 
   return (
-    <ResultSection title="핵심 가격대" description="비슷한 가격대는 묶어서 지지와 저항을 각각 최대 3개만 표시합니다." tone="green">
+    <ResultSection title="핵심 가격대" description="비슷한 가격은 묶고, 이미지 기반 불확실성을 반영해 부근/구간으로 표시합니다." tone="green">
       {rows.length === 0 ? (
         <p className="text-sm text-slate-500">이미지 기반 분석으로 핵심 가격대 산정이 제한됩니다.</p>
       ) : (
@@ -313,7 +415,7 @@ export function KeyLevelsSection({ levels }: { levels: TradingReport["keyLevels"
             <article key={`${row.type}-${row.label}-${row.priceZone}`} className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="font-bold text-slate-950">{row.label}</p>
-                <StatusBadge label={`${row.type} / 신뢰도 ${reliabilityLabel(row.reliability)}`} tone={row.type === "지지" ? "success" : "warning"} />
+                <StatusBadge label={`${row.type} / 신뢰도 ${reliabilityLabel(row.reliability)}`} tone={row.type === "지지" ? "success" : row.type === "저항" ? "warning" : "info"} />
               </div>
               <p className="mt-2 text-2xl font-bold text-slate-950">{row.priceZone}</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">{row.meaning}</p>
@@ -326,11 +428,7 @@ export function KeyLevelsSection({ levels }: { levels: TradingReport["keyLevels"
 }
 
 export function ScenarioSection({ scenarios }: { scenarios: TradingReport["scenarios"] }) {
-  const rows: Array<{
-    label: string;
-    scenario: TradingReport["scenarios"]["bullish"];
-    tone: "success" | "neutral" | "danger";
-  }> = [
+  const rows: Array<{ label: string; scenario: TradingReport["scenarios"]["bullish"]; tone: "success" | "neutral" | "danger" }> = [
     { label: "상승 시나리오", scenario: scenarios.bullish, tone: "success" },
     { label: "중립 시나리오", scenario: scenarios.neutral, tone: "neutral" },
     { label: "하락 시나리오", scenario: scenarios.bearish, tone: "danger" },
@@ -369,15 +467,15 @@ export function EvidenceSection({ evidence }: { evidence: TradingReport["evidenc
       <div className="grid gap-4 lg:grid-cols-3">
         <div>
           <h3 className="mb-2 text-sm font-bold text-emerald-800">긍정 근거</h3>
-          <BulletList items={evidence.positive} tone="green" />
+          <BulletList items={evidence.positive ?? []} tone="green" />
         </div>
         <div>
           <h3 className="mb-2 text-sm font-bold text-rose-800">부정 근거</h3>
-          <BulletList items={evidence.negative} tone="red" />
+          <BulletList items={evidence.negative ?? []} tone="red" />
         </div>
         <div>
           <h3 className="mb-2 text-sm font-bold text-amber-800">리스크 요인</h3>
-          <BulletList items={evidence.riskFactors} tone="amber" />
+          <BulletList items={evidence.riskFactors ?? []} tone="amber" />
         </div>
       </div>
     </ResultSection>
@@ -385,57 +483,50 @@ export function EvidenceSection({ evidence }: { evidence: TradingReport["evidenc
 }
 
 export function PatternAnalysisSection({ analysis }: { analysis: TradingReport["patternAnalysis"] }) {
-  const primary = analysis.primaryPattern;
-
+  const secondary = analysis.secondaryPattern;
   return (
-    <ResultSection title="주요 패턴 분석" description="확정 패턴이 아니라 이미지에서 관찰되는 후보 구조만 표시합니다." tone="purple">
-      <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+    <ResultSection title="주요 패턴 분석" tone="purple">
+      <div className="grid gap-4 lg:grid-cols-2">
         <article className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge label="주요 패턴 후보" tone="info" />
-            <StatusBadge label={`신뢰도 ${confidenceLabel(primary.confidence)}`} tone="neutral" />
-          </div>
-          <h3 className="mt-3 text-xl font-bold text-slate-950">{primary.name}</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{primary.reason}</p>
+          <StatusBadge label="주요 패턴 후보" tone="info" />
+          <h3 className="mt-3 text-xl font-bold text-slate-950">{analysis.primaryPattern.name}</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{analysis.primaryPattern.reason}</p>
           <dl className="mt-4 space-y-3 text-sm">
             <div>
               <dt className="font-semibold text-slate-950">확인 조건</dt>
-              <dd className="mt-1 leading-6 text-slate-600">{primary.confirmationCondition}</dd>
+              <dd className="mt-1 text-slate-600">{analysis.primaryPattern.confirmationCondition}</dd>
             </div>
             <div>
               <dt className="font-semibold text-slate-950">무효화 조건</dt>
-              <dd className="mt-1 leading-6 text-slate-600">{primary.invalidationCondition}</dd>
+              <dd className="mt-1 text-slate-600">{analysis.primaryPattern.invalidationCondition}</dd>
             </div>
             <div>
               <dt className="font-semibold text-slate-950">매매 의미</dt>
-              <dd className="mt-1 leading-6 text-slate-600">{primary.tradingMeaning}</dd>
+              <dd className="mt-1 text-slate-600">{analysis.primaryPattern.tradingMeaning}</dd>
             </div>
           </dl>
         </article>
-
-        <div className="space-y-4">
-          {analysis.secondaryPattern ? (
-            <article className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <StatusBadge label="보조 시나리오" tone="neutral" />
-              <h3 className="mt-3 font-bold text-slate-950">{analysis.secondaryPattern.name}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{analysis.secondaryPattern.reason}</p>
-            </article>
+        <article className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <StatusBadge label="보조 시나리오" tone="neutral" />
+          {secondary ? (
+            <>
+              <h3 className="mt-3 text-lg font-bold text-slate-950">{secondary.name}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{secondary.reason}</p>
+            </>
           ) : (
-            <article className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-              보조 시나리오는 명확하게 확인되지 않습니다.
-            </article>
+            <p className="mt-3 text-sm text-slate-500">보조 패턴 후보는 제한적입니다.</p>
           )}
           {analysis.excludedPatterns?.length ? (
-            <article className="rounded-lg border border-slate-200 bg-white p-4">
-              <h3 className="text-sm font-bold text-slate-950">제외 패턴</h3>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-600">
+            <div className="mt-4 border-t border-slate-200 pt-3">
+              <p className="text-sm font-semibold text-slate-700">제외 패턴</p>
+              <ul className="mt-2 space-y-1 text-sm leading-6 text-slate-600">
                 {analysis.excludedPatterns.map((item) => (
                   <li key={`${item.name}-${item.reason}`}>{item.name} - {item.reason}</li>
                 ))}
               </ul>
-            </article>
+            </div>
           ) : null}
-        </div>
+        </article>
       </div>
     </ResultSection>
   );
@@ -443,16 +534,16 @@ export function PatternAnalysisSection({ analysis }: { analysis: TradingReport["
 
 export function IndicatorSummarySection({ analysis }: { analysis: TradingReport["indicatorAnalysis"] }) {
   return (
-    <ResultSection title="보조지표 분석" description="확인된 지표와 이미지에서 확인이 제한되는 지표를 분리해 표시합니다." tone="blue">
+    <ResultSection title="보조지표 분석" description="확인 가능한 지표와 확인 제한 지표를 분리해 표시합니다." tone="blue">
       <div className="grid gap-4 lg:grid-cols-2">
         <div>
-          <h3 className="mb-2 text-sm font-bold text-slate-950">확인된 지표</h3>
+          <h3 className="mb-2 text-sm font-bold text-emerald-800">확인된 지표</h3>
           {analysis.confirmed.length ? (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {analysis.confirmed.map((item) => (
                 <article key={`${item.name}-${item.explanation}`} className="rounded-lg border border-slate-200 bg-white p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="font-bold text-slate-950">{item.name}</p>
+                    <p className="font-semibold text-slate-950">{item.name}</p>
                     <StatusBadge label={signalLabel(item.signal)} tone={item.signal === "bullish" ? "success" : item.signal === "bearish" ? "danger" : "neutral"} />
                   </div>
                   <p className="mt-2 text-sm leading-6 text-slate-600">{item.explanation}</p>
@@ -460,11 +551,11 @@ export function IndicatorSummarySection({ analysis }: { analysis: TradingReport[
               ))}
             </div>
           ) : (
-            <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">명확하게 확인된 보조지표가 제한적입니다.</p>
+            <p className="text-sm text-slate-500">이미지에서 명확히 확인된 보조지표가 제한적입니다.</p>
           )}
         </div>
         <div>
-          <h3 className="mb-2 text-sm font-bold text-slate-950">확인 제한 지표</h3>
+          <h3 className="mb-2 text-sm font-bold text-slate-700">확인 제한 지표</h3>
           <BulletList items={analysis.unavailable.map((item) => `${item.name}: ${item.reason}`)} tone="slate" />
         </div>
       </div>
@@ -475,9 +566,7 @@ export function IndicatorSummarySection({ analysis }: { analysis: TradingReport[
 export function ImageLimitNotice({ disclaimer }: { disclaimer: string }) {
   return (
     <ResultSection title="이미지 기반 한계 안내" tone="yellow">
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-        <p>{disclaimer}</p>
-      </div>
+      <p className="text-sm leading-6 text-slate-700">{disclaimer}</p>
     </ResultSection>
   );
 }

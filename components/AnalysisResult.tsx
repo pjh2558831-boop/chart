@@ -8,6 +8,7 @@ import { normalizeTradingReport } from "../lib/tradingReportViewModel";
 import type { AnalysisResponse } from "../types/analysis";
 import ResultSection from "./ResultSection";
 import {
+  AnalysisMetaCard,
   EvidenceSection,
   FinalActionCard,
   ImageLimitNotice,
@@ -150,10 +151,11 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-6">
+      <AnalysisMetaCard meta={report.analysisMeta} />
       <FinalActionCard report={report} />
       <UserActionGuideTable guide={report.userActionGuide} />
-      <TradePlanTable plan={report.tradePlan} />
-      <KeyLevelsSection levels={report.keyLevels} />
+      <TradePlanTable plan={report.tradePlan} priceRoles={report.priceRoles} />
+      <KeyLevelsSection levels={report.keyLevels} priceRoles={report.priceRoles} />
       <ScenarioSection scenarios={report.scenarios} />
       <ScoreFactorsSection scoreSummary={report.scoreSummary} />
       <EvidenceSection evidence={report.evidence} />

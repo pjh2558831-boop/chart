@@ -9,11 +9,14 @@ import type { AnalysisResponse } from "../types/analysis";
 import ResultSection from "./ResultSection";
 import {
   AnalysisMetaCard,
+  EntryRecommendationRanking,
   EvidenceSection,
   FinalActionCard,
   ImageLimitNotice,
   IndicatorSummarySection,
   KeyLevelsSection,
+  NextConfirmationChecklist,
+  OneLineActionSummary,
   PatternAnalysisSection,
   ScenarioSection,
   ScoreFactorsSection,
@@ -152,11 +155,14 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
   return (
     <div className="mx-auto max-w-[1100px] space-y-6">
       <AnalysisMetaCard meta={report.analysisMeta} />
+      <OneLineActionSummary report={report} />
       <FinalActionCard report={report} />
+      <EntryRecommendationRanking report={report} />
       <UserActionGuideTable guide={report.userActionGuide} />
       <TradePlanTable plan={report.tradePlan} priceRoles={report.priceRoles} />
       <KeyLevelsSection levels={report.keyLevels} priceRoles={report.priceRoles} />
       <ScenarioSection scenarios={report.scenarios} />
+      <NextConfirmationChecklist report={report} />
       <ScoreFactorsSection scoreSummary={report.scoreSummary} />
       <EvidenceSection evidence={report.evidence} />
       <PatternAnalysisSection analysis={report.patternAnalysis} />

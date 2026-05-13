@@ -2,6 +2,7 @@ import type {
   AnalysisMeta,
   AnalysisResponse,
   Confidence,
+  EntryModeScore,
   FinalAction,
   PriceRoles,
   ScoreSummary,
@@ -150,6 +151,27 @@ function targetsAfterPivot(targets: number[], pivot?: number | null) {
   return targets.filter((target) => target > pivot * 1.01).slice(0, 2);
 }
 
+function nextLowerPriceZone(reference?: string | null, candidates: Array<string | undefined | null> = []) {
+  const referencePrice = priceFromText(reference);
+  if (!finite(referencePrice)) return null;
+  const sorted = sortPriceZones(candidates)
+    .map((zone) => ({ zone, price: priceFromText(zone) }))
+    .filter((item): item is { zone: string; price: number } => finite(item.price) && item.price < referencePrice * 0.995)
+    .sort((a, b) => b.price - a.price);
+  return sorted[0]?.zone ?? null;
+}
+
+function filterTargetsAbove(entry?: string | null, targets: Array<string | undefined | null> = [], exclude?: string | null) {
+  const entryPrice = priceFromText(entry);
+  return sortPriceZones(targets)
+    .filter((target) => !samePriceZone(target, entry))
+    .filter((target) => !exclude || !samePriceZone(target, exclude))
+    .filter((target) => {
+      const targetPrice = priceFromText(target);
+      return !finite(entryPrice) || (finite(targetPrice) && targetPrice > entryPrice * 1.005);
+    });
+}
+
 function getCurrentPrice(raw: AnalysisResponse) {
   return raw.tradeSignal?.currentPriceEstimate?.value
     ?? raw.aiAnalysis?.priceAxisObservations?.currentPriceEstimate?.value
@@ -206,7 +228,7 @@ function scoreLabel(score: number) {
   if (score < 30) return "매매 부적합";
   if (score < 50) return "신규 진입 주의";
   if (score < 65) return "관망 우세";
-  if (score < 80) return "조건부 매수 후보";
+  if (score < 80) return "조건부 진입 후보";
   return "매수 우위";
 }
 
@@ -328,6 +350,197 @@ function candidateName(candidate?: { name?: string | null; label?: string | null
   return candidate.label?.trim() || canonical || undefined;
 }
 
+function safeIndicatorExplanation(key: string, rawStatus?: string | null, signal = indicatorSignal(rawStatus)) {
+  const text = (rawStatus ?? "").toLowerCase();
+  if (key === "rsi") {
+    if (signal === "bullish") return "RSI는 과매도권 이탈 또는 반등 가능성을 참고할 수 있지만, 가격 지지 확인과 함께 봐야 합니다.";
+    if (signal === "bearish") return "RSI가 과매수 부담을 시사하면 현재 구간의 신규 진입 부담이 커질 수 있습니다.";
+    return "RSI상 과매수 또는 과매도 신호가 뚜렷하지 않아, 단독으로 진입 타이밍을 판단하기는 어렵습니다.";
+  }
+  if (key === "macd") {
+    if (signal === "bullish") return "MACD가 상승 전환하면 돌파 신뢰도를 높이는 보조 근거가 됩니다.";
+    if (signal === "bearish") return "MACD가 약세로 기울면 돌파 실패 또는 단기 조정 가능성을 함께 봐야 합니다.";
+    return "MACD상 뚜렷한 추세 전환 신호는 확인되지 않아, 돌파 신뢰도를 강하게 보강하기는 어렵습니다.";
+  }
+  if (key === "volume") {
+    if (["increase", "spike", "high", "상승", "증가"].some((token) => text.includes(token))) return "상승 구간에서 거래량이 증가해 돌파 신뢰도를 일부 보강합니다.";
+    if (["low", "weak", "decrease", "부족", "감소"].some((token) => text.includes(token))) return "뚜렷한 돌파 거래량이 부족해 저항 돌파 신뢰도는 아직 제한적입니다.";
+    return "거래량만으로는 강한 매수세를 확인하기 어렵습니다.";
+  }
+  if (key === "movingAverages") {
+    if (signal === "bullish") return "가격이 주요 이동평균선 위에 있어 단기 흐름은 우호적입니다.";
+    if (signal === "bearish") return "가격이 주요 이동평균선 아래에 있어 단기 반등 신뢰도는 낮습니다.";
+    return "이동평균선만으로는 뚜렷한 방향성을 판단하기 어렵습니다.";
+  }
+  if (key === "ichimoku") {
+    if (["above", "up", "bull", "구름 위", "상승"].some((token) => text.includes(token))) return "가격이 구름대 위에 있어 추세상 우호적입니다.";
+    if (["inside", "neutral", "구름 안", "within"].some((token) => text.includes(token))) return "가격이 구름대 안에 있어 방향성 확인이 필요합니다.";
+    if (["below", "down", "bear", "구름 아래", "하락"].some((token) => text.includes(token))) return "가격이 구름대 아래에 있어 상승 전환 신뢰도는 낮습니다.";
+    return "일목균형표는 확인되지만 구름대 기준 방향성은 추가 확인이 필요합니다.";
+  }
+  if (key === "bollingerBands") {
+    if (signal === "bullish") return "볼린저밴드상 가격 확장이 확인되면 돌파 흐름의 보조 근거가 될 수 있습니다.";
+    if (signal === "bearish") return "볼린저밴드 상단 부담 또는 하단 이탈 가능성이 있으면 추격 진입은 주의가 필요합니다.";
+    return "볼린저밴드만으로는 방향성보다 변동성 확인에 가깝습니다.";
+  }
+  return "해당 지표는 단독 판단보다 핵심 가격대와 함께 확인해야 합니다.";
+}
+
+function safeUnavailableIndicatorReason(key: string) {
+  const reasons: Record<string, string> = {
+    rsi: "RSI가 이미지에서 명확히 확인되지 않아 과매수 여부 판단은 제한적입니다.",
+    macd: "MACD가 이미지에서 명확히 확인되지 않아 모멘텀 판단은 제한적입니다.",
+    volume: "거래량이 이미지에서 명확히 확인되지 않아 돌파 신뢰도 판단은 제한적입니다.",
+    movingAverages: "이동평균선이 이미지에서 명확히 확인되지 않아 추세 정렬 판단은 제한적입니다.",
+    ichimoku: "일목균형표가 이미지에서 명확히 확인되지 않아 지지/저항 판단에는 제한적입니다.",
+    bollingerBands: "볼린저밴드가 이미지에서 명확히 확인되지 않아 변동성 판단은 제한적입니다.",
+  };
+  return reasons[key] ?? "이미지에서 명확히 확인되지 않아 판단이 제한적입니다.";
+}
+
+function indicatorKeyFromName(name?: string | null) {
+  const text = (name ?? "").toLowerCase();
+  if (text.includes("rsi")) return "rsi";
+  if (text.includes("macd")) return "macd";
+  if (text.includes("volume") || text.includes("거래")) return "volume";
+  if (text.includes("moving") || text.includes("ma") || text.includes("이동")) return "movingAverages";
+  if (text.includes("ichimoku") || text.includes("일목") || text.includes("구름")) return "ichimoku";
+  if (text.includes("bollinger") || text.includes("볼린저")) return "bollingerBands";
+  return "unknown";
+}
+
+function stripUnconfirmedTimeframe(text: string) {
+  return text
+    .replace(/주봉상|일봉상|월봉상|분봉상|4시간봉상|시간봉상/g, "이미지 기준으로")
+    .replace(/\bweekly\b|\bdaily\b|\bmonthly\b/gi, "이미지 기준");
+}
+
+function normalizeIndicatorAnalysis(analysis: TradingReport["indicatorAnalysis"]): TradingReport["indicatorAnalysis"] {
+  const confirmed = (analysis?.confirmed ?? []).map((item) => {
+    const key = indicatorKeyFromName(item.name);
+    const signal = item.signal === "bullish" || item.signal === "bearish" || item.signal === "neutral"
+      ? item.signal
+      : indicatorSignal(item.signal);
+    return {
+      ...item,
+      explanation: stripUnconfirmedTimeframe(safeIndicatorExplanation(key, item.explanation, signal)),
+    };
+  });
+  const unavailable = (analysis?.unavailable ?? []).map((item) => {
+    const key = indicatorKeyFromName(item.name);
+    return {
+      ...item,
+      reason: stripUnconfirmedTimeframe(safeUnavailableIndicatorReason(key)),
+    };
+  });
+  return { confirmed, unavailable };
+}
+
+function normalizeTimeframeText(value?: string | null) {
+  const text = safeDisplayText(value, "이미지 기준 추정");
+  if (text.includes("미확인") || text.includes("unknown") || text.includes("추정 불가")) return "이미지 기준 추정";
+  if (text.includes("추정") || text.includes("이미지 기준") || text.includes("표시된 차트 기준")) return text;
+  return `${text} 추정`;
+}
+
+function indicatorKeyFromNameClean(name?: string | null) {
+  const text = (name ?? "").toLowerCase();
+  if (text.includes("rsi")) return "rsi";
+  if (text.includes("macd")) return "macd";
+  if (text.includes("거래") || text.includes("volume")) return "volume";
+  if (text.includes("이동") || text.includes("moving") || text.includes("ma")) return "movingAverages";
+  if (text.includes("일목") || text.includes("구름") || text.includes("ichimoku")) return "ichimoku";
+  if (text.includes("볼린저") || text.includes("bollinger")) return "bollingerBands";
+  return "unknown";
+}
+
+function indicatorExplanationClean(key: string, rawStatus?: string | null, signal = indicatorSignal(rawStatus)) {
+  const text = (rawStatus ?? "").toLowerCase();
+  if (key === "rsi") {
+    if (signal === "bullish") return "RSI는 과매도 해소 또는 매수세 회복 여부를 보조적으로 확인하는 지표입니다.";
+    if (signal === "bearish") return "RSI가 과열 구간에 가깝다면 현재가 추격매수 부담이 커질 수 있습니다.";
+    return "RSI상 과매수 또는 과매도 신호가 뚜렷하지 않아, 단독으로 진입 타이밍을 판단하기는 어렵습니다.";
+  }
+  if (key === "macd") {
+    if (signal === "bullish") return "MACD가 상승 전환하면 돌파 신뢰도를 높이는 보조 근거가 됩니다.";
+    if (signal === "bearish") return "MACD가 약세로 기울면 돌파 실패 또는 단기 조정 가능성을 함께 봐야 합니다.";
+    return "MACD상 뚜렷한 추세 전환 신호는 확인되지 않아, 돌파 신뢰도를 강하게 보강하기는 어렵습니다.";
+  }
+  if (key === "volume") {
+    if (["increase", "spike", "high", "상승", "증가"].some((token) => text.includes(token))) {
+      return "상승 구간에서 거래량이 증가해 돌파 신뢰도를 일부 보강합니다.";
+    }
+    if (["low", "weak", "decrease", "부족", "감소"].some((token) => text.includes(token))) {
+      return "뚜렷한 돌파 거래량이 부족해 저항 돌파 신뢰도는 아직 제한적입니다.";
+    }
+    return "거래량만으로는 강한 매수세를 확인하기 어렵습니다.";
+  }
+  if (key === "movingAverages") {
+    if (signal === "bullish") return "가격이 주요 이동평균선 위에 있어 단기 흐름은 우호적입니다.";
+    if (signal === "bearish") return "가격이 주요 이동평균선 아래에 있어 단기 반등 신뢰도는 낮습니다.";
+    return "이동평균선만으로는 뚜렷한 방향성을 판단하기 어렵습니다.";
+  }
+  if (key === "ichimoku") {
+    if (["above", "up", "bull", "구름 위", "상승"].some((token) => text.includes(token))) return "가격이 구름대 위에 있어 추세상 우호적입니다.";
+    if (["inside", "neutral", "구름 안", "within"].some((token) => text.includes(token))) return "가격이 구름대 안에 있어 방향성 확인이 필요합니다.";
+    if (["below", "down", "bear", "구름 아래", "하락"].some((token) => text.includes(token))) return "가격이 구름대 아래에 있어 상승 전환 신뢰도는 낮습니다.";
+    return "일목균형표는 이미지 기준으로 일부만 확인되므로, 구름대 지지/저항 판단은 보조적으로 봐야 합니다.";
+  }
+  if (key === "bollingerBands") {
+    if (signal === "bullish") return "볼린저밴드상 가격 확장이 확인되면 돌파 흐름을 보조하는 근거가 될 수 있습니다.";
+    if (signal === "bearish") return "볼린저밴드 상단 부담 또는 하단 이탈 가능성이 있으면 추격 진입은 주의가 필요합니다.";
+    return "볼린저밴드만으로는 방향성보다 변동성 확인에 가깝습니다.";
+  }
+  return "해당 지표는 단독 판단보다 핵심 가격대와 함께 확인하는 보조 근거로 보는 것이 적절합니다.";
+}
+
+function unavailableIndicatorReasonClean(key: string) {
+  const reasons: Record<string, string> = {
+    rsi: "RSI가 이미지에서 명확히 확인되지 않아 과매수 여부 판단은 제한적입니다.",
+    macd: "MACD가 이미지에서 명확히 확인되지 않아 모멘텀 판단은 제한적입니다.",
+    volume: "거래량이 이미지에서 명확히 확인되지 않아 돌파 신뢰도 판단은 제한적입니다.",
+    movingAverages: "이동평균선이 이미지에서 명확히 확인되지 않아 추세 정렬 판단은 제한적입니다.",
+    ichimoku: "일목균형표가 이미지에서 명확히 확인되지 않아 지지/저항 판단에는 제한적입니다.",
+    bollingerBands: "볼린저밴드가 이미지에서 명확히 확인되지 않아 변동성 판단은 제한적입니다.",
+  };
+  return reasons[key] ?? "이미지에서 명확히 확인되지 않아 판단에는 제한적입니다.";
+}
+
+function stripUnconfirmedTimeframeClean(text: string) {
+  return safeDisplayText(text, "이미지 기준으로 판단이 제한됩니다.")
+    .replace(/주봉상|일봉상|월봉상|분봉상|4시간봉상|시간봉상/g, "이미지 기준으로")
+    .replace(/\bweekly\b|\bdaily\b|\bmonthly\b/gi, "이미지 기준");
+}
+
+function normalizeTimeframeTextClean(value?: string | null) {
+  const text = safeDisplayText(value, "이미지 기준 추정");
+  if (text === "미확인" || text.includes("unknown") || text.includes("추정 불가")) return "이미지 기준 추정";
+  if (text.includes("추정") || text.includes("이미지 기준") || text.includes("표시된 차트 기준")) return text;
+  return `${text} 추정`;
+}
+
+function normalizeIndicatorAnalysisClean(analysis: TradingReport["indicatorAnalysis"]): TradingReport["indicatorAnalysis"] {
+  const confirmed = (analysis?.confirmed ?? []).map((item) => {
+    const key = indicatorKeyFromNameClean(item.name);
+    const signal = item.signal === "bullish" || item.signal === "bearish" || item.signal === "neutral"
+      ? item.signal
+      : indicatorSignal(item.signal);
+    return {
+      ...item,
+      signal,
+      explanation: stripUnconfirmedTimeframeClean(indicatorExplanationClean(key, item.explanation, signal)),
+    };
+  });
+  const unavailable = (analysis?.unavailable ?? []).map((item) => {
+    const key = indicatorKeyFromNameClean(item.name);
+    return {
+      ...item,
+      reason: stripUnconfirmedTimeframeClean(unavailableIndicatorReasonClean(key)),
+    };
+  });
+  return { confirmed, unavailable };
+}
+
 function ensureCandidateLabel(name?: string | null) {
   const label = name?.trim() || "명확한 패턴 없음";
   if (label === "명확한 패턴 없음" || label.includes("후보") || label.includes("시나리오")) return label;
@@ -356,7 +569,7 @@ function buildAnalysisMeta(raw: AnalysisResponse, levels = getLevels(raw), exist
     || raw.aiAnalysis?.symbolDetection?.detectedName
     || existing?.symbol
     || "미확인";
-  const chartTimeframe = existing?.chartTimeframe || raw.aiAnalysis?.timeframeEstimate || "추정 불가";
+  const chartTimeframe = normalizeTimeframeTextClean(existing?.chartTimeframe || raw.aiAnalysis?.timeframeEstimate);
   const supports = existing?.mainSupports?.length ? existing.mainSupports : levels.supports.map((value) => formatZone(value));
   const resistances = existing?.mainResistances?.length ? existing.mainResistances : levels.resistances.map((value) => formatZone(value));
 
@@ -433,6 +646,15 @@ function normalizeScoreSummary(scoreSummary?: Partial<ScoreSummary> | null): Sco
       negative: scoreSummary?.scoreFactors?.negative ?? [],
       risk: scoreSummary?.scoreFactors?.risk ?? [],
     },
+    ...(scoreSummary?.entryScores
+      ? {
+          entryScores: {
+            currentEntry: normalizeEntryScore(scoreSummary.entryScores.currentEntry, "currentEntry"),
+            pullbackEntry: normalizeEntryScore(scoreSummary.entryScores.pullbackEntry, "pullbackEntry"),
+            breakoutEntry: normalizeEntryScore(scoreSummary.entryScores.breakoutEntry, "breakoutEntry"),
+          },
+        }
+      : {}),
   };
 }
 
@@ -456,7 +678,192 @@ function riskRewardAllowsEntry(value?: ReturnType<typeof riskReward> | null, min
   return finite(value?.value) && value.value >= minimum;
 }
 
+type EntryMode = "currentEntry" | "pullbackEntry" | "breakoutEntry";
+
+const entryModeName: Record<EntryMode, string> = {
+  currentEntry: "현재가 진입",
+  pullbackEntry: "눌림목 진입",
+  breakoutEntry: "돌파 진입",
+};
+
+function entryScoreLabel(score: number) {
+  if (score < 30) return "부적합";
+  if (score < 50) return "주의";
+  if (score < 65) return "조건부 대기";
+  if (score < 80) return "후보";
+  return "우위";
+}
+
+function entryScoreWithMode(mode: EntryMode, score: number) {
+  return `${entryModeName[mode]} ${entryScoreLabel(score)}`;
+}
+
+function normalizeEntryScore(
+  value: Partial<EntryModeScore> | null | undefined,
+  mode: EntryMode,
+  fallbackScore = 0,
+  fallbackExplanation = "진입 가격, 손절 기준, 목표가 중 일부가 명확하지 않아 확인이 필요합니다.",
+): EntryModeScore {
+  const hasScore = finite(value?.score);
+  const score = clamp(value?.score, fallbackScore);
+  const fallbackLabel = hasScore ? entryScoreWithMode(mode, score) : "확인 필요";
+  return {
+    score,
+    label: nonEmpty(value?.label, fallbackLabel),
+    explanation: nonEmpty(value?.explanation, fallbackExplanation),
+  };
+}
+
+function scoreFromRiskReward(
+  baseScore: number,
+  rr: ReturnType<typeof riskReward> | undefined,
+  mode: EntryMode,
+) {
+  let score = baseScore;
+  if (!rr || rr.value === null) {
+    score -= mode === "currentEntry" ? 20 : 10;
+  } else if (rr.value < 1) {
+    score -= mode === "currentEntry" ? 30 : 20;
+  } else if (rr.value < 1.5) {
+    score -= 5;
+  } else if (rr.value < 2) {
+    score += 12;
+  } else {
+    score += 20;
+  }
+  if (mode === "pullbackEntry") score += 8;
+  return clamp(score, baseScore);
+}
+
+function entryScoreExplanation(mode: EntryMode, rr?: ReturnType<typeof riskReward>) {
+  if (!rr || rr.value === null) {
+    if (mode === "currentEntry") return "현재가 기준 진입가, 단기 손절가, 목표가 중 일부가 명확하지 않아 확인이 필요합니다.";
+    if (mode === "pullbackEntry") return "눌림목 지지 확인 전에는 진입 가격과 손절 기준을 확정하기 어렵습니다.";
+    return "돌파 후 재지지 여부가 확인되기 전까지는 돌파 진입 판단을 보류합니다.";
+  }
+  if (rr.value < 1) {
+    if (mode === "currentEntry") return "현재가 기준 손익비가 낮아 추격 진입은 주의가 필요합니다.";
+    if (mode === "pullbackEntry") return "눌림목 기준 목표 대비 손절폭이 커서 조건 확인이 필요합니다.";
+    return "돌파 기준 목표 대비 손절폭이 커서 돌파 진입에는 주의가 필요합니다.";
+  }
+  if (rr.value >= 1.5) {
+    if (mode === "currentEntry") return "현재가 기준 손익비는 일부 확보되지만 저항 근접 여부를 함께 확인해야 합니다.";
+    if (mode === "pullbackEntry") return "지지 확인 후 접근하면 단기 손절 기준을 비교적 명확히 둘 수 있습니다.";
+    return "돌파 후 재지지까지 확인되면 다음 저항까지의 손익비를 검토할 수 있습니다.";
+  }
+  return "손익비는 보통 수준이므로 가격 확인 후 보수적으로 접근하는 구간입니다.";
+}
+
+function deriveEntryScores(report: TradingReport, score: ScoreSummary): ScoreSummary["entryScores"] {
+  const rr = report.tradePlan.riskRewardByEntry ?? {};
+  const currentPrice = priceFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone);
+  const pivotPrice = priceFromText(report.priceRoles?.pivot?.priceZone ?? report.analysisMeta?.keyPivotPrice);
+  const pullbackPrice = priceFromText(report.priceRoles?.pullbackEntry?.priceZone ?? report.tradePlan.entry.pullbackEntry?.priceZone);
+  const priceNearOrBelowPivot = finite(currentPrice) && finite(pivotPrice) && currentPrice <= pivotPrice * 1.01;
+  const nearPivot = finite(currentPrice) && finite(pivotPrice) && Math.abs(currentPrice - pivotPrice) / pivotPrice * 100 <= 2.5;
+  const breakoutConfirmed = finite(currentPrice) && finite(pivotPrice) && currentPrice >= pivotPrice * 1.005;
+
+  let currentScore = scoreFromRiskReward(score.buyScore, rr.current, "currentEntry");
+  let pullbackScore = scoreFromRiskReward(score.buyScore, rr.pullback, "pullbackEntry");
+  let breakoutScore = scoreFromRiskReward(score.buyScore, rr.breakout, "breakoutEntry");
+
+  if (nearPivot || priceNearOrBelowPivot) currentScore = clamp(currentScore - 20, currentScore);
+  if (rr.current?.value !== null && finite(rr.current?.value) && rr.current.value >= 1.5 && !nearPivot) currentScore = clamp(currentScore + 8, currentScore);
+  if (finite(pullbackPrice)) pullbackScore = clamp(pullbackScore + 12, pullbackScore);
+  if (finite(rr.pullback?.value) && finite(rr.current?.value) && rr.pullback.value >= rr.current.value + 0.5) {
+    pullbackScore = clamp(pullbackScore + 10, pullbackScore);
+  }
+  if (score.riskScore >= 80) pullbackScore = clamp(pullbackScore - 30, pullbackScore);
+  if (!breakoutConfirmed) breakoutScore = clamp(breakoutScore - 25, breakoutScore);
+  if (priceNearOrBelowPivot) breakoutScore = clamp(breakoutScore - 10, breakoutScore);
+  if (breakoutConfirmed && riskRewardAllowsEntry(rr.breakout, 1.5)) breakoutScore = clamp(breakoutScore + 20, breakoutScore);
+
+  const currentExplanation = nearPivot
+    ? `현재가는 ${report.priceRoles?.pivot?.priceZone ?? "핵심 전환 가격"} 부근에 가까워 추격 진입 손익비가 낮아질 수 있습니다.`
+    : entryScoreExplanation("currentEntry", rr.current);
+  const pullbackExplanation = pullbackScore >= 65
+    ? `${report.priceRoles?.pullbackEntry?.priceZone ?? "주요 지지 구간"}에서 눌림목 지지가 확인되면 손절 기준을 짧게 잡기 쉬워 현재가 진입보다 유리합니다.`
+    : entryScoreExplanation("pullbackEntry", rr.pullback);
+  const breakoutExplanation = !breakoutConfirmed
+    ? `${report.priceRoles?.pivot?.priceZone ?? "핵심 전환 가격"} 돌파 후 재지지가 아직 확인되지 않아 돌파 진입은 대기 구간입니다.`
+    : entryScoreExplanation("breakoutEntry", rr.breakout);
+
+  return {
+    currentEntry: normalizeEntryScore(score.entryScores?.currentEntry, "currentEntry", currentScore, currentExplanation),
+    pullbackEntry: normalizeEntryScore(score.entryScores?.pullbackEntry, "pullbackEntry", pullbackScore, pullbackExplanation),
+    breakoutEntry: normalizeEntryScore(score.entryScores?.breakoutEntry, "breakoutEntry", breakoutScore, breakoutExplanation),
+  };
+}
+
+function entryModePreferenceExplanation(report: TradingReport, score: ScoreSummary) {
+  const current = score.entryScores?.currentEntry?.score ?? 0;
+  const pullback = score.entryScores?.pullbackEntry?.score ?? 0;
+  const breakout = score.entryScores?.breakoutEntry?.score ?? 0;
+  const pivot = report.priceRoles?.pivot?.priceZone ?? report.analysisMeta?.keyPivotPrice ?? "핵심 전환 가격";
+  const pullbackZone = report.priceRoles?.pullbackEntry?.priceZone ?? "주요 지지 구간";
+  const parts: string[] = [];
+
+  if (current < 50) {
+    parts.push(`현재가는 ${pivot} 부근 저항 또는 전환 가격 부담으로 추격 진입 점수가 낮습니다.`);
+  }
+  if (pullback >= 65) {
+    parts.push(`${pullbackZone}에서 눌림목 지지가 확인되면 손절 기준을 짧게 둘 수 있어 눌림목 진입 점수가 상대적으로 높습니다.`);
+  }
+  if (breakout < 65) {
+    parts.push(`${pivot} 돌파 후 재지지가 아직 부족해 돌파 진입은 확인 대기입니다.`);
+  } else if (breakout >= 70) {
+    parts.push(`${pivot} 돌파 후 재지지가 확인되면 돌파 진입 후보로 볼 수 있습니다.`);
+  }
+  if (!parts.length) {
+    return nonEmpty(score.explanation, "현재가, 눌림목, 돌파 진입 조건을 분리해 확인해야 하는 구간입니다.");
+  }
+  return parts.join(" ");
+}
+
+function entryModePreferenceExplanationClean(report: TradingReport, score: ScoreSummary) {
+  const current = score.entryScores?.currentEntry?.score ?? 0;
+  const pullback = score.entryScores?.pullbackEntry?.score ?? 0;
+  const breakout = score.entryScores?.breakoutEntry?.score ?? 0;
+  const rr = report.tradePlan.riskRewardByEntry ?? {};
+  const currentRr = rr.current?.value ?? null;
+  const pullbackRr = rr.pullback?.value ?? null;
+  const pivot = safeDisplayText(report.priceRoles?.pivot?.priceZone ?? report.analysisMeta?.keyPivotPrice, "핵심 전환 가격");
+  const pullbackZone = safeDisplayText(report.priceRoles?.pullbackEntry?.priceZone, "주요 지지 구간");
+  const shortStop = safeDisplayText(report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone, "단기 손절 기준");
+  const breakoutTarget = safeDisplayText(report.priceRoles?.targets?.breakoutTargets?.[0] ?? report.tradePlan.targets.breakoutTargets?.firstTarget?.priceZone, "다음 저항");
+  const parts: string[] = [];
+
+  if (current < 50 || (finite(currentRr) && currentRr < 1)) {
+    parts.push(`현재가는 ${pivot} 부근의 저항 또는 전환 가격에 가까워 추격매수 손익비가 낮습니다.`);
+  } else {
+    parts.push("현재가 진입은 핵심 가격대와 손절 기준을 함께 확인해야 합니다.");
+  }
+
+  if (pullback >= 65 || (finite(pullbackRr) && pullbackRr >= 1.5)) {
+    parts.push(`${pullbackZone}에서 반등이 확인되면 ${shortStop}을 기준으로 손절을 짧게 둘 수 있어 눌림목 진입 조건이 상대적으로 유리합니다.`);
+  } else {
+    parts.push(`${pullbackZone} 지지 반응이 확인되기 전까지는 눌림목 진입도 확인 대기 구간입니다.`);
+  }
+
+  if (breakout >= 70) {
+    parts.push(`${pivot} 돌파 후 재지지에 성공하면 돌파 진입 후보가 되며, 다음 목표는 ${breakoutTarget} 부근입니다.`);
+  } else {
+    parts.push(`${pivot} 돌파 후 재지지가 아직 충분히 확인되지 않아 돌파 진입은 확인 대기가 필요합니다.`);
+  }
+
+  if (score.holdScore >= 60) {
+    parts.push(`보유자는 ${shortStop} 이탈 전까지 관망 가능하지만, ${pivot} 부근에서는 일부 익절 또는 돌파 확인이 필요합니다.`);
+  }
+  if (score.riskScore >= 60) {
+    parts.push("다만 위험 점수가 높아 저항 근접, 손익비 부족, 이미지 기반 분석 한계를 함께 관리해야 합니다.");
+  }
+
+  return parts.join(" ");
+}
+
 const knownFinalActions = new Set<FinalAction>([
+  "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED",
+  "BREAKOUT_WAIT",
   "NO_NEW_ENTRY_HOLD_OK",
   "WAIT_FOR_BREAKOUT",
   "WAIT_FOR_PULLBACK",
@@ -566,9 +973,15 @@ function buildScoreSummary(raw: AnalysisResponse, nearResistance: boolean, rr: R
 
 function alignScoreWithAction(report: TradingReport) {
   const score = normalizeScoreSummary(report.scoreSummary);
-  const action = report.finalSummary.finalAction;
-  const buyActions: FinalAction[] = ["CONDITIONAL_BUY", "PULLBACK_BUY_CANDIDATE", "BREAKOUT_BUY_CANDIDATE", "BUY_CANDIDATE"];
-  const waitOrHoldActions: FinalAction[] = ["NO_NEW_ENTRY_HOLD_OK", "WAIT_FOR_BREAKOUT", "WAIT_FOR_PULLBACK", "HOLD_AND_WATCH", "HOLD", "WAIT"];
+  let action = report.finalSummary.finalAction;
+  const buyActions: FinalAction[] = [
+    "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED",
+    "PULLBACK_BUY_CANDIDATE",
+    "BREAKOUT_BUY_CANDIDATE",
+    "CONDITIONAL_BUY",
+    "BUY_CANDIDATE",
+  ];
+  const waitOrHoldActions: FinalAction[] = ["NO_NEW_ENTRY_HOLD_OK", "BREAKOUT_WAIT", "WAIT_FOR_BREAKOUT", "WAIT_FOR_PULLBACK", "HOLD_AND_WATCH", "HOLD", "WAIT"];
   const rrValues = report.tradePlan.riskRewardByEntry ?? {};
   const bestEntryRr = [
     rrValues.pullback?.value,
@@ -576,7 +989,66 @@ function alignScoreWithAction(report: TradingReport) {
     report.tradePlan.riskReward?.value,
   ].filter(finite).sort((a, b) => b - a)[0] ?? null;
 
-  if (action === "NO_NEW_ENTRY_HOLD_OK" || action === "WAIT_FOR_BREAKOUT" || action === "WAIT_FOR_PULLBACK" || action === "WAIT") {
+  score.entryScores = deriveEntryScores(report, score);
+  const entryScores = score.entryScores ?? {};
+  const currentEntryScore = entryScores.currentEntry?.score ?? 0;
+  const pullbackEntryScore = entryScores.pullbackEntry?.score ?? 0;
+  const breakoutEntryScore = entryScores.breakoutEntry?.score ?? 0;
+  const currentPrice = priceFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone);
+  const pivotPrice = priceFromText(report.priceRoles?.pivot?.priceZone ?? report.analysisMeta?.keyPivotPrice);
+  const pivotExists = finite(pivotPrice);
+  const priceNearOrBelowPivot = finite(currentPrice) && finite(pivotPrice) && currentPrice <= pivotPrice * 1.01;
+  const breakoutRetestConfirmed = finite(currentPrice) && finite(pivotPrice) && currentPrice >= pivotPrice * 1.005;
+  const breakoutRr = rrValues.breakout?.value ?? null;
+
+  const setFinalAction = (nextAction: FinalAction, title: string, conclusion?: string) => {
+    report.finalSummary.finalAction = nextAction;
+    report.finalSummary.title = title;
+    if (conclusion) report.finalSummary.oneLineConclusion = conclusion;
+    action = nextAction;
+  };
+
+  if (score.riskScore >= 80) {
+    setFinalAction("SELL_RISK", "손절 위험", "위험 점수가 높아 신규 진입보다 손절 기준과 비중 관리가 우선입니다.");
+  } else if (currentEntryScore < 30 && pullbackEntryScore < 30 && breakoutEntryScore < 30 && score.holdScore < 40 && score.riskScore >= 70) {
+    setFinalAction("NO_TRADE", "매매 부적합", "현재가, 눌림목, 돌파 진입 조건과 보유 조건이 모두 약해 기술적 대응이 불리합니다.");
+  } else if (breakoutEntryScore >= 70 && breakoutRetestConfirmed && finite(breakoutRr) && breakoutRr >= 1.5) {
+    setFinalAction("BREAKOUT_BUY_CANDIDATE", "돌파 매수 후보", "돌파 후 재지지와 손익비 조건이 확인되어 돌파 진입 후보로 볼 수 있습니다.");
+  } else if (pullbackEntryScore >= 70 && currentEntryScore < 50 && breakoutEntryScore < 65) {
+    setFinalAction(
+      "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED",
+      "눌림목 매수 후보 / 현재가 추격매수는 불리",
+      "현재가 진입 손익비는 낮지만 지지 구간에서 눌림목이 확인되면 손절 기준을 짧게 둘 수 있어 눌림목 진입이 더 유리합니다.",
+    );
+  } else if (pullbackEntryScore >= 65 && currentEntryScore >= 50 && score.riskScore < 60) {
+    setFinalAction("PULLBACK_BUY_CANDIDATE", "눌림목 매수 후보", "현재가보다 주요 지지 확인 후 접근하는 눌림목 진입 조건이 더 우선입니다.");
+  } else if (breakoutEntryScore < 65 && pivotExists && priceNearOrBelowPivot) {
+    setFinalAction("BREAKOUT_WAIT", "돌파 확인 대기", "핵심 전환 가격 돌파와 재지지가 아직 부족해 돌파 확인 후 대응하는 것이 유리합니다.");
+  } else if (currentEntryScore < 40 && pullbackEntryScore < 50 && score.holdScore >= 60) {
+    setFinalAction("NO_NEW_ENTRY_HOLD_OK", "신규 진입 부적합 / 보유 관망 가능", "현재가 신규 진입 조건은 약하지만 주요 지지선 이탈 전까지 보유 관망은 가능합니다.");
+  } else if (score.holdScore >= 70 && score.buyScore < score.holdScore && score.riskScore < 70) {
+    setFinalAction("HOLD_AND_WATCH", "보유 관망 우세", "신규 진입보다 기존 보유자는 지지선 이탈 여부를 보며 관망하는 쪽이 더 자연스럽습니다.");
+  }
+
+  if (action === "CONDITIONAL_BUY" || action === "BUY_CANDIDATE") {
+    if (pullbackEntryScore >= 65 && currentEntryScore < 65) {
+      report.finalSummary.finalAction = "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED";
+      report.finalSummary.title = "눌림목 매수 후보 / 현재가 추격매수는 불리";
+    } else if (breakoutEntryScore >= pullbackEntryScore && breakoutEntryScore >= 65) {
+      report.finalSummary.finalAction = "BREAKOUT_BUY_CANDIDATE";
+      report.finalSummary.title = "돌파 매수 후보";
+    } else if (pullbackEntryScore >= 65) {
+      report.finalSummary.finalAction = "PULLBACK_BUY_CANDIDATE";
+      report.finalSummary.title = "눌림목 매수 후보";
+    } else {
+      report.finalSummary.finalAction = "BREAKOUT_WAIT";
+      report.finalSummary.title = "돌파 확인 대기";
+    }
+  }
+
+  action = report.finalSummary.finalAction;
+
+  if (action === "NO_NEW_ENTRY_HOLD_OK" || action === "BREAKOUT_WAIT" || action === "WAIT_FOR_BREAKOUT" || action === "WAIT_FOR_PULLBACK" || action === "WAIT") {
     score.buyScore = Math.min(score.buyScore, 64);
     score.holdScore = Math.max(score.holdScore, Math.min(100, score.buyScore + 10), 60);
   }
@@ -587,7 +1059,7 @@ function alignScoreWithAction(report: TradingReport) {
     score.holdScore = Math.max(score.holdScore, score.buyScore + 5, 65);
   }
   if (score.riskScore >= 70 && buyActions.includes(action)) {
-    report.finalSummary.finalAction = score.holdScore >= 60 ? "NO_NEW_ENTRY_HOLD_OK" : "WAIT_FOR_BREAKOUT";
+    report.finalSummary.finalAction = score.holdScore >= 60 ? "NO_NEW_ENTRY_HOLD_OK" : "BREAKOUT_WAIT";
     report.finalSummary.title = score.holdScore >= 60 ? "신규 진입 부적합 / 보유 관망 가능" : "신규 진입 주의 / 돌파 확인 대기";
     report.finalSummary.oneLineConclusion = score.holdScore >= 60
       ? "위험도가 높아 신규 진입은 불리하지만, 주요 지지선 이탈 전까지 보유 관망은 가능합니다."
@@ -629,25 +1101,86 @@ function alignScoreWithAction(report: TradingReport) {
   score.buyLabel = buyScoreLabel(score.buyScore);
   score.holdLabel = holdScoreLabel(score.holdScore);
   score.riskLabel = riskScoreLabel(score.riskScore);
+  score.entryScores = deriveEntryScores(report, score);
+  const refreshedEntryScores = score.entryScores ?? {};
+  const finalCurrentScore = refreshedEntryScores.currentEntry?.score ?? 0;
+  const finalPullbackScore = refreshedEntryScores.pullbackEntry?.score ?? 0;
+  const finalBreakoutScore = refreshedEntryScores.breakoutEntry?.score ?? 0;
+  const currentRr = rrValues.current?.value ?? null;
+  const currentEntryPoor = finalCurrentScore < 50 || (finite(currentRr) && currentRr < 1);
+  const pullbackIsBest = finalPullbackScore >= finalCurrentScore && finalPullbackScore >= finalBreakoutScore;
+  const isTerminalRisk = report.finalSummary.finalAction === "SELL_RISK" || report.finalSummary.finalAction === "NO_TRADE" || report.finalSummary.finalAction === "REDUCE_POSITION";
+  if (!isTerminalRisk && pullbackIsBest && finalPullbackScore >= 65 && currentEntryPoor) {
+    report.finalSummary.finalAction = "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED";
+    report.finalSummary.title = "눌림목 매수 후보 / 현재가 추격매수는 불리";
+    score.totalScore = Math.min(Math.max(score.totalScore, 50), 79);
+  }
+  if (report.finalSummary.finalAction === "BREAKOUT_BUY_CANDIDATE" && (finalBreakoutScore < 65 || !breakoutRetestConfirmed)) {
+    report.finalSummary.finalAction = finalPullbackScore >= 65 ? "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED" : "BREAKOUT_WAIT";
+    report.finalSummary.title = finalPullbackScore >= 65 ? "눌림목 매수 후보 / 현재가 추격매수는 불리" : "돌파 확인 대기";
+  }
+  if (currentEntryPoor && report.finalSummary.title.includes("매수 우위")) {
+    report.finalSummary.title = finalPullbackScore >= 65 ? "눌림목 매수 후보 / 현재가 추격매수는 불리" : "돌파 확인 대기";
+  }
+  if (score.holdScore >= 60 && report.finalSummary.finalAction === "NO_TRADE") {
+    report.finalSummary.finalAction = "NO_NEW_ENTRY_HOLD_OK";
+    report.finalSummary.title = "신규 진입 부적합 / 보유 관망 가능";
+  }
+  score.totalLabel = scoreLabel(score.totalScore);
+  score.label = score.totalLabel;
+  score.buyLabel = buyScoreLabel(score.buyScore);
+  score.holdLabel = holdScoreLabel(score.holdScore);
+  score.riskLabel = riskScoreLabel(score.riskScore);
+  score.explanation = entryModePreferenceExplanationClean(report, score);
   report.scoreSummary = score;
 }
 
 function sanitizeTradingReport(report: TradingReport) {
   report.finalSummary.finalAction = normalizeFinalAction(report.finalSummary.finalAction);
   const pivotZone = report.priceRoles?.pivot?.priceZone ?? report.tradePlan.transitionLevel?.priceZone;
-  const sortedPullbackTargets = sortPriceZones([
+  const pullbackEntryZone = report.priceRoles?.pullbackEntry?.priceZone ?? report.tradePlan.entry.pullbackEntry?.priceZone;
+  const supportZones = sortPriceZones([
+    ...(report.keyLevels.supports ?? []).map((item) => item.priceZone),
+    ...(report.analysisMeta?.mainSupports ?? []),
+    report.priceRoles?.stopLoss?.shortTerm,
+    report.priceRoles?.stopLoss?.conservative,
+    report.priceRoles?.stopLoss?.invalidation,
+  ]);
+  const resistanceZones = sortPriceZones([
+    ...(report.keyLevels.resistances ?? []).map((item) => item.priceZone),
+    ...(report.analysisMeta?.mainResistances ?? []),
+    pivotZone,
+  ]);
+  const pullbackStopZone = nextLowerPriceZone(pullbackEntryZone, supportZones);
+  const shortStopConflictsWithPullback = samePriceZone(report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone, pullbackEntryZone);
+  if (shortStopConflictsWithPullback && pullbackStopZone) {
+    const shortStop = {
+      priceZone: pullbackStopZone,
+      condition: `${pullbackStopZone} 이탈`,
+      meaning: "눌림목 신규 진입 기준의 단기 손절 후보입니다.",
+    };
+    report.tradePlan.stopLoss.shortTerm = shortStop;
+    report.tradePlan.stopLoss.priceZone = `단기 ${pullbackStopZone} 이탈`;
+    if (report.priceRoles?.stopLoss) {
+      report.priceRoles.stopLoss.shortTerm = pullbackStopZone;
+    }
+  }
+  const sortedPullbackTargets = filterTargetsAbove(pullbackEntryZone, [
+    pivotZone,
+    ...resistanceZones,
     ...(report.priceRoles?.targets?.pullbackTargets ?? []),
     report.tradePlan.targets.pullbackTargets?.firstTarget?.priceZone,
     report.tradePlan.targets.pullbackTargets?.secondTarget?.priceZone,
     report.tradePlan.targets.pullbackTargets?.thirdTarget?.priceZone,
-  ]);
-  const sortedBreakoutTargets = sortPriceZones([
+  ]).slice(0, 3);
+  const sortedBreakoutTargets = filterTargetsAbove(pivotZone, [
+    ...resistanceZones,
     ...(report.priceRoles?.targets?.breakoutTargets ?? []),
     report.tradePlan.targets.breakoutTargets?.firstTarget?.priceZone,
     report.tradePlan.targets.breakoutTargets?.secondTarget?.priceZone,
     report.tradePlan.targets.firstTarget.priceZone,
     report.tradePlan.targets.secondTarget?.priceZone,
-  ]).filter((target) => !samePriceZone(target, pivotZone));
+  ], pivotZone).slice(0, 2);
 
   report.priceRoles = {
     ...report.priceRoles,
@@ -681,9 +1214,21 @@ function sanitizeTradingReport(report: TradingReport) {
 
   report.tradePlan.riskReward = normalizeRiskRewardDetail(report.tradePlan.riskReward);
   report.tradePlan.riskRewardByEntry = {
-    current: normalizeRiskRewardDetail(report.tradePlan.riskRewardByEntry?.current),
-    pullback: normalizeRiskRewardDetail(report.tradePlan.riskRewardByEntry?.pullback),
-    breakout: normalizeRiskRewardDetail(report.tradePlan.riskRewardByEntry?.breakout ?? report.tradePlan.riskReward),
+    current: riskReward(
+      priceFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone),
+      priceFromText(report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone),
+      priceFromText(filterTargetsAbove(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone, [...sortedPullbackTargets, ...sortedBreakoutTargets])[0]),
+    ),
+    pullback: riskReward(
+      priceFromText(pullbackEntryZone),
+      priceFromText(report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone),
+      priceFromText(sortedPullbackTargets[0]),
+    ),
+    breakout: riskReward(
+      priceFromText(pivotZone),
+      priceFromText(report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone),
+      priceFromText(sortedBreakoutTargets[0]),
+    ),
   };
 
   report.finalSummary.title = safeDisplayText(report.finalSummary.title, "신규 진입 보류 / 조건 확인 대기");
@@ -691,13 +1236,26 @@ function sanitizeTradingReport(report: TradingReport) {
   report.finalSummary.reason = safeDisplayText(report.finalSummary.reason, "본 분석은 이미지 기반 기술적 분석 참고 정보입니다.");
   report.analysisMeta = {
     symbol: safeDisplayText(report.analysisMeta?.symbol, "미확인"),
-    chartTimeframe: safeDisplayText(report.analysisMeta?.chartTimeframe, "추정 불가"),
+    chartTimeframe: normalizeTimeframeTextClean(report.analysisMeta?.chartTimeframe),
     currentPriceZone: safeDisplayText(report.analysisMeta?.currentPriceZone, IMAGE_LIMIT_TEXT),
     keyPivotPrice: safeDisplayText(report.analysisMeta?.keyPivotPrice, "미확인"),
     mainSupports: report.analysisMeta?.mainSupports?.length ? report.analysisMeta.mainSupports.map((item) => safeDisplayText(item, "미확인")).filter((item) => item !== "미확인") : [],
     mainResistances: report.analysisMeta?.mainResistances?.length ? report.analysisMeta.mainResistances.map((item) => safeDisplayText(item, "미확인")).filter((item) => item !== "미확인") : [],
     analyzedAt: safeDisplayText(report.analysisMeta?.analyzedAt, nowKstText()),
     dataBasis: report.analysisMeta?.dataBasis ?? "image_only",
+  };
+  report.indicatorAnalysis = normalizeIndicatorAnalysisClean(report.indicatorAnalysis);
+  const guidePivot = safeDisplayText(report.priceRoles?.pivot?.priceZone ?? pivotZone, "핵심 저항");
+  const guidePullback = safeDisplayText(report.priceRoles?.pullbackEntry?.priceZone ?? pullbackEntryZone, "주요 지지 구간");
+  const guideShortStop = safeDisplayText(report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone, "단기 손절 기준");
+  const guideConservativeStop = safeDisplayText(report.tradePlan.stopLoss.conservative?.priceZone, "보수적 손절 기준");
+  const guideInvalidation = safeDisplayText(report.tradePlan.invalidation.midTerm?.priceZone ?? report.tradePlan.invalidation.condition, "중기 무효화 기준");
+  report.userActionGuide = {
+    nonHolder: `현재가는 ${guidePivot}에 가까우면 추격매수는 불리합니다. ${guidePullback} 지지 확인 또는 돌파 후 재지지까지 기다리는 전략이 유리합니다.`,
+    holder: `주요 지지선 이탈 전까지 보유 관망이 가능하며, ${guidePivot} 부근에서는 일부 익절 또는 돌파 확인이 필요합니다.`,
+    shortTermTrader: `${guidePivot} 부근에서는 짧은 손절 기준 없이 진입하면 손익비가 불리합니다.`,
+    addBuyer: `추가 매수는 현재가보다 ${guidePullback} 지지 확인 또는 ${guidePivot} 돌파 후 재지지 확인 이후가 유리합니다.`,
+    stopLoss: `단기 ${guideShortStop} / 보수적 ${guideConservativeStop} / 중기 무효화 ${guideInvalidation}를 분리해서 대응합니다.`,
   };
 
   alignScoreWithAction(report);
@@ -841,7 +1399,7 @@ function buildFallbackReport(raw: AnalysisResponse): TradingReport {
     title = "신규 진입 부적합 / 보유 관망 가능";
     oneLineConclusion = "저항 구간에 가까워 신규 추격매수는 불리하지만, 주요 지지선 이탈 전까지 보유 관망은 가능합니다.";
   } else if (nearResistance) {
-    finalAction = "WAIT_FOR_BREAKOUT";
+    finalAction = "BREAKOUT_WAIT";
     title = "신규 진입 주의 / 돌파 확인 대기";
     oneLineConclusion = "현재 가격이 저항 구간에 가까워 돌파 후 재지지 확인이 필요합니다.";
   } else if (scoreSummary.buyScore < 50 && scoreSummary.riskScore >= 50 && scoreSummary.holdScore >= 60) {
@@ -849,8 +1407,10 @@ function buildFallbackReport(raw: AnalysisResponse): TradingReport {
     title = "신규 진입 부적합 / 보유 관망 가능";
     oneLineConclusion = "신규 진입 점수는 낮지만 주요 지지선 이탈 전까지 보유 관망은 가능합니다.";
   } else if (scoreSummary.buyScore >= 65 && bestEntryRrValue !== null && bestEntryRrValue >= 1.5) {
-    finalAction = "CONDITIONAL_BUY";
-    title = "조건부 매수 후보";
+    finalAction = pullbackRrValue !== null && pullbackRrValue >= (breakoutRrValue ?? 0)
+      ? "PULLBACK_BUY_CANDIDATE"
+      : "BREAKOUT_BUY_CANDIDATE";
+    title = finalAction === "PULLBACK_BUY_CANDIDATE" ? "눌림목 매수 후보" : "돌파 매수 후보";
     oneLineConclusion = "손익비와 추세 조건이 일부 충족되어 조건 확인 시 매수 후보로 볼 수 있습니다.";
   }
 
@@ -974,11 +1534,12 @@ function buildFallbackReport(raw: AnalysisResponse): TradingReport {
         const item = indicators[key] as { visible?: boolean; status?: string | null; position?: string | null; pricePosition?: string | null; cloudPosition?: string | null; reason?: string | null } | undefined;
         if (!item?.visible) return [];
         const rawStatus = item.status ?? item.position ?? item.pricePosition ?? item.cloudPosition;
-        return [{ name: label, signal: indicatorSignal(rawStatus), explanation: item.reason ? cleanText(item.reason) : indicatorExplanation(key, rawStatus) }];
+        const signal = indicatorSignal(rawStatus);
+        return [{ name: label, signal, explanation: indicatorExplanationClean(key, rawStatus, signal) }];
       }),
       unavailable: indicatorLabels.flatMap(([key, label]) => {
         const item = indicators[key] as { visible?: boolean } | undefined;
-        return item?.visible ? [] : [{ name: label, reason: unavailableIndicatorReason(key) }];
+        return item?.visible ? [] : [{ name: label, reason: unavailableIndicatorReasonClean(key) }];
       }),
     },
     evidence: {

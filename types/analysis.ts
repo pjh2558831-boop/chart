@@ -454,6 +454,8 @@ export interface AnalysisMeta {
 }
 
 export type FinalAction =
+  | "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED"
+  | "BREAKOUT_WAIT"
   | "NO_NEW_ENTRY_HOLD_OK"
   | "WAIT_FOR_BREAKOUT"
   | "WAIT_FOR_PULLBACK"
@@ -476,6 +478,18 @@ export interface ScoreFactor {
   reason: string;
 }
 
+export interface EntryModeScore {
+  score: number;
+  label: string;
+  explanation: string;
+}
+
+export interface EntryModeScores {
+  currentEntry?: EntryModeScore;
+  pullbackEntry?: EntryModeScore;
+  breakoutEntry?: EntryModeScore;
+}
+
 export interface ScoreSummary {
   totalScore: number;
   totalLabel: string;
@@ -487,6 +501,7 @@ export interface ScoreSummary {
   riskScore: number;
   riskLabel: string;
   explanation: string;
+  entryScores?: EntryModeScores;
   scoreFactors?: {
     positive?: ScoreFactor[];
     negative?: ScoreFactor[];

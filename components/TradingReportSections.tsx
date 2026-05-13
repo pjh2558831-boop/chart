@@ -5,6 +5,8 @@ import ResultSection from "./ResultSection";
 import StatusBadge from "./StatusBadge";
 
 const actionTone: Record<FinalAction, string> = {
+  CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED: "border-emerald-300 bg-emerald-50 text-emerald-950",
+  BREAKOUT_WAIT: "border-blue-300 bg-blue-50 text-blue-950",
   NO_NEW_ENTRY_HOLD_OK: "border-blue-300 bg-blue-50 text-blue-950",
   WAIT_FOR_BREAKOUT: "border-blue-300 bg-blue-50 text-blue-950",
   WAIT_FOR_PULLBACK: "border-slate-300 bg-slate-50 text-slate-950",
@@ -23,10 +25,12 @@ const actionTone: Record<FinalAction, string> = {
 };
 
 const actionLabel: Record<FinalAction, string> = {
+  CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED: "눌림목 매수 후보 / 현재가 추격매수는 불리",
+  BREAKOUT_WAIT: "돌파 확인 대기",
   NO_NEW_ENTRY_HOLD_OK: "신규 진입 부적합 / 보유 관망 가능",
   WAIT_FOR_BREAKOUT: "신규 진입 주의 / 돌파 확인 대기",
   WAIT_FOR_PULLBACK: "신규 진입 보류 / 눌림목 대기",
-  CONDITIONAL_BUY: "조건부 매수 후보",
+  CONDITIONAL_BUY: "눌림목/돌파 조건 확인",
   PULLBACK_BUY_CANDIDATE: "눌림목 매수 후보",
   BREAKOUT_BUY_CANDIDATE: "돌파 매수 후보",
   HOLD_AND_WATCH: "보유 관망 우세",
@@ -70,6 +74,20 @@ function scoreTone(score: number, mode: "normal" | "risk" = "normal") {
   return "border-emerald-200 bg-emerald-50 text-emerald-900";
 }
 
+function safeScore(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.min(100, Math.round(value)))
+    : null;
+}
+
+function safeText(value: unknown, fallback = "확인 필요") {
+  if (typeof value !== "string") return fallback;
+  const text = value.trim();
+  if (!text || /^(undefined|null|nan|infinity)$/i.test(text)) return fallback;
+  if (/\b(undefined|null|NaN|Infinity)\b/.test(text)) return fallback;
+  return text;
+}
+
 function hasContent(value?: string | null) {
   return Boolean(value && value !== "이미지 기준 추정 불가" && value !== "미확인");
 }
@@ -81,6 +99,99 @@ function riskRewardText(value?: RiskRewardDetail | null) {
 
 function riskRewardDescription(value?: RiskRewardDetail | null) {
   return value?.interpretation || "진입가, 손절가, 목표가 중 일부가 명확하지 않아 손익비 계산을 보류합니다.";
+}
+
+function entryScoreLabel(score: number | null) {
+  if (score === null) return "확인 필요";
+  if (score < 30) return "부적합";
+  if (score < 50) return "불리";
+  if (score < 65) return "확인 필요";
+  if (score < 80) return "후보";
+  return "유리";
+}
+
+function riskRewardScore(value?: RiskRewardDetail | null) {
+  if (!value || value.value === null || !Number.isFinite(value.value)) return null;
+  if (value.value < 1) return 35;
+  if (value.value < 1.5) return 55;
+  if (value.value < 2) return 70;
+  return 85;
+}
+
+function getOneLineActionSummary(report: TradingReport) {
+  const score = report.scoreSummary;
+  const current = safeScore(score?.entryScores?.currentEntry?.score) ?? riskRewardScore(report.tradePlan.riskRewardByEntry?.current);
+  const pullback = safeScore(score?.entryScores?.pullbackEntry?.score) ?? riskRewardScore(report.tradePlan.riskRewardByEntry?.pullback);
+  const breakout = safeScore(score?.entryScores?.breakoutEntry?.score) ?? riskRewardScore(report.tradePlan.riskRewardByEntry?.breakout);
+  const hold = safeScore(score?.holdScore) ?? 0;
+  const risk = safeScore(score?.riskScore) ?? 0;
+  const action = report.finalSummary.finalAction;
+
+  if (risk >= 75 || action === "SELL_RISK" || action === "REDUCE_POSITION") {
+    return "위험도가 높아 신규 진입은 피하고, 단기 손절 기준을 우선 확인해야 합니다.";
+  }
+  if ((pullback ?? 0) >= 65 && (current ?? 0) < 50 && (pullback ?? 0) >= (breakout ?? 0)) {
+    return "현재가 추격매수는 불리하고, 주요 지지 구간에서 눌림목 확인 후 진입하는 전략이 더 유리합니다.";
+  }
+  if ((breakout ?? 0) < 65 && (action === "BREAKOUT_WAIT" || action === "WAIT_FOR_BREAKOUT")) {
+    return "핵심 저항 돌파 후 재지지 확인 전까지는 신규 진입보다 관망이 유리합니다.";
+  }
+  if (hold >= 60 && (current ?? 0) < 50) {
+    return "신규 진입은 부담스럽지만, 보유자는 주요 지지선 이탈 전까지 관망 가능합니다.";
+  }
+  return "현재 차트는 기술적 조건 확인이 필요하며, 신규 진입 전 주요 지지와 저항을 먼저 확인하는 것이 좋습니다.";
+}
+
+function getEntryRecommendationRanking(report: TradingReport) {
+  const rr = report.tradePlan.riskRewardByEntry ?? {};
+  const items = [
+    {
+      key: "pullback",
+      name: "눌림목 진입",
+      score: safeScore(report.scoreSummary?.entryScores?.pullbackEntry?.score) ?? riskRewardScore(rr.pullback),
+      reason: safeText(report.scoreSummary?.entryScores?.pullbackEntry?.explanation, "주요 지지 구간에서 반등 확인 시 손절 기준을 짧게 둘 수 있습니다."),
+    },
+    {
+      key: "breakout",
+      name: "돌파 진입",
+      score: safeScore(report.scoreSummary?.entryScores?.breakoutEntry?.score) ?? riskRewardScore(rr.breakout),
+      reason: safeText(report.scoreSummary?.entryScores?.breakoutEntry?.explanation, "핵심 저항 돌파 후 재지지 확인이 필요합니다."),
+    },
+    {
+      key: "current",
+      name: "현재가 진입",
+      score: safeScore(report.scoreSummary?.entryScores?.currentEntry?.score) ?? riskRewardScore(rr.current),
+      reason: safeText(report.scoreSummary?.entryScores?.currentEntry?.explanation, "현재 가격이 저항 구간에 가까우면 손익비가 낮을 수 있습니다."),
+    },
+  ];
+
+  return items
+    .map((item) => ({ ...item, score: item.score ?? 50 }))
+    .sort((a, b) => b.score - a.score);
+}
+
+function getNextConfirmationChecklist(report: TradingReport) {
+  const pivot = safeText(report.priceRoles?.pivot?.priceZone ?? report.tradePlan.transitionLevel?.priceZone, "");
+  const support = safeText(report.priceRoles?.pullbackEntry?.priceZone ?? report.keyLevels.supports?.[0]?.priceZone, "");
+  const stop = safeText(report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone, "");
+  const unavailableIndicators = report.indicatorAnalysis?.unavailable ?? [];
+  const items: string[] = [];
+
+  if (pivot) items.push(`${pivot} 돌파 후 재지지 여부 확인`);
+  if (support) items.push(`${support} 부근에서 반등이 나오는지 확인`);
+  if (stop) items.push(`${stop} 이탈 여부 확인`);
+  items.push("돌파 시 거래량 증가 여부 확인");
+  if (unavailableIndicators.some((item) => /RSI|MACD/i.test(item.name))) {
+    items.push("RSI/MACD 등 확인 제한 지표는 보조 판단으로만 참고");
+  }
+
+  const fallback = [
+    "핵심 저항 돌파 여부 확인",
+    "주요 지지선 이탈 여부 확인",
+    "거래량 동반 여부 확인",
+    "손익비가 개선되는 진입 구간 확인",
+  ];
+  return (items.length ? items : fallback).filter((item) => safeText(item, "")).slice(0, 5);
 }
 
 function BulletList({ items, tone = "slate" }: { items: string[]; tone?: "green" | "red" | "amber" | "slate" }) {
@@ -138,6 +249,59 @@ export function AnalysisMetaCard({ meta }: { meta: TradingReport["analysisMeta"]
   );
 }
 
+export function OneLineActionSummary({ report }: { report: TradingReport }) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">최종 한 줄 행동 요약</p>
+      <p className="mt-2 text-base font-semibold leading-7 text-slate-950">{getOneLineActionSummary(report)}</p>
+    </section>
+  );
+}
+
+export function EntryRecommendationRanking({ report }: { report: TradingReport }) {
+  const ranking = getEntryRecommendationRanking(report);
+  return (
+    <ResultSection title="진입 방식별 추천 순위" description="현재가, 눌림목, 돌파 진입을 기존 점수와 손익비 기준으로 비교합니다." tone="green">
+      <div className="grid gap-3 lg:grid-cols-3">
+        {ranking.map((item, index) => {
+          const label = entryScoreLabel(item.score);
+          const tone = item.score >= 65 ? "success" : item.score < 50 ? "warning" : "neutral";
+          return (
+            <article key={item.key} className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold text-slate-500">{index + 1}순위</p>
+                  <h3 className="mt-1 text-lg font-bold text-slate-950">{item.name}</h3>
+                </div>
+                <StatusBadge label={label} tone={tone} />
+              </div>
+              <p className="mt-3 text-sm leading-6 text-slate-600">{item.reason}</p>
+            </article>
+          );
+        })}
+      </div>
+    </ResultSection>
+  );
+}
+
+export function NextConfirmationChecklist({ report }: { report: TradingReport }) {
+  const items = getNextConfirmationChecklist(report);
+  return (
+    <ResultSection title="다음 확인 조건" description="분석 이후 실제 대응 전 확인하면 좋은 조건입니다." tone="blue">
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <ul className="grid gap-2 text-sm leading-6 text-slate-700 md:grid-cols-2">
+          {items.map((item) => (
+            <li key={item} className="flex gap-2">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </ResultSection>
+  );
+}
+
 export function FinalActionCard({ report }: { report: TradingReport }) {
   const { finalSummary, userActionGuide, tradePlan } = report;
   const score = report.scoreSummary ?? {
@@ -150,11 +314,40 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
     riskScore: 50,
     riskLabel: "주의",
     explanation: "이미지 기반 분석으로 추가 확인 조건이 필요합니다.",
+    entryScores: {
+      currentEntry: { score: 0, label: "확인 필요", explanation: "현재가 진입 기준을 계산할 가격 정보가 부족합니다." },
+      pullbackEntry: { score: 0, label: "확인 필요", explanation: "눌림목 진입 기준을 계산할 가격 정보가 부족합니다." },
+      breakoutEntry: { score: 0, label: "확인 필요", explanation: "돌파 진입 기준을 계산할 가격 정보가 부족합니다." },
+    },
     scoreFactors: { positive: [], negative: [], risk: [] },
   };
+  const entryScoreItems = [
+    { title: "현재가 진입", item: score.entryScores?.currentEntry },
+    { title: "눌림목 진입", item: score.entryScores?.pullbackEntry },
+    { title: "돌파 진입", item: score.entryScores?.breakoutEntry },
+  ];
+  const pullbackTargets = report.priceRoles?.targets?.pullbackTargets ?? [
+    tradePlan.targets.pullbackTargets?.firstTarget?.priceZone,
+    tradePlan.targets.pullbackTargets?.secondTarget?.priceZone,
+  ].filter(Boolean) as string[];
+  const breakoutTargets = report.priceRoles?.targets?.breakoutTargets ?? [
+    tradePlan.targets.breakoutTargets?.firstTarget?.priceZone,
+    tradePlan.targets.breakoutTargets?.secondTarget?.priceZone,
+    tradePlan.targets.firstTarget.priceZone,
+  ].filter(Boolean) as string[];
+  const topTargetSummary = [
+    pullbackTargets.length
+      ? `눌림목 기준 1차 ${pullbackTargets[0]}${pullbackTargets[1] ? ` / 2차 ${pullbackTargets[1]}` : ""}`
+      : "",
+    breakoutTargets.length
+      ? `돌파 기준 1차 ${breakoutTargets[0]}${breakoutTargets[1] ? ` / 2차 ${breakoutTargets[1]}` : ""}`
+      : "",
+  ].filter(Boolean);
   const tone = finalSummary.finalAction === "SELL_RISK" || finalSummary.finalAction === "REDUCE_POSITION"
     ? "danger"
-    : finalSummary.finalAction.includes("BUY") || finalSummary.finalAction === "CONDITIONAL_BUY"
+    : finalSummary.finalAction.includes("BUY")
+        || finalSummary.finalAction === "CONDITIONAL_BUY"
+        || finalSummary.finalAction === "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED"
       ? "success"
       : finalSummary.finalAction === "PARTIAL_TAKE_PROFIT" || finalSummary.finalAction === "TAKE_PROFIT"
         ? "warning"
@@ -165,7 +358,7 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
       <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr]">
         <div>
           <p className="text-sm font-semibold opacity-80">최종 행동 판단</p>
-          <h2 className="mt-3 text-3xl font-bold">{finalSummary.title || actionLabel[finalSummary.finalAction]}</h2>
+          <h2 className="mt-3 text-3xl font-bold">{actionLabel[finalSummary.finalAction] || finalSummary.title}</h2>
           <p className="mt-4 text-base leading-7">{finalSummary.oneLineConclusion}</p>
           {finalSummary.reason ? <p className="mt-3 text-sm leading-6 opacity-80">{finalSummary.reason}</p> : null}
           <div className="mt-4 flex flex-wrap gap-2">
@@ -192,8 +385,11 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
             </div>
             <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
               <p className="font-semibold">목표 구간</p>
-              <p className="mt-1">1차 {tradePlan.targets.firstTarget.priceZone}</p>
-              {tradePlan.targets.secondTarget ? <p className="mt-1">2차 {tradePlan.targets.secondTarget.priceZone}</p> : null}
+              {topTargetSummary.length ? (
+                topTargetSummary.map((line) => <p key={line} className="mt-1">{line}</p>)
+              ) : (
+                <p className="mt-1">확인 필요</p>
+              )}
             </div>
           </div>
           <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
@@ -216,6 +412,18 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
                 <p className="mt-1 font-bold">{score.riskScore} / 100</p>
                 <p className="text-xs">{score.riskLabel} · 높을수록 위험</p>
               </div>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {entryScoreItems.map(({ title, item }) => {
+                const value = safeScore(item?.score);
+                return (
+                  <div key={title} className={`rounded-md border px-3 py-2 ${scoreTone(value ?? 0)}`}>
+                    <p className="text-xs font-semibold">{title}</p>
+                    <p className="mt-1 font-bold">{value === null ? "확인 필요" : `${value} / 100`}</p>
+                    <p className="text-xs">{item?.label || `${title}: 확인 필요`}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

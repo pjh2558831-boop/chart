@@ -30,6 +30,7 @@ interface AnalysisResultProps {
 
 function FeedbackSection({ analysisId }: { analysisId?: number }) {
   const { user, session } = useAuth();
+  const [isExpanded, setIsExpanded] = useState(false);
   const [rating, setRating] = useState<number>(5);
   const [correctSignal, setCorrectSignal] = useState("neutral");
   const [correctPattern, setCorrectPattern] = useState("");
@@ -39,6 +40,26 @@ function FeedbackSection({ analysisId }: { analysisId?: number }) {
   const [error, setError] = useState<string | null>(null);
 
   if (!analysisId) return null;
+
+  if (!isExpanded) {
+    return (
+      <ResultSection title="피드백" tone="green">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="font-semibold text-slate-950">이 분석이 맞았나요?</p>
+            <p className="mt-1 text-sm text-slate-600">피드백을 남기면 리포트 품질 개선에 도움이 됩니다.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsExpanded(true)}
+            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          >
+            피드백 남기기
+          </button>
+        </div>
+      </ResultSection>
+    );
+  }
 
   if (!user) {
     return (
@@ -165,8 +186,8 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
       <NextConfirmationChecklist report={report} />
       <ScoreFactorsSection scoreSummary={report.scoreSummary} />
       <EvidenceSection evidence={report.evidence} />
-      <PatternAnalysisSection analysis={report.patternAnalysis} />
       <IndicatorSummarySection analysis={report.indicatorAnalysis} />
+      <PatternAnalysisSection analysis={report.patternAnalysis} />
       <ImageLimitNotice disclaimer={report.disclaimer} />
       <FeedbackSection analysisId={result.analysisId} />
     </div>

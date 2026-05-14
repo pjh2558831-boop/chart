@@ -88,17 +88,40 @@ function safeText(value: unknown, fallback = "확인 필요") {
   return text;
 }
 
+function displayEntryScoreLabel(score: number | null) {
+  if (score === null) return "확인 필요";
+  if (score < 30) return "부적합";
+  if (score < 50) return "불리";
+  if (score < 65) return "확인 필요";
+  if (score < 80) return "후보";
+  return "유리";
+}
+
 function hasContent(value?: string | null) {
   return Boolean(value && value !== "이미지 기준 추정 불가" && value !== "미확인");
 }
 
 function riskRewardText(value?: RiskRewardDetail | null) {
   if (!value) return "확인 필요";
-  return value.value === null ? value.label || "확인 필요" : `${value.value} / ${value.label}`;
+  if (value.value === null || !Number.isFinite(value.value)) return value.label || "확인 필요";
+  if (value.value >= 5) return "5.0+ / 고손익비 후보";
+  return `${value.value} / ${riskRewardLabel(value.value, value.label)}`;
 }
 
 function riskRewardDescription(value?: RiskRewardDetail | null) {
+  if (value?.value !== null && typeof value?.value === "number" && Number.isFinite(value.value) && value.value >= 5) {
+    return `이미지 기반 추정값이므로 실제 체결가, 변동성, 슬리피지에 따라 손익비는 달라질 수 있습니다. 계산값: ${value.value}`;
+  }
   return value?.interpretation || "진입가, 손절가, 목표가 중 일부가 명확하지 않아 손익비 계산을 보류합니다.";
+}
+
+function riskRewardLabel(value: number, fallback?: string | null) {
+  if (!Number.isFinite(value)) return fallback || "확인 필요";
+  if (value < 1) return "손익비 불리";
+  if (value < 1.5) return "손익비 보통";
+  if (value < 3) return "손익비 우수";
+  if (value < 5) return "손익비 매우 우수";
+  return "고손익비 후보";
 }
 
 function entryScoreLabel(score: number | null) {
@@ -118,7 +141,120 @@ function riskRewardScore(value?: RiskRewardDetail | null) {
   return 85;
 }
 
+function numberFromText(value?: string | null) {
+  if (!value) return null;
+  const match = value.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function deriveFinalActionDetail(report: TradingReport): { title: string; subtitle: string; actionType: string; reason: string } {
+  const score = report.scoreSummary;
+  const currentEntry = safeScore(score?.entryScores?.currentEntry?.score) ?? riskRewardScore(report.tradePlan.riskRewardByEntry?.current) ?? 50;
+  const pullbackEntry = safeScore(score?.entryScores?.pullbackEntry?.score) ?? riskRewardScore(report.tradePlan.riskRewardByEntry?.pullback) ?? 50;
+  const breakoutEntry = safeScore(score?.entryScores?.breakoutEntry?.score) ?? riskRewardScore(report.tradePlan.riskRewardByEntry?.breakout) ?? 50;
+  const buyScore = safeScore(score?.buyScore) ?? 50;
+  const holdScore = safeScore(score?.holdScore) ?? 50;
+  const riskScore = safeScore(score?.riskScore) ?? 50;
+  const currentRr = report.tradePlan.riskRewardByEntry?.current?.value;
+  const currentRrValue = typeof currentRr === "number" && Number.isFinite(currentRr) ? currentRr : null;
+  const currentPrice = numberFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone);
+  const pivotPrice = numberFromText(report.priceRoles?.pivot?.priceZone ?? report.analysisMeta?.keyPivotPrice ?? report.tradePlan.transitionLevel?.priceZone);
+  const stopPrice = numberFromText(report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone);
+  const priceNearOrBelowPivot = currentPrice !== null && pivotPrice !== null ? currentPrice <= pivotPrice * 1.01 : report.finalSummary.finalAction === "BREAKOUT_WAIT";
+  const breakoutRetestConfirmed = currentPrice !== null && pivotPrice !== null ? currentPrice >= pivotPrice * 1.005 : report.finalSummary.finalAction === "BREAKOUT_BUY_CANDIDATE";
+  const shortTermSupportClose = currentPrice !== null && stopPrice !== null && currentPrice > 0
+    ? Math.abs(currentPrice - stopPrice) / currentPrice <= 0.04
+    : false;
+  const nearResistance = report.finalSummary.finalAction === "PARTIAL_TAKE_PROFIT"
+    || report.finalSummary.finalAction === "BREAKOUT_WAIT"
+    || priceNearOrBelowPivot;
+  const fallback = {
+    title: safeText(report.finalSummary.title, actionLabel[report.finalSummary.finalAction] || "조건 확인 필요"),
+    subtitle: safeText(report.finalSummary.oneLineConclusion, "현재 차트는 주요 지지와 저항 확인이 필요한 구간입니다."),
+    actionType: safeText(actionLabel[report.finalSummary.finalAction], "조건 확인"),
+    reason: safeText(score?.explanation ?? report.finalSummary.reason, "기술적 조건을 추가로 확인해야 합니다."),
+  };
+
+  if (currentEntry < 30 && pullbackEntry < 30 && breakoutEntry < 30 && holdScore < 40) {
+    return {
+      title: "매매 부적합",
+      subtitle: "신규 진입, 보유, 돌파, 눌림목 조건이 모두 약하고 위험도가 높습니다.",
+      actionType: "NO_TRADE",
+      reason: safeText(score?.explanation, fallback.reason),
+    };
+  }
+  if (riskScore >= 70 && shortTermSupportClose) {
+    return {
+      title: "위험 관리 우선 / 신규 진입 보류",
+      subtitle: "단기 지지선 이탈 위험이 커져 신규 진입보다 손절 기준 확인이 먼저입니다.",
+      actionType: "RISK_MANAGEMENT",
+      reason: safeText(score?.explanation, "위험 점수가 높아 손익비와 손절 기준을 먼저 확인해야 합니다."),
+    };
+  }
+  if (nearResistance && holdScore >= 65) {
+    return {
+      title: "저항 근접 / 일부 익절 고려",
+      subtitle: "가격이 주요 저항에 가까워 신규 진입보다 일부 익절 또는 돌파 확인이 우선입니다.",
+      actionType: "PARTIAL_TAKE_PROFIT",
+      reason: safeText(report.finalSummary.reason ?? score?.explanation, fallback.reason),
+    };
+  }
+  if (breakoutEntry >= 70 && breakoutRetestConfirmed) {
+    return {
+      title: "돌파 매수 후보",
+      subtitle: "핵심 전환 가격 돌파 후 재지지가 확인되면 다음 저항까지 상승 여지를 볼 수 있습니다.",
+      actionType: "BREAKOUT_BUY",
+      reason: safeText(score?.entryScores?.breakoutEntry?.explanation, fallback.reason),
+    };
+  }
+  if (currentEntry >= 60 && currentRrValue !== null && currentRrValue >= 1.2 && riskScore < 55) {
+    return {
+      title: "현재가 조건부 진입 가능 / 손절 짧게",
+      subtitle: "현재가 기준 손익비가 나쁘지 않지만, 저항 근처 변동성에 대비해 짧은 손절 기준이 필요합니다.",
+      actionType: "CURRENT_ENTRY",
+      reason: safeText(score?.entryScores?.currentEntry?.explanation, fallback.reason),
+    };
+  }
+  if (pullbackEntry >= 75 && pullbackEntry >= currentEntry && pullbackEntry >= breakoutEntry) {
+    return {
+      title: "눌림목 매수 후보",
+      subtitle: "주요 지지 구간에서 반등이 확인되면 손절 기준을 짧게 둘 수 있어 눌림목 진입 조건이 가장 유리합니다.",
+      actionType: "PULLBACK_BUY",
+      reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
+    };
+  }
+  if (currentEntry < 50 && pullbackEntry >= 70) {
+    return {
+      title: "현재가 진입은 불리 / 눌림목 대기 우선",
+      subtitle: "현재가는 저항 또는 전환 가격에 가까워 손익비가 낮고, 주요 지지 구간에서 반등 확인 후 진입하는 전략이 더 유리합니다.",
+      actionType: "PULLBACK_WAIT",
+      reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
+    };
+  }
+  if (breakoutEntry < 60 && priceNearOrBelowPivot) {
+    return {
+      title: "돌파 확인 대기",
+      subtitle: "핵심 전환 가격 돌파 후 재지지 확인 전까지는 신규 진입보다 대기가 유리합니다.",
+      actionType: "BREAKOUT_WAIT",
+      reason: safeText(score?.entryScores?.breakoutEntry?.explanation, fallback.reason),
+    };
+  }
+  if (holdScore >= 70 && (buyScore < holdScore || currentEntry < holdScore)) {
+    return {
+      title: "신규 진입보다 보유 관망 우세",
+      subtitle: "신규 진입 손익비는 제한적이지만, 보유자는 주요 지지선 이탈 전까지 관망할 수 있습니다.",
+      actionType: "HOLD",
+      reason: safeText(score?.explanation, fallback.reason),
+    };
+  }
+  return fallback;
+}
+
 function getOneLineActionSummary(report: TradingReport) {
+  const detail = deriveFinalActionDetail(report);
+  if (detail.subtitle) return detail.subtitle;
   const score = report.scoreSummary;
   const current = safeScore(score?.entryScores?.currentEntry?.score) ?? riskRewardScore(report.tradePlan.riskRewardByEntry?.current);
   const pullback = safeScore(score?.entryScores?.pullbackEntry?.score) ?? riskRewardScore(report.tradePlan.riskRewardByEntry?.pullback);
@@ -168,6 +304,38 @@ function getEntryRecommendationRanking(report: TradingReport) {
   return items
     .map((item) => ({ ...item, score: item.score ?? 50 }))
     .sort((a, b) => b.score - a.score);
+}
+
+function getEntryScoreDisplayItems(report: TradingReport) {
+  const rr = report.tradePlan.riskRewardByEntry ?? {};
+  return [
+    {
+      title: "현재가 진입",
+      item: report.scoreSummary?.entryScores?.currentEntry,
+      fallbackScore: riskRewardScore(rr.current),
+      fallbackReason: "현재가 진입 기준을 계산할 가격 정보가 부족합니다.",
+    },
+    {
+      title: "눌림목 진입",
+      item: report.scoreSummary?.entryScores?.pullbackEntry,
+      fallbackScore: riskRewardScore(rr.pullback),
+      fallbackReason: "눌림목 진입 기준을 계산할 가격 정보가 부족합니다.",
+    },
+    {
+      title: "돌파 진입",
+      item: report.scoreSummary?.entryScores?.breakoutEntry,
+      fallbackScore: riskRewardScore(rr.breakout),
+      fallbackReason: "돌파 진입 기준을 계산할 가격 정보가 부족합니다.",
+    },
+  ].map((entry) => {
+    const score = safeScore(entry.item?.score) ?? entry.fallbackScore;
+    return {
+      title: entry.title,
+      score,
+      label: displayEntryScoreLabel(score),
+      explanation: safeText(entry.item?.explanation, entry.fallbackReason),
+    };
+  });
 }
 
 function getNextConfirmationChecklist(report: TradingReport) {
@@ -321,11 +489,8 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
     },
     scoreFactors: { positive: [], negative: [], risk: [] },
   };
-  const entryScoreItems = [
-    { title: "현재가 진입", item: score.entryScores?.currentEntry },
-    { title: "눌림목 진입", item: score.entryScores?.pullbackEntry },
-    { title: "돌파 진입", item: score.entryScores?.breakoutEntry },
-  ];
+  const actionDetail = deriveFinalActionDetail(report);
+  const entryScoreItems = getEntryScoreDisplayItems(report);
   const pullbackTargets = report.priceRoles?.targets?.pullbackTargets ?? [
     tradePlan.targets.pullbackTargets?.firstTarget?.priceZone,
     tradePlan.targets.pullbackTargets?.secondTarget?.priceZone,
@@ -358,11 +523,11 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
       <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr]">
         <div>
           <p className="text-sm font-semibold opacity-80">최종 행동 판단</p>
-          <h2 className="mt-3 text-3xl font-bold">{actionLabel[finalSummary.finalAction] || finalSummary.title}</h2>
-          <p className="mt-4 text-base leading-7">{finalSummary.oneLineConclusion}</p>
-          {finalSummary.reason ? <p className="mt-3 text-sm leading-6 opacity-80">{finalSummary.reason}</p> : null}
+          <h2 className="mt-3 text-3xl font-bold">{actionDetail.title}</h2>
+          <p className="mt-4 text-base leading-7">{actionDetail.subtitle}</p>
+          {actionDetail.reason ? <p className="mt-3 text-sm leading-6 opacity-80">{actionDetail.reason}</p> : null}
           <div className="mt-4 flex flex-wrap gap-2">
-            <StatusBadge label={actionLabel[finalSummary.finalAction]} tone={tone} />
+            <StatusBadge label={actionDetail.actionType} tone={tone} />
             <StatusBadge label={`분석 점수 ${score.totalScore} / 100 · ${score.totalLabel}`} tone="neutral" />
             <StatusBadge label={`신뢰도 ${confidenceLabel(finalSummary.confidence)}`} tone="neutral" />
           </div>
@@ -396,12 +561,7 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
             <p className="font-semibold">분석 점수</p>
             <p className="mt-1 text-lg font-bold">종합 {score.totalScore} / 100</p>
             <p className="mt-1">{score.totalLabel}</p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <div className={`rounded-md border px-3 py-2 ${scoreTone(score.buyScore)}`}>
-                <p className="text-xs font-semibold">신규 진입</p>
-                <p className="mt-1 font-bold">{score.buyScore} / 100</p>
-                <p className="text-xs">{score.buyLabel}</p>
-              </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <div className={`rounded-md border px-3 py-2 ${scoreTone(score.holdScore)}`}>
                 <p className="text-xs font-semibold">보유 관망</p>
                 <p className="mt-1 font-bold">{score.holdScore} / 100</p>
@@ -413,14 +573,14 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
                 <p className="text-xs">{score.riskLabel} · 높을수록 위험</p>
               </div>
             </div>
+            <p className="mt-3 text-xs font-semibold text-slate-500">진입 점수</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              {entryScoreItems.map(({ title, item }) => {
-                const value = safeScore(item?.score);
+              {entryScoreItems.map(({ title, score: value, label }) => {
                 return (
                   <div key={title} className={`rounded-md border px-3 py-2 ${scoreTone(value ?? 0)}`}>
                     <p className="text-xs font-semibold">{title}</p>
                     <p className="mt-1 font-bold">{value === null ? "확인 필요" : `${value} / 100`}</p>
-                    <p className="text-xs">{item?.label || `${title}: 확인 필요`}</p>
+                    <p className="text-xs">{label}</p>
                   </div>
                 );
               })}
@@ -576,13 +736,18 @@ export function TradePlanTable({ plan, priceRoles }: { plan: TradingReport["trad
             ["현재가 기준", plan.riskRewardByEntry?.current],
             ["눌림목 기준", plan.riskRewardByEntry?.pullback],
             ["돌파 기준", plan.riskRewardByEntry?.breakout ?? plan.riskReward],
-          ].map(([label, value]) => (
-            <article key={String(label)} className="rounded-lg border border-slate-200 bg-white p-3">
-              <p className="text-xs font-semibold text-slate-500">{label as string}</p>
-              <p className="mt-1 text-lg font-bold text-slate-950">{riskRewardText(value as RiskRewardDetail | undefined)}</p>
-              <p className="mt-2 text-xs leading-5 text-slate-600">{riskRewardDescription(value as RiskRewardDetail | undefined)}</p>
-            </article>
-          ))}
+          ].map(([label, value]) => {
+            const rr = value as RiskRewardDetail | undefined;
+            const isHighEstimate = rr?.value !== null && typeof rr?.value === "number" && Number.isFinite(rr.value) && rr.value >= 5;
+            return (
+              <article key={String(label)} className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold text-slate-500">{label as string}</p>
+                <p className="mt-1 text-lg font-bold text-slate-950">{riskRewardText(rr)}</p>
+                {isHighEstimate ? <p className="mt-1 text-[11px] font-semibold text-amber-700">이미지 기반 추정값</p> : null}
+                <p className="mt-2 text-xs leading-5 text-slate-600">{riskRewardDescription(rr)}</p>
+              </article>
+            );
+          })}
         </div>
       </div>
     </ResultSection>
@@ -670,50 +835,123 @@ export function ScenarioSection({ scenarios }: { scenarios: TradingReport["scena
 }
 
 export function EvidenceSection({ evidence }: { evidence: TradingReport["evidence"] }) {
+  const summaryItems = [
+    ...(evidence.negative ?? []),
+    ...(evidence.positive ?? []),
+    ...(evidence.riskFactors ?? []),
+  ]
+    .map((item) => safeText(item, ""))
+    .filter(Boolean)
+    .slice(0, 3);
+
   return (
-    <ResultSection title="판단 근거" tone="green">
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div>
-          <h3 className="mb-2 text-sm font-bold text-emerald-800">긍정 근거</h3>
-          <BulletList items={evidence.positive ?? []} tone="green" />
-        </div>
-        <div>
-          <h3 className="mb-2 text-sm font-bold text-rose-800">부정 근거</h3>
-          <BulletList items={evidence.negative ?? []} tone="red" />
-        </div>
-        <div>
-          <h3 className="mb-2 text-sm font-bold text-amber-800">리스크 요인</h3>
-          <BulletList items={evidence.riskFactors ?? []} tone="amber" />
-        </div>
-      </div>
+    <ResultSection title="핵심 판단 근거" tone="green">
+      <BulletList
+        items={summaryItems.length ? summaryItems : ["주요 지지와 저항, 손익비, 이미지 기반 분석 한계를 함께 확인해야 합니다."]}
+        tone="slate"
+      />
     </ResultSection>
   );
 }
 
 export function PatternAnalysisSection({ analysis }: { analysis: TradingReport["patternAnalysis"] }) {
   const secondary = analysis.secondaryPattern;
+  const primaryName = safeText(analysis.primaryPattern.name, "명확한 패턴 없음");
+  const noClearPattern = primaryName.includes("명확한 패턴 없음") || primaryName.includes("없음");
+
   return (
     <ResultSection title="주요 패턴 분석" tone="purple">
-      <div className="grid gap-4 lg:grid-cols-2">
-        <article className="rounded-lg border border-slate-200 bg-white p-4">
-          <StatusBadge label="주요 패턴 후보" tone="info" />
-          <h3 className="mt-3 text-xl font-bold text-slate-950">{analysis.primaryPattern.name}</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{analysis.primaryPattern.reason}</p>
-          <dl className="mt-4 space-y-3 text-sm">
+      <article className="rounded-lg border border-slate-200 bg-white p-4">
+        <StatusBadge label={noClearPattern ? "주요 패턴" : "주요 패턴 후보"} tone="info" />
+        <h3 className="mt-3 text-lg font-bold text-slate-950">{primaryName}</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          {noClearPattern
+            ? "현재는 패턴 예측보다 주요 지지 반응과 핵심 전환 가격 돌파 여부가 더 중요합니다."
+            : safeText(analysis.primaryPattern.tradingMeaning || analysis.primaryPattern.reason, "지지 확인과 돌파 후 재지지 여부를 우선 확인합니다.")}
+        </p>
+        {!noClearPattern ? (
+          <dl className="mt-4 grid gap-3 text-sm md:grid-cols-3">
             <div>
               <dt className="font-semibold text-slate-950">확인 조건</dt>
-              <dd className="mt-1 text-slate-600">{analysis.primaryPattern.confirmationCondition}</dd>
+              <dd className="mt-1 leading-6 text-slate-600">{safeText(analysis.primaryPattern.confirmationCondition, "추가 확인 필요")}</dd>
             </div>
             <div>
               <dt className="font-semibold text-slate-950">무효화 조건</dt>
-              <dd className="mt-1 text-slate-600">{analysis.primaryPattern.invalidationCondition}</dd>
+              <dd className="mt-1 leading-6 text-slate-600">{safeText(analysis.primaryPattern.invalidationCondition, "추가 확인 필요")}</dd>
             </div>
             <div>
               <dt className="font-semibold text-slate-950">매매 의미</dt>
-              <dd className="mt-1 text-slate-600">{analysis.primaryPattern.tradingMeaning}</dd>
+              <dd className="mt-1 leading-6 text-slate-600">{safeText(analysis.primaryPattern.tradingMeaning, "조건 확인 전까지 보수적으로 참고합니다.")}</dd>
             </div>
           </dl>
-        </article>
+        ) : null}
+        {secondary ? (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
+            <span className="font-semibold text-slate-900">보조 시나리오: </span>
+            {safeText(secondary.name, "확인 필요")} - {safeText(secondary.reason, "보조 참고로만 확인합니다.")}
+          </div>
+        ) : null}
+      </article>
+    </ResultSection>
+  );
+}
+
+export function IndicatorSummarySection({ analysis }: { analysis: TradingReport["indicatorAnalysis"] }) {
+  const confirmed = analysis.confirmed ?? [];
+  const directional = confirmed.filter((item) => item.signal === "bullish" || item.signal === "bearish");
+  const neutral = confirmed.filter((item) => item.signal !== "bullish" && item.signal !== "bearish");
+  const unavailable = analysis.unavailable ?? [];
+
+  return (
+    <ResultSection title="보조지표 분석" description="확인 가능한 지표만 크게 표시하고, 중립·확인 제한 지표는 압축해서 보여줍니다." tone="blue">
+      <div className="space-y-4">
+        {directional.length ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {directional.map((item) => (
+              <article key={`${item.name}-${item.explanation}`} className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-slate-950">{item.name}</p>
+                  <StatusBadge label={signalLabel(item.signal)} tone={item.signal === "bullish" ? "success" : "danger"} />
+                </div>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{safeText(item.explanation, "보조 판단으로만 참고합니다.")}</p>
+              </article>
+            ))}
+          </div>
+        ) : null}
+        {neutral.length ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <h3 className="text-sm font-bold text-slate-800">중립 지표</h3>
+            <ul className="mt-3 divide-y divide-slate-100 text-sm">
+              {neutral.map((item) => (
+                <li key={`${item.name}-${item.explanation}`} className="py-2 leading-6 text-slate-600">
+                  <span className="font-semibold text-slate-900">{item.name}: </span>
+                  {safeText(item.explanation, "단독으로 진입 타이밍을 판단하기는 어렵습니다.")}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <h3 className="text-sm font-bold text-slate-800">확인 제한 지표</h3>
+          {unavailable.length ? (
+            <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate-600 md:grid-cols-2">
+              {unavailable.map((item) => (
+                <li key={`${item.name}-${item.reason}`}>
+                  <span className="font-semibold text-slate-900">{item.name}: </span>
+                  {safeText(item.reason, "이미지에서 명확히 확인되지 않아 보조 판단으로만 참고합니다.")}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-slate-500">추가로 제한 표시할 지표가 없습니다.</p>
+          )}
+        </div>
+      </div>
+    </ResultSection>
+  );
+}
+
+/*
         <article className="rounded-lg border border-slate-200 bg-slate-50 p-4">
           <StatusBadge label="보조 시나리오" tone="neutral" />
           {secondary ? (
@@ -770,6 +1008,7 @@ export function IndicatorSummarySection({ analysis }: { analysis: TradingReport[
     </ResultSection>
   );
 }
+*/
 
 export function ImageLimitNotice({ disclaimer }: { disclaimer: string }) {
   return (

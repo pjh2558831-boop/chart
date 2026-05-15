@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { FinalAction, RiskRewardDetail, TradingReport } from "../types/analysis";
 import ResultSection from "./ResultSection";
@@ -7,6 +7,7 @@ import StatusBadge from "./StatusBadge";
 const actionTone: Record<FinalAction, string> = {
   CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED: "border-emerald-300 bg-emerald-50 text-emerald-950",
   BREAKOUT_WAIT: "border-blue-300 bg-blue-50 text-blue-950",
+  WAIT_FOR_SUPPORT_CONFIRMATION: "border-blue-300 bg-blue-50 text-blue-950",
   NO_NEW_ENTRY_HOLD_OK: "border-blue-300 bg-blue-50 text-blue-950",
   WAIT_FOR_BREAKOUT: "border-blue-300 bg-blue-50 text-blue-950",
   WAIT_FOR_PULLBACK: "border-slate-300 bg-slate-50 text-slate-950",
@@ -25,25 +26,25 @@ const actionTone: Record<FinalAction, string> = {
 };
 
 const actionLabel: Record<FinalAction, string> = {
-  CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED: "눌림목 매수 후보 / 현재가 추격매수는 불리",
+  CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED: "현재가 진입 불리 / 눌림목 대기 우선",
   BREAKOUT_WAIT: "돌파 확인 대기",
-  NO_NEW_ENTRY_HOLD_OK: "신규 진입 부적합 / 보유 관망 가능",
+  WAIT_FOR_SUPPORT_CONFIRMATION: "지지 확인 대기",
+  NO_NEW_ENTRY_HOLD_OK: "신규 진입보다 보유 관망 우세",
   WAIT_FOR_BREAKOUT: "신규 진입 주의 / 돌파 확인 대기",
   WAIT_FOR_PULLBACK: "신규 진입 보류 / 눌림목 대기",
-  CONDITIONAL_BUY: "눌림목/돌파 조건 확인",
+  CONDITIONAL_BUY: "현재가 소액 조건부 진입 / 손절 짧게",
   PULLBACK_BUY_CANDIDATE: "눌림목 매수 후보",
   BREAKOUT_BUY_CANDIDATE: "돌파 매수 후보",
-  HOLD_AND_WATCH: "보유 관망 우세",
-  PARTIAL_TAKE_PROFIT: "일부 익절 고려",
-  REDUCE_POSITION: "비중 축소 고려",
+  HOLD_AND_WATCH: "신규 진입보다 보유 관망 우세",
+  PARTIAL_TAKE_PROFIT: "저항 근접 / 보유자는 일부 익절, 미보유자는 추격매수 주의",
+  REDUCE_POSITION: "위험 관리 우선 / 신규 진입 보류",
   SELL_RISK: "손절 위험",
   NO_TRADE: "매매 부적합",
-  BUY_CANDIDATE: "매수 후보",
+  BUY_CANDIDATE: "조건부 매수 후보",
   WAIT: "신규 진입 보류",
   HOLD: "보유 관망",
   TAKE_PROFIT: "일부 익절 고려",
 };
-
 function confidenceLabel(value?: string | null) {
   if (value === "high") return "높음";
   if (value === "medium") return "보통";
@@ -123,16 +124,6 @@ function riskRewardLabel(value: number, fallback?: string | null) {
   if (value < 5) return "손익비 매우 우수";
   return "고손익비 후보";
 }
-
-function entryScoreLabel(score: number | null) {
-  if (score === null) return "확인 필요";
-  if (score < 30) return "부적합";
-  if (score < 50) return "불리";
-  if (score < 65) return "확인 필요";
-  if (score < 80) return "후보";
-  return "유리";
-}
-
 function riskRewardScore(value?: RiskRewardDetail | null) {
   if (!value || value.value === null || !Number.isFinite(value.value)) return null;
   if (value.value < 1) return 35;
@@ -141,12 +132,89 @@ function riskRewardScore(value?: RiskRewardDetail | null) {
   return 85;
 }
 
+function indicatorTradingMeaning(name: string, signal?: string | null, explanation?: string | null) {
+  const lowerName = name.toLowerCase();
+  const text = `${explanation ?? ""}`.trim();
+  if (text && !/중립으로 해석됩니다/.test(text)) return safeText(text, "보조 판단으로만 참고합니다.");
+  if (/rsi/i.test(name)) {
+    return "RSI상 과매수/과매도 신호가 뚜렷하지 않아 단독 진입 타이밍 판단에는 제한적입니다.";
+  }
+  if (/macd/i.test(name)) {
+    return "MACD상 뚜렷한 추세 전환 신호는 확인되지 않아 돌파 신뢰도를 강하게 보강하기 어렵습니다.";
+  }
+  if (lowerName.includes("volume") || name.includes("거래량")) {
+    if (signal === "bullish") return "상승 구간에서 거래량이 증가해 돌파 신뢰도를 일부 보강합니다.";
+    return "거래량만으로는 강한 매수세를 확인하기 어렵습니다.";
+  }
+  if (name.includes("이동평균") || lowerName.includes("moving")) {
+    if (signal === "bullish") return "가격이 주요 이동평균선 위에 있어 단기 흐름은 우호적입니다.";
+    if (signal === "bearish") return "가격이 주요 이동평균선 아래에 있어 단기 반등 신뢰도는 낮습니다.";
+    return "이동평균선만으로는 뚜렷한 방향성을 판단하기 어렵습니다.";
+  }
+  if (name.includes("일목") || lowerName.includes("ichimoku")) {
+    return "일목균형표는 표시된 차트 기준의 지지/저항 보조 근거로만 참고합니다.";
+  }
+  return "단독으로 진입 타이밍을 판단하기는 어렵고, 지지/저항 반응과 함께 확인해야 합니다.";
+}
+
+function unavailableIndicatorReason(name: string, reason?: string | null) {
+  const text = safeText(reason, "");
+  if (text && !/[?�]/.test(text)) return text;
+  if (/rsi/i.test(name)) return "이미지에서 명확히 확인되지 않아 과매수 여부 판단은 제한적입니다.";
+  if (/macd/i.test(name)) return "이미지에서 명확히 확인되지 않아 모멘텀 판단은 제한적입니다.";
+  if (name.includes("볼린저") || /bollinger/i.test(name)) return "이미지에서 명확히 확인되지 않아 변동성 판단은 제한적입니다.";
+  if (name.includes("거래량") || /volume/i.test(name)) return "이미지에서 명확히 확인되지 않아 돌파 거래량 판단은 제한적입니다.";
+  return "이미지에서 명확히 확인되지 않아 보조 판단으로만 참고합니다.";
+}
+
 function numberFromText(value?: string | null) {
   if (!value) return null;
   const match = value.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
   if (!match) return null;
   const parsed = Number(match[0]);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function deriveDisplayMarketContext(report: TradingReport) {
+  if (report.marketContext?.priceLocation) return report.marketContext;
+  const current = numberFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone);
+  const supports = [
+    ...(report.keyLevels.supports ?? []).map((item) => numberFromText(item.priceZone)),
+    ...(report.analysisMeta?.mainSupports ?? []).map((item) => numberFromText(item)),
+    numberFromText(report.priceRoles?.pullbackEntry?.priceZone),
+  ].filter((value): value is number => typeof value === "number" && Number.isFinite(value)).sort((a, b) => b - a);
+  const resistances = [
+    ...(report.keyLevels.resistances ?? []).map((item) => numberFromText(item.priceZone)),
+    ...(report.analysisMeta?.mainResistances ?? []).map((item) => numberFromText(item)),
+    numberFromText(report.priceRoles?.pivot?.priceZone ?? report.analysisMeta?.keyPivotPrice ?? report.tradePlan.transitionLevel?.priceZone),
+  ].filter((value): value is number => typeof value === "number" && Number.isFinite(value)).sort((a, b) => a - b);
+  const support = current !== null ? supports.find((value) => value <= current * 1.005) ?? supports[0] : supports[0];
+  const resistance = current !== null ? resistances.find((value) => value >= current * 0.995) ?? resistances[0] : resistances[0];
+  const currentRr = report.tradePlan.riskRewardByEntry?.current?.value;
+  const nearSupport = current !== null && support !== undefined && current > 0
+    ? ((current - support) / current) * 100 >= 0 && ((current - support) / current) * 100 <= 3
+    : false;
+  const nearResistance = current !== null && resistance !== undefined && resistance > 0
+    ? ((resistance - current) / resistance) * 100 >= 0 && ((resistance - current) / resistance) * 100 <= 2.5
+    : false;
+  const rangePosition = current !== null && support !== undefined && resistance !== undefined && resistance > support
+    ? Math.max(0, Math.min(1, (current - support) / (resistance - support)))
+    : null;
+  const supportGap = current !== null && support !== undefined && current > 0
+    ? Math.max(0, ((current - support) / current) * 100)
+    : null;
+  const isExtendedMove = Boolean(nearResistance && typeof currentRr === "number" && Number.isFinite(currentRr) && currentRr < 1 && supportGap !== null && supportGap >= 8);
+  const breakoutRetestConfirmed = report.finalSummary.finalAction === "BREAKOUT_BUY_CANDIDATE";
+  let priceLocation = "unknown";
+  if (breakoutRetestConfirmed) priceLocation = "breakout_area";
+  else if (isExtendedMove) priceLocation = "overextended";
+  else if (nearSupport) priceLocation = "near_support";
+  else if (rangePosition !== null && rangePosition <= 0.35) priceLocation = "lower_range";
+  else if (rangePosition !== null && rangePosition < 0.70) priceLocation = "middle_range";
+  else if (rangePosition !== null && nearResistance) priceLocation = "near_resistance";
+  else if (rangePosition !== null) priceLocation = "upper_range";
+  else if (nearResistance) priceLocation = "near_resistance";
+  return { priceLocation, rangePosition, isExtendedMove, nearSupport, nearResistance, breakoutRetestConfirmed };
 }
 
 function deriveFinalActionDetail(report: TradingReport): { title: string; subtitle: string; actionType: string; reason: string } {
@@ -158,18 +226,30 @@ function deriveFinalActionDetail(report: TradingReport): { title: string; subtit
   const holdScore = safeScore(score?.holdScore) ?? 50;
   const riskScore = safeScore(score?.riskScore) ?? 50;
   const currentRr = report.tradePlan.riskRewardByEntry?.current?.value;
+  const breakoutRr = report.tradePlan.riskRewardByEntry?.breakout?.value;
   const currentRrValue = typeof currentRr === "number" && Number.isFinite(currentRr) ? currentRr : null;
+  const breakoutRrValue = typeof breakoutRr === "number" && Number.isFinite(breakoutRr) ? breakoutRr : null;
   const currentPrice = numberFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone);
   const pivotPrice = numberFromText(report.priceRoles?.pivot?.priceZone ?? report.analysisMeta?.keyPivotPrice ?? report.tradePlan.transitionLevel?.priceZone);
   const stopPrice = numberFromText(report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone);
-  const priceNearOrBelowPivot = currentPrice !== null && pivotPrice !== null ? currentPrice <= pivotPrice * 1.01 : report.finalSummary.finalAction === "BREAKOUT_WAIT";
-  const breakoutRetestConfirmed = currentPrice !== null && pivotPrice !== null ? currentPrice >= pivotPrice * 1.005 : report.finalSummary.finalAction === "BREAKOUT_BUY_CANDIDATE";
+  const marketContext = deriveDisplayMarketContext(report);
+  const priceLocation = marketContext.priceLocation;
+  const supportArea = priceLocation === "near_support" || priceLocation === "lower_range";
+  const partialProfitAllowed = Boolean(
+    marketContext.nearResistance &&
+      (priceLocation === "upper_range" || priceLocation === "near_resistance" || priceLocation === "overextended") &&
+      currentRrValue !== null &&
+      currentRrValue < 1 &&
+      holdScore >= 60 &&
+      !supportArea,
+  );
+  const pivotExists = currentPrice !== null && pivotPrice !== null;
+  const priceNearOrBelowPivot = pivotExists ? currentPrice <= pivotPrice * 1.01 : report.finalSummary.finalAction === "BREAKOUT_WAIT";
+  const breakoutRetestConfirmed = pivotExists ? currentPrice >= pivotPrice * 1.005 : report.finalSummary.finalAction === "BREAKOUT_BUY_CANDIDATE";
   const shortTermSupportClose = currentPrice !== null && stopPrice !== null && currentPrice > 0
     ? Math.abs(currentPrice - stopPrice) / currentPrice <= 0.04
     : false;
-  const nearResistance = report.finalSummary.finalAction === "PARTIAL_TAKE_PROFIT"
-    || report.finalSummary.finalAction === "BREAKOUT_WAIT"
-    || priceNearOrBelowPivot;
+  const overextended = priceLocation === "overextended" || Boolean(marketContext.isExtendedMove);
   const fallback = {
     title: safeText(report.finalSummary.title, actionLabel[report.finalSummary.finalAction] || "조건 확인 필요"),
     subtitle: safeText(report.finalSummary.oneLineConclusion, "현재 차트는 주요 지지와 저항 확인이 필요한 구간입니다."),
@@ -177,12 +257,28 @@ function deriveFinalActionDetail(report: TradingReport): { title: string; subtit
     reason: safeText(score?.explanation ?? report.finalSummary.reason, "기술적 조건을 추가로 확인해야 합니다."),
   };
 
-  if (currentEntry < 30 && pullbackEntry < 30 && breakoutEntry < 30 && holdScore < 40) {
+  if (currentEntry < 30 && pullbackEntry < 30 && breakoutEntry < 30 && holdScore < 40 && riskScore >= 70) {
     return {
       title: "매매 부적합",
       subtitle: "신규 진입, 보유, 돌파, 눌림목 조건이 모두 약하고 위험도가 높습니다.",
       actionType: "NO_TRADE",
       reason: safeText(score?.explanation, fallback.reason),
+    };
+  }
+  if (supportArea) {
+    if (pullbackEntry >= 60 || (report.tradePlan.riskRewardByEntry?.pullback?.value ?? 0) >= 1.2) {
+      return {
+        title: "지지권 눌림목 매수 후보",
+        subtitle: "박스권 하단 또는 주요 지지 구간에 가까워 일부 익절보다 지지 반응 확인 후 눌림목 진입을 우선 검토할 수 있습니다.",
+        actionType: "PULLBACK_BUY",
+        reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
+      };
+    }
+    return {
+      title: "지지 확인 대기",
+      subtitle: "박스권 하단 또는 주요 지지 구간에 가까워 일부 익절보다 반등 확인이 우선입니다.",
+      actionType: "WAIT_FOR_SUPPORT_CONFIRMATION",
+      reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
     };
   }
   if (riskScore >= 70 && shortTermSupportClose) {
@@ -193,15 +289,7 @@ function deriveFinalActionDetail(report: TradingReport): { title: string; subtit
       reason: safeText(score?.explanation, "위험 점수가 높아 손익비와 손절 기준을 먼저 확인해야 합니다."),
     };
   }
-  if (nearResistance && holdScore >= 65) {
-    return {
-      title: "저항 근접 / 일부 익절 고려",
-      subtitle: "가격이 주요 저항에 가까워 신규 진입보다 일부 익절 또는 돌파 확인이 우선입니다.",
-      actionType: "PARTIAL_TAKE_PROFIT",
-      reason: safeText(report.finalSummary.reason ?? score?.explanation, fallback.reason),
-    };
-  }
-  if (breakoutEntry >= 70 && breakoutRetestConfirmed) {
+  if (breakoutEntry >= 70 && breakoutRetestConfirmed && breakoutRrValue !== null && breakoutRrValue >= 1.5) {
     return {
       title: "돌파 매수 후보",
       subtitle: "핵심 전환 가격 돌파 후 재지지가 확인되면 다음 저항까지 상승 여지를 볼 수 있습니다.",
@@ -209,9 +297,9 @@ function deriveFinalActionDetail(report: TradingReport): { title: string; subtit
       reason: safeText(score?.entryScores?.breakoutEntry?.explanation, fallback.reason),
     };
   }
-  if (currentEntry >= 60 && currentRrValue !== null && currentRrValue >= 1.2 && riskScore < 55) {
+  if (currentEntry >= 60 && currentRrValue !== null && currentRrValue >= 1.2 && riskScore < 55 && !overextended && !marketContext.nearResistance) {
     return {
-      title: "현재가 조건부 진입 가능 / 손절 짧게",
+      title: "현재가 소액 조건부 진입 / 손절 짧게",
       subtitle: "현재가 기준 손익비가 나쁘지 않지만, 저항 근처 변동성에 대비해 짧은 손절 기준이 필요합니다.",
       actionType: "CURRENT_ENTRY",
       reason: safeText(score?.entryScores?.currentEntry?.explanation, fallback.reason),
@@ -225,15 +313,15 @@ function deriveFinalActionDetail(report: TradingReport): { title: string; subtit
       reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
     };
   }
-  if (currentEntry < 50 && pullbackEntry >= 70) {
+  if (currentEntry < 50 && pullbackEntry >= 70 && pullbackEntry > breakoutEntry) {
     return {
-      title: "현재가 진입은 불리 / 눌림목 대기 우선",
+      title: "현재가 진입 불리 / 눌림목 대기 우선",
       subtitle: "현재가는 저항 또는 전환 가격에 가까워 손익비가 낮고, 주요 지지 구간에서 반등 확인 후 진입하는 전략이 더 유리합니다.",
       actionType: "PULLBACK_WAIT",
       reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
     };
   }
-  if (breakoutEntry < 60 && priceNearOrBelowPivot) {
+  if (breakoutEntry < 65 && pivotPrice !== null && !breakoutRetestConfirmed) {
     return {
       title: "돌파 확인 대기",
       subtitle: "핵심 전환 가격 돌파 후 재지지 확인 전까지는 신규 진입보다 대기가 유리합니다.",
@@ -241,7 +329,15 @@ function deriveFinalActionDetail(report: TradingReport): { title: string; subtit
       reason: safeText(score?.entryScores?.breakoutEntry?.explanation, fallback.reason),
     };
   }
-  if (holdScore >= 70 && (buyScore < holdScore || currentEntry < holdScore)) {
+  if (partialProfitAllowed) {
+    return {
+      title: priceLocation === "overextended" ? "급등 후 저항 근접 / 일부 익절 고려" : "저항 근접 / 보유자는 일부 익절, 미보유자는 추격매수 주의",
+      subtitle: "가격이 주요 저항 또는 목표 구간에 가까워 보유자는 일부 익절 또는 돌파 확인이 우선이고, 미보유자는 추격매수에 주의해야 합니다.",
+      actionType: "PARTIAL_TAKE_PROFIT",
+      reason: safeText(report.finalSummary.reason ?? score?.explanation, fallback.reason),
+    };
+  }
+  if (holdScore >= 70 && currentEntry < holdScore && pullbackEntry < holdScore) {
     return {
       title: "신규 진입보다 보유 관망 우세",
       subtitle: "신규 진입 손익비는 제한적이지만, 보유자는 주요 지지선 이탈 전까지 관망할 수 있습니다.",
@@ -249,9 +345,16 @@ function deriveFinalActionDetail(report: TradingReport): { title: string; subtit
       reason: safeText(score?.explanation, fallback.reason),
     };
   }
+  if (buyScore >= 65 && pullbackEntry >= Math.max(currentEntry, breakoutEntry)) {
+    return {
+      title: "눌림목 매수 후보",
+      subtitle: "현재가 추격보다 지지 확인 후 눌림목으로 접근하는 조건이 더 우선입니다.",
+      actionType: "PULLBACK_BUY",
+      reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
+    };
+  }
   return fallback;
 }
-
 function getOneLineActionSummary(report: TradingReport) {
   const detail = deriveFinalActionDetail(report);
   if (detail.subtitle) return detail.subtitle;
@@ -264,18 +367,18 @@ function getOneLineActionSummary(report: TradingReport) {
   const action = report.finalSummary.finalAction;
 
   if (risk >= 75 || action === "SELL_RISK" || action === "REDUCE_POSITION") {
-    return "위험도가 높아 신규 진입은 피하고, 단기 손절 기준을 우선 확인해야 합니다.";
+    return "?꾪뿕?꾧? ?믪븘 ?좉퇋 吏꾩엯? ?쇳븯怨? ?④린 ?먯젅 湲곗????곗꽑 ?뺤씤?댁빞 ?⑸땲??";
   }
   if ((pullback ?? 0) >= 65 && (current ?? 0) < 50 && (pullback ?? 0) >= (breakout ?? 0)) {
-    return "현재가 추격매수는 불리하고, 주요 지지 구간에서 눌림목 확인 후 진입하는 전략이 더 유리합니다.";
+    return "?꾩옱媛 異붽꺽留ㅼ닔??遺덈━?섍퀬, 二쇱슂 吏吏 援ш컙?먯꽌 ?뚮┝紐??뺤씤 ??吏꾩엯?섎뒗 ?꾨왂?????좊━?⑸땲??";
   }
   if ((breakout ?? 0) < 65 && (action === "BREAKOUT_WAIT" || action === "WAIT_FOR_BREAKOUT")) {
-    return "핵심 저항 돌파 후 재지지 확인 전까지는 신규 진입보다 관망이 유리합니다.";
+    return "?듭떖 ????뚰뙆 ???ъ?吏 ?뺤씤 ?꾧퉴吏???좉퇋 吏꾩엯蹂대떎 愿留앹씠 ?좊━?⑸땲??";
   }
   if (hold >= 60 && (current ?? 0) < 50) {
-    return "신규 진입은 부담스럽지만, 보유자는 주요 지지선 이탈 전까지 관망 가능합니다.";
+    return "?좉퇋 吏꾩엯? 遺?댁뒪?쎌?留? 蹂댁쑀?먮뒗 二쇱슂 吏吏???댄깉 ?꾧퉴吏 愿留?媛?ν빀?덈떎.";
   }
-  return "현재 차트는 기술적 조건 확인이 필요하며, 신규 진입 전 주요 지지와 저항을 먼저 확인하는 것이 좋습니다.";
+  return "?꾩옱 李⑦듃??湲곗닠??議곌굔 ?뺤씤???꾩슂?섎ŉ, ?좉퇋 吏꾩엯 ??二쇱슂 吏吏? ???쓣 癒쇱? ?뺤씤?섎뒗 寃껋씠 醫뗭뒿?덈떎.";
 }
 
 function getEntryRecommendationRanking(report: TradingReport) {
@@ -283,21 +386,21 @@ function getEntryRecommendationRanking(report: TradingReport) {
   const items = [
     {
       key: "pullback",
-      name: "눌림목 진입",
+      name: "?뚮┝紐?吏꾩엯",
       score: safeScore(report.scoreSummary?.entryScores?.pullbackEntry?.score) ?? riskRewardScore(rr.pullback),
-      reason: safeText(report.scoreSummary?.entryScores?.pullbackEntry?.explanation, "주요 지지 구간에서 반등 확인 시 손절 기준을 짧게 둘 수 있습니다."),
+      reason: safeText(report.scoreSummary?.entryScores?.pullbackEntry?.explanation, "二쇱슂 吏吏 援ш컙?먯꽌 諛섎벑 ?뺤씤 ???먯젅 湲곗???吏㏐쾶 ?????덉뒿?덈떎."),
     },
     {
       key: "breakout",
-      name: "돌파 진입",
+      name: "?뚰뙆 吏꾩엯",
       score: safeScore(report.scoreSummary?.entryScores?.breakoutEntry?.score) ?? riskRewardScore(rr.breakout),
-      reason: safeText(report.scoreSummary?.entryScores?.breakoutEntry?.explanation, "핵심 저항 돌파 후 재지지 확인이 필요합니다."),
+      reason: safeText(report.scoreSummary?.entryScores?.breakoutEntry?.explanation, "?듭떖 ????뚰뙆 ???ъ?吏 ?뺤씤???꾩슂?⑸땲??"),
     },
     {
       key: "current",
-      name: "현재가 진입",
+      name: "?꾩옱媛 吏꾩엯",
       score: safeScore(report.scoreSummary?.entryScores?.currentEntry?.score) ?? riskRewardScore(rr.current),
-      reason: safeText(report.scoreSummary?.entryScores?.currentEntry?.explanation, "현재 가격이 저항 구간에 가까우면 손익비가 낮을 수 있습니다."),
+      reason: safeText(report.scoreSummary?.entryScores?.currentEntry?.explanation, "?꾩옱 媛寃⑹씠 ???援ш컙??媛源뚯슦硫??먯씡鍮꾧? ??쓣 ???덉뒿?덈떎."),
     },
   ];
 
@@ -310,22 +413,22 @@ function getEntryScoreDisplayItems(report: TradingReport) {
   const rr = report.tradePlan.riskRewardByEntry ?? {};
   return [
     {
-      title: "현재가 진입",
+      title: "?꾩옱媛 吏꾩엯",
       item: report.scoreSummary?.entryScores?.currentEntry,
       fallbackScore: riskRewardScore(rr.current),
-      fallbackReason: "현재가 진입 기준을 계산할 가격 정보가 부족합니다.",
+      fallbackReason: "?꾩옱媛 吏꾩엯 湲곗???怨꾩궛??媛寃??뺣낫媛 遺議깊빀?덈떎.",
     },
     {
-      title: "눌림목 진입",
+      title: "?뚮┝紐?吏꾩엯",
       item: report.scoreSummary?.entryScores?.pullbackEntry,
       fallbackScore: riskRewardScore(rr.pullback),
-      fallbackReason: "눌림목 진입 기준을 계산할 가격 정보가 부족합니다.",
+      fallbackReason: "?뚮┝紐?吏꾩엯 湲곗???怨꾩궛??媛寃??뺣낫媛 遺議깊빀?덈떎.",
     },
     {
-      title: "돌파 진입",
+      title: "?뚰뙆 吏꾩엯",
       item: report.scoreSummary?.entryScores?.breakoutEntry,
       fallbackScore: riskRewardScore(rr.breakout),
-      fallbackReason: "돌파 진입 기준을 계산할 가격 정보가 부족합니다.",
+      fallbackReason: "?뚰뙆 吏꾩엯 湲곗???怨꾩궛??媛寃??뺣낫媛 遺議깊빀?덈떎.",
     },
   ].map((entry) => {
     const score = safeScore(entry.item?.score) ?? entry.fallbackScore;
@@ -345,19 +448,19 @@ function getNextConfirmationChecklist(report: TradingReport) {
   const unavailableIndicators = report.indicatorAnalysis?.unavailable ?? [];
   const items: string[] = [];
 
-  if (pivot) items.push(`${pivot} 돌파 후 재지지 여부 확인`);
-  if (support) items.push(`${support} 부근에서 반등이 나오는지 확인`);
-  if (stop) items.push(`${stop} 이탈 여부 확인`);
-  items.push("돌파 시 거래량 증가 여부 확인");
+  if (pivot) items.push(`${pivot} ?뚰뙆 ???ъ?吏 ?щ? ?뺤씤`);
+  if (support) items.push(`${support} 遺洹쇱뿉??諛섎벑???섏삤?붿? ?뺤씤`);
+  if (stop) items.push(`${stop} ?댄깉 ?щ? ?뺤씤`);
+  items.push("?뚰뙆 ??嫄곕옒??利앷? ?щ? ?뺤씤");
   if (unavailableIndicators.some((item) => /RSI|MACD/i.test(item.name))) {
-    items.push("RSI/MACD 등 확인 제한 지표는 보조 판단으로만 참고");
+    items.push("RSI/MACD ???뺤씤 ?쒗븳 吏?쒕뒗 蹂댁“ ?먮떒?쇰줈留?李멸퀬");
   }
 
   const fallback = [
-    "핵심 저항 돌파 여부 확인",
-    "주요 지지선 이탈 여부 확인",
-    "거래량 동반 여부 확인",
-    "손익비가 개선되는 진입 구간 확인",
+    "?듭떖 ????뚰뙆 ?щ? ?뺤씤",
+    "二쇱슂 吏吏???댄깉 ?щ? ?뺤씤",
+    "嫄곕옒???숇컲 ?щ? ?뺤씤",
+    "?먯씡鍮꾧? 媛쒖꽑?섎뒗 吏꾩엯 援ш컙 ?뺤씤",
   ];
   return (items.length ? items : fallback).filter((item) => safeText(item, "")).slice(0, 5);
 }
@@ -371,7 +474,7 @@ function BulletList({ items, tone = "slate" }: { items: string[]; tone?: "green"
   }[tone];
 
   if (!items.length) {
-    return <p className="text-sm text-slate-500">표시할 내용이 없습니다.</p>;
+    return <p className="text-sm text-slate-500">?쒖떆???댁슜???놁뒿?덈떎.</p>;
   }
 
   return (
@@ -392,14 +495,18 @@ export function AnalysisMetaCard({ meta }: { meta: TradingReport["analysisMeta"]
     image_with_ohlcv: "이미지 + 가격 데이터 기반",
     unknown: "데이터 기준 미확인",
   }[meta.dataBasis ?? "image_only"];
+  const priceUnit = safeText(meta.priceUnit, "이미지 축 기준 추정");
+  const priceUnitConfidence = meta.priceUnitConfidence ?? "low";
+  const showPriceUnitWarning = priceUnitConfidence === "low" || priceUnit === "확인 필요" || priceUnit.includes("이미지 축");
   const rows = [
-    ["종목", meta.symbol || "미확인"],
-    ["차트", meta.chartTimeframe || "추정 불가"],
-    ["현재가/추정 현재가", meta.currentPriceZone || "이미지 기준 추정 불가"],
+    ["종목/티커", meta.symbol || "미확인"],
+    ["분석 기준 차트", meta.chartTimeframe || "추정 불가"],
+    ["현재가 또는 추정 현재가", meta.currentPriceZone || "이미지 기준 추정 불가"],
+    ["가격 단위", priceUnit],
     ["핵심 전환 가격", meta.keyPivotPrice || "미확인"],
     ["주요 지지", meta.mainSupports?.length ? meta.mainSupports.join(" / ") : "미확인"],
     ["주요 저항", meta.mainResistances?.length ? meta.mainResistances.join(" / ") : "미확인"],
-    ["분석 시각", meta.analyzedAt || "분석 시각 미확인"],
+    ["분석 기준 시각", meta.analyzedAt || "분석 시각 미확인"],
     ["데이터 기준", dataBasisLabel],
   ];
 
@@ -413,6 +520,11 @@ export function AnalysisMetaCard({ meta }: { meta: TradingReport["analysisMeta"]
           </div>
         ))}
       </div>
+      {showPriceUnitWarning ? (
+        <p className="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+          가격 단위는 이미지 축 기준 추정값이며 실제 시세 단위와 다를 수 있습니다.
+        </p>
+      ) : null}
     </ResultSection>
   );
 }
@@ -420,7 +532,7 @@ export function AnalysisMetaCard({ meta }: { meta: TradingReport["analysisMeta"]
 export function OneLineActionSummary({ report }: { report: TradingReport }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">최종 한 줄 행동 요약</p>
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">理쒖쥌 ??以??됰룞 ?붿빟</p>
       <p className="mt-2 text-base font-semibold leading-7 text-slate-950">{getOneLineActionSummary(report)}</p>
     </section>
   );
@@ -429,16 +541,16 @@ export function OneLineActionSummary({ report }: { report: TradingReport }) {
 export function EntryRecommendationRanking({ report }: { report: TradingReport }) {
   const ranking = getEntryRecommendationRanking(report);
   return (
-    <ResultSection title="진입 방식별 추천 순위" description="현재가, 눌림목, 돌파 진입을 기존 점수와 손익비 기준으로 비교합니다." tone="green">
+    <ResultSection title="吏꾩엯 諛⑹떇蹂?異붿쿇 ?쒖쐞" description="?꾩옱媛, ?뚮┝紐? ?뚰뙆 吏꾩엯??湲곗〈 ?먯닔? ?먯씡鍮?湲곗??쇰줈 鍮꾧탳?⑸땲??" tone="green">
       <div className="grid gap-3 lg:grid-cols-3">
         {ranking.map((item, index) => {
-          const label = entryScoreLabel(item.score);
+          const label = displayEntryScoreLabel(item.score);
           const tone = item.score >= 65 ? "success" : item.score < 50 ? "warning" : "neutral";
           return (
             <article key={item.key} className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold text-slate-500">{index + 1}순위</p>
+                  <p className="text-xs font-semibold text-slate-500">{index + 1}?쒖쐞</p>
                   <h3 className="mt-1 text-lg font-bold text-slate-950">{item.name}</h3>
                 </div>
                 <StatusBadge label={label} tone={tone} />
@@ -455,7 +567,7 @@ export function EntryRecommendationRanking({ report }: { report: TradingReport }
 export function NextConfirmationChecklist({ report }: { report: TradingReport }) {
   const items = getNextConfirmationChecklist(report);
   return (
-    <ResultSection title="다음 확인 조건" description="분석 이후 실제 대응 전 확인하면 좋은 조건입니다." tone="blue">
+    <ResultSection title="?ㅼ쓬 ?뺤씤 議곌굔" description="遺꾩꽍 ?댄썑 ?ㅼ젣 ??????뺤씤?섎㈃ 醫뗭? 議곌굔?낅땲??" tone="blue">
       <div className="rounded-lg border border-slate-200 bg-white p-4">
         <ul className="grid gap-2 text-sm leading-6 text-slate-700 md:grid-cols-2">
           {items.map((item) => (
@@ -502,11 +614,16 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
   ].filter(Boolean) as string[];
   const topTargetSummary = [
     pullbackTargets.length
-      ? `눌림목 기준 1차 ${pullbackTargets[0]}${pullbackTargets[1] ? ` / 2차 ${pullbackTargets[1]}` : ""}`
+      ? `?뚮┝紐?湲곗? 1李?${pullbackTargets[0]}${pullbackTargets[1] ? ` / 2李?${pullbackTargets[1]}` : ""}`
       : "",
     breakoutTargets.length
-      ? `돌파 기준 1차 ${breakoutTargets[0]}${breakoutTargets[1] ? ` / 2차 ${breakoutTargets[1]}` : ""}`
+      ? `?뚰뙆 湲곗? 1李?${breakoutTargets[0]}${breakoutTargets[1] ? ` / 2李?${breakoutTargets[1]}` : ""}`
       : "",
+  ].filter(Boolean);
+  const topStopSummary = [
+    tradePlan.stopLossByEntry?.currentEntry?.priceZone ? `현재가 ${tradePlan.stopLossByEntry.currentEntry.priceZone}` : "",
+    tradePlan.stopLossByEntry?.pullbackEntry?.priceZone ? `눌림목 ${tradePlan.stopLossByEntry.pullbackEntry.priceZone}` : "",
+    tradePlan.stopLossByEntry?.breakoutEntry?.priceZone ? `돌파 ${tradePlan.stopLossByEntry.breakoutEntry.priceZone}` : "",
   ].filter(Boolean);
   const tone = finalSummary.finalAction === "SELL_RISK" || finalSummary.finalAction === "REDUCE_POSITION"
     ? "danger"
@@ -522,14 +639,14 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
     <section className={`rounded-lg border p-5 shadow-soft ${actionTone[finalSummary.finalAction]}`}>
       <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr]">
         <div>
-          <p className="text-sm font-semibold opacity-80">최종 행동 판단</p>
+          <p className="text-sm font-semibold opacity-80">理쒖쥌 ?됰룞 ?먮떒</p>
           <h2 className="mt-3 text-3xl font-bold">{actionDetail.title}</h2>
           <p className="mt-4 text-base leading-7">{actionDetail.subtitle}</p>
           {actionDetail.reason ? <p className="mt-3 text-sm leading-6 opacity-80">{actionDetail.reason}</p> : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <StatusBadge label={actionDetail.actionType} tone={tone} />
-            <StatusBadge label={`분석 점수 ${score.totalScore} / 100 · ${score.totalLabel}`} tone="neutral" />
-            <StatusBadge label={`신뢰도 ${confidenceLabel(finalSummary.confidence)}`} tone="neutral" />
+            <StatusBadge label={`遺꾩꽍 ?먯닔 ${score.totalScore} / 100 쨌 ${score.totalLabel}`} tone="neutral" />
+            <StatusBadge label={`?좊ː??${confidenceLabel(finalSummary.confidence)}`} tone="neutral" />
           </div>
           {score.explanation ? <p className="mt-3 text-sm leading-6 opacity-80">{score.explanation}</p> : null}
         </div>
@@ -546,14 +663,18 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
               <p className="font-semibold">손절 기준</p>
-              <p className="mt-1">{tradePlan.stopLoss.priceZone}</p>
+              {topStopSummary.length ? (
+                topStopSummary.map((line) => <p key={line} className="mt-1">{line}</p>)
+              ) : (
+                <p className="mt-1">{tradePlan.stopLoss.priceZone}</p>
+              )}
             </div>
             <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
               <p className="font-semibold">목표 구간</p>
               {topTargetSummary.length ? (
                 topTargetSummary.map((line) => <p key={line} className="mt-1">{line}</p>)
               ) : (
-                <p className="mt-1">확인 필요</p>
+                <p className="mt-1">?뺤씤 ?꾩슂</p>
               )}
             </div>
           </div>
@@ -579,7 +700,7 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
                 return (
                   <div key={title} className={`rounded-md border px-3 py-2 ${scoreTone(value ?? 0)}`}>
                     <p className="text-xs font-semibold">{title}</p>
-                    <p className="mt-1 font-bold">{value === null ? "확인 필요" : `${value} / 100`}</p>
+                    <p className="mt-1 font-bold">{value === null ? "?뺤씤 ?꾩슂" : `${value} / 100`}</p>
                     <p className="text-xs">{label}</p>
                   </div>
                 );
@@ -596,7 +717,7 @@ export function ScoreFactorsSection({ scoreSummary }: { scoreSummary?: TradingRe
   if (!scoreSummary) return null;
   const factors = scoreSummary.scoreFactors ?? { positive: [], negative: [], risk: [] };
   const renderFactor = (items: Array<{ label: string; scoreImpact: number; reason: string }> = [], tone: "green" | "red" | "amber") => {
-    if (!items.length) return <p className="text-sm text-slate-500">표시할 근거가 제한적입니다.</p>;
+    if (!items.length) return <p className="text-sm text-slate-500">?쒖떆??洹쇨굅媛 ?쒗븳?곸엯?덈떎.</p>;
     const color = {
       green: "border-emerald-100 bg-emerald-50 text-emerald-900",
       red: "border-rose-100 bg-rose-50 text-rose-900",
@@ -604,32 +725,37 @@ export function ScoreFactorsSection({ scoreSummary }: { scoreSummary?: TradingRe
     }[tone];
     return (
       <div className="space-y-2">
-        {items.map((item) => (
-          <div key={`${item.label}-${item.scoreImpact}-${item.reason}`} className={`rounded-lg border px-4 py-3 text-sm ${color}`}>
-            <div className="flex items-center justify-between gap-3">
-              <span className="font-semibold">{item.label}</span>
-              <span className="font-bold">{item.scoreImpact > 0 ? `+${item.scoreImpact}` : item.scoreImpact}</span>
+        {items.map((item) => {
+          const impact = Number.isFinite(item.scoreImpact) ? Math.round(item.scoreImpact) : 0;
+          const label = safeText(item.label, "점수 요인");
+          const reason = safeText(item.reason, "추가 확인이 필요합니다.");
+          return (
+            <div key={`${label}-${impact}-${reason}`} className={`rounded-lg border px-4 py-3 text-sm ${color}`}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-semibold">{label}</span>
+                <span className="font-bold">{impact > 0 ? `+${impact}` : impact}</span>
+              </div>
+              <p className="mt-1 leading-6 opacity-85">{reason}</p>
             </div>
-            <p className="mt-1 leading-6 opacity-85">{item.reason}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   };
 
   return (
-    <ResultSection title="점수 산정 근거" description="실제 점수 계산에 반영된 요인을 긍정, 감점, 위험 요인으로 나누어 표시합니다." tone="blue">
+    <ResultSection title="?먯닔 ?곗젙 洹쇨굅" description="?ㅼ젣 ?먯닔 怨꾩궛??諛섏쁺???붿씤??湲띿젙, 媛먯젏, ?꾪뿕 ?붿씤?쇰줈 ?섎늻???쒖떆?⑸땲??" tone="blue">
       <div className="grid gap-4 lg:grid-cols-3">
         <div>
-          <h3 className="mb-2 text-sm font-bold text-emerald-800">긍정 요인</h3>
+          <h3 className="mb-2 text-sm font-bold text-emerald-800">湲띿젙 ?붿씤</h3>
           {renderFactor(factors.positive, "green")}
         </div>
         <div>
-          <h3 className="mb-2 text-sm font-bold text-rose-800">감점 요인</h3>
+          <h3 className="mb-2 text-sm font-bold text-rose-800">媛먯젏 ?붿씤</h3>
           {renderFactor(factors.negative, "red")}
         </div>
         <div>
-          <h3 className="mb-2 text-sm font-bold text-amber-800">위험 요인</h3>
+          <h3 className="mb-2 text-sm font-bold text-amber-800">?꾪뿕 ?붿씤</h3>
           {renderFactor(factors.risk, "amber")}
         </div>
       </div>
@@ -682,17 +808,28 @@ export function TradePlanTable({ plan, priceRoles }: { plan: TradingReport["trad
     plan.targets.firstTarget.priceZone,
     plan.targets.secondTarget?.priceZone,
   ].filter(Boolean) as string[];
+  const entryStops = plan.stopLossByEntry;
+  const stopRows = entryStops
+    ? [
+        ["현재가 진입 손절", entryStops.currentEntry?.priceZone, entryStops.currentEntry?.condition, entryStops.currentEntry?.explanation],
+        ["눌림목 진입 손절", entryStops.pullbackEntry?.priceZone, entryStops.pullbackEntry?.condition, entryStops.pullbackEntry?.explanation],
+        ["돌파 진입 손절", entryStops.breakoutEntry?.priceZone, entryStops.breakoutEntry?.condition, entryStops.breakoutEntry?.explanation],
+        ["중기 관점 무효화", entryStops.mediumTermInvalidation?.priceZone, entryStops.mediumTermInvalidation?.condition, entryStops.mediumTermInvalidation?.explanation],
+      ]
+    : [
+        ["단기 손절", plan.stopLoss.shortTerm?.priceZone, plan.stopLoss.shortTerm?.condition, plan.stopLoss.shortTerm?.meaning],
+        ["보수적 손절", plan.stopLoss.conservative?.priceZone, plan.stopLoss.conservative?.condition, plan.stopLoss.conservative?.meaning],
+        ["중기 관점 무효화", plan.invalidation.midTerm?.priceZone ?? plan.invalidation.condition, plan.invalidation.condition, plan.invalidation.meaning],
+      ];
   const rows = [
     ["눌림목 진입", plan.entry.pullbackEntry?.priceZone, plan.entry.pullbackEntry?.condition, plan.entry.pullbackEntry?.action],
     ["돌파 진입", plan.entry.breakoutEntry?.priceZone, plan.entry.breakoutEntry?.condition, plan.entry.breakoutEntry?.action],
     ["추격매수 금지", plan.entry.noChaseZone?.priceZone, plan.entry.noChaseZone?.reason, "현재 구간에서는 조건 확인이 우선입니다."],
-    ["단기 손절", plan.stopLoss.shortTerm?.priceZone, plan.stopLoss.shortTerm?.condition, plan.stopLoss.shortTerm?.meaning],
-    ["보수적 손절", plan.stopLoss.conservative?.priceZone, plan.stopLoss.conservative?.condition, plan.stopLoss.conservative?.meaning],
+    ...stopRows,
     ["눌림목 1차 목표", pullbackTargets[0], "눌림목 진입 기준 가까운 저항", "보유자에게는 일부 익절 또는 돌파 확인 구간입니다."],
-    ["눌림목 2차 목표", pullbackTargets[1], "눌림목 진입 기준 다음 저항", "1차 저항 돌파 후 확인할 목표 후보입니다."],
+    ["눌림목 2차 목표", pullbackTargets[1], "눌림목 진입 기준 다음 저항", "1차 저항 돌파 시 확인할 목표 후보입니다."],
     ["돌파 1차 목표", breakoutTargets[0], "핵심 전환 가격 돌파 후 다음 저항", "돌파 진입 기준 1차 목표 후보입니다."],
     ["돌파 2차 목표", breakoutTargets[1], "돌파 후 확장 저항", "돌파 진입 기준 2차 목표 후보입니다."],
-    ["중기 관점 무효화", plan.invalidation.midTerm?.priceZone ?? plan.invalidation.condition, plan.invalidation.condition, plan.invalidation.meaning],
   ].filter((row) => hasContent(row[1]));
 
   return (
@@ -706,10 +843,10 @@ export function TradePlanTable({ plan, priceRoles }: { plan: TradingReport["trad
         <table className="w-full min-w-[760px] border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
-              <th className="px-4 py-3 font-semibold">구분</th>
-              <th className="px-4 py-3 font-semibold">가격 구간</th>
-              <th className="px-4 py-3 font-semibold">조건</th>
-              <th className="px-4 py-3 font-semibold">대응 의미</th>
+              <th className="px-4 py-3 font-semibold">援щ텇</th>
+              <th className="px-4 py-3 font-semibold">媛寃?援ш컙</th>
+              <th className="px-4 py-3 font-semibold">議곌굔</th>
+              <th className="px-4 py-3 font-semibold">????섎?</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white">
@@ -779,7 +916,7 @@ export function KeyLevelsSection({ levels, priceRoles }: { levels: TradingReport
   ];
 
   return (
-    <ResultSection title="핵심 가격대" description="비슷한 가격은 묶고, 이미지 기반 불확실성을 반영해 부근/구간으로 표시합니다." tone="green">
+    <ResultSection title="핵심 가격대" description="비슷한 가격은 묶고, 이미지 기반 불확실성을 반영해 부근 구간으로 표시합니다." tone="green">
       {rows.length === 0 ? (
         <p className="text-sm text-slate-500">이미지 기반 분석으로 핵심 가격대 산정이 제한됩니다.</p>
       ) : (
@@ -802,13 +939,13 @@ export function KeyLevelsSection({ levels, priceRoles }: { levels: TradingReport
 
 export function ScenarioSection({ scenarios }: { scenarios: TradingReport["scenarios"] }) {
   const rows: Array<{ label: string; scenario: TradingReport["scenarios"]["bullish"]; tone: "success" | "neutral" | "danger" }> = [
-    { label: "상승 시나리오", scenario: scenarios.bullish, tone: "success" },
-    { label: "중립 시나리오", scenario: scenarios.neutral, tone: "neutral" },
-    { label: "하락 시나리오", scenario: scenarios.bearish, tone: "danger" },
+    { label: "?곸듅 ?쒕굹由ъ삤", scenario: scenarios.bullish, tone: "success" },
+    { label: "以묐┰ ?쒕굹由ъ삤", scenario: scenarios.neutral, tone: "neutral" },
+    { label: "?섎씫 ?쒕굹由ъ삤", scenario: scenarios.bearish, tone: "danger" },
   ];
 
   return (
-    <ResultSection title="상승 / 중립 / 하락 시나리오" tone="blue">
+    <ResultSection title="?곸듅 / 以묐┰ / ?섎씫 ?쒕굹由ъ삤" tone="blue">
       <div className="grid gap-3 lg:grid-cols-3">
         {rows.map(({ label, scenario, tone }) => (
           <article key={label} className="rounded-lg border border-slate-200 bg-white p-4">
@@ -845,9 +982,9 @@ export function EvidenceSection({ evidence }: { evidence: TradingReport["evidenc
     .slice(0, 3);
 
   return (
-    <ResultSection title="핵심 판단 근거" tone="green">
+    <ResultSection title="?듭떖 ?먮떒 洹쇨굅" tone="green">
       <BulletList
-        items={summaryItems.length ? summaryItems : ["주요 지지와 저항, 손익비, 이미지 기반 분석 한계를 함께 확인해야 합니다."]}
+        items={summaryItems.length ? summaryItems : ["二쇱슂 吏吏? ??? ?먯씡鍮? ?대?吏 湲곕컲 遺꾩꽍 ?쒓퀎瑜??④퍡 ?뺤씤?댁빞 ?⑸땲??"]}
         tone="slate"
       />
     </ResultSection>
@@ -857,12 +994,12 @@ export function EvidenceSection({ evidence }: { evidence: TradingReport["evidenc
 export function PatternAnalysisSection({ analysis }: { analysis: TradingReport["patternAnalysis"] }) {
   const secondary = analysis.secondaryPattern;
   const primaryName = safeText(analysis.primaryPattern.name, "명확한 패턴 없음");
-  const noClearPattern = primaryName.includes("명확한 패턴 없음") || primaryName.includes("없음");
+  const noClearPattern = primaryName.includes("명확한 패턴 없음") || primaryName.includes("패턴 없음") || primaryName.includes("?놁쓬");
 
   return (
     <ResultSection title="주요 패턴 분석" tone="purple">
       <article className="rounded-lg border border-slate-200 bg-white p-4">
-        <StatusBadge label={noClearPattern ? "주요 패턴" : "주요 패턴 후보"} tone="info" />
+        <StatusBadge label={noClearPattern ? "주요 패턴" : "패턴 후보"} tone="info" />
         <h3 className="mt-3 text-lg font-bold text-slate-950">{primaryName}</h3>
         <p className="mt-2 text-sm leading-6 text-slate-600">
           {noClearPattern
@@ -881,7 +1018,7 @@ export function PatternAnalysisSection({ analysis }: { analysis: TradingReport["
             </div>
             <div>
               <dt className="font-semibold text-slate-950">매매 의미</dt>
-              <dd className="mt-1 leading-6 text-slate-600">{safeText(analysis.primaryPattern.tradingMeaning, "조건 확인 전까지 보수적으로 참고합니다.")}</dd>
+              <dd className="mt-1 leading-6 text-slate-600">{safeText(analysis.primaryPattern.tradingMeaning, "조건 확인 전까지 보조 참고로만 봅니다.")}</dd>
             </div>
           </dl>
         ) : null}
@@ -890,6 +1027,11 @@ export function PatternAnalysisSection({ analysis }: { analysis: TradingReport["
             <span className="font-semibold text-slate-900">보조 시나리오: </span>
             {safeText(secondary.name, "확인 필요")} - {safeText(secondary.reason, "보조 참고로만 확인합니다.")}
           </div>
+        ) : null}
+        {analysis.excludedPatterns?.length ? (
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            제외 패턴: {analysis.excludedPatterns.slice(0, 3).map((item) => safeText(item.name, "확인 필요")).join(" / ")}
+          </p>
         ) : null}
       </article>
     </ResultSection>
@@ -903,19 +1045,22 @@ export function IndicatorSummarySection({ analysis }: { analysis: TradingReport[
   const unavailable = analysis.unavailable ?? [];
 
   return (
-    <ResultSection title="보조지표 분석" description="확인 가능한 지표만 크게 표시하고, 중립·확인 제한 지표는 압축해서 보여줍니다." tone="blue">
+    <ResultSection title="보조지표 분석" description="방향성이 확인된 지표는 강조하고, 중립 또는 확인 제한 지표는 간단히 묶어 표시합니다." tone="blue">
       <div className="space-y-4">
         {directional.length ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {directional.map((item) => (
-              <article key={`${item.name}-${item.explanation}`} className="rounded-lg border border-slate-200 bg-white p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-semibold text-slate-950">{item.name}</p>
-                  <StatusBadge label={signalLabel(item.signal)} tone={item.signal === "bullish" ? "success" : "danger"} />
-                </div>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{safeText(item.explanation, "보조 판단으로만 참고합니다.")}</p>
-              </article>
-            ))}
+          <div>
+            <h3 className="mb-2 text-sm font-bold text-slate-800">확인된 방향성 지표</h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              {directional.map((item) => (
+                <article key={`${item.name}-${item.explanation}`} className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-semibold text-slate-950">{item.name}</p>
+                    <StatusBadge label={signalLabel(item.signal)} tone={item.signal === "bullish" ? "success" : "danger"} />
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{indicatorTradingMeaning(item.name, item.signal, item.explanation)}</p>
+                </article>
+              ))}
+            </div>
           </div>
         ) : null}
         {neutral.length ? (
@@ -925,7 +1070,7 @@ export function IndicatorSummarySection({ analysis }: { analysis: TradingReport[
               {neutral.map((item) => (
                 <li key={`${item.name}-${item.explanation}`} className="py-2 leading-6 text-slate-600">
                   <span className="font-semibold text-slate-900">{item.name}: </span>
-                  {safeText(item.explanation, "단독으로 진입 타이밍을 판단하기는 어렵습니다.")}
+                  {indicatorTradingMeaning(item.name, item.signal, item.explanation)}
                 </li>
               ))}
             </ul>
@@ -938,12 +1083,12 @@ export function IndicatorSummarySection({ analysis }: { analysis: TradingReport[
               {unavailable.map((item) => (
                 <li key={`${item.name}-${item.reason}`}>
                   <span className="font-semibold text-slate-900">{item.name}: </span>
-                  {safeText(item.reason, "이미지에서 명확히 확인되지 않아 보조 판단으로만 참고합니다.")}
+                  {unavailableIndicatorReason(item.name, item.reason)}
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="mt-2 text-sm text-slate-500">추가로 제한 표시할 지표가 없습니다.</p>
+            <p className="mt-2 text-sm text-slate-500">추가로 확인 제한 표시된 지표가 없습니다.</p>
           )}
         </div>
       </div>
@@ -953,18 +1098,18 @@ export function IndicatorSummarySection({ analysis }: { analysis: TradingReport[
 
 /*
         <article className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <StatusBadge label="보조 시나리오" tone="neutral" />
+          <StatusBadge label="蹂댁“ ?쒕굹由ъ삤" tone="neutral" />
           {secondary ? (
             <>
               <h3 className="mt-3 text-lg font-bold text-slate-950">{secondary.name}</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">{secondary.reason}</p>
             </>
           ) : (
-            <p className="mt-3 text-sm text-slate-500">보조 패턴 후보는 제한적입니다.</p>
+            <p className="mt-3 text-sm text-slate-500">蹂댁“ ?⑦꽩 ?꾨낫???쒗븳?곸엯?덈떎.</p>
           )}
           {analysis.excludedPatterns?.length ? (
             <div className="mt-4 border-t border-slate-200 pt-3">
-              <p className="text-sm font-semibold text-slate-700">제외 패턴</p>
+              <p className="text-sm font-semibold text-slate-700">?쒖쇅 ?⑦꽩</p>
               <ul className="mt-2 space-y-1 text-sm leading-6 text-slate-600">
                 {analysis.excludedPatterns.map((item) => (
                   <li key={`${item.name}-${item.reason}`}>{item.name} - {item.reason}</li>
@@ -980,10 +1125,10 @@ export function IndicatorSummarySection({ analysis }: { analysis: TradingReport[
 
 export function IndicatorSummarySection({ analysis }: { analysis: TradingReport["indicatorAnalysis"] }) {
   return (
-    <ResultSection title="보조지표 분석" description="확인 가능한 지표와 확인 제한 지표를 분리해 표시합니다." tone="blue">
+    <ResultSection title="蹂댁“吏??遺꾩꽍" description="?뺤씤 媛?ν븳 吏?쒖? ?뺤씤 ?쒗븳 吏?쒕? 遺꾨━???쒖떆?⑸땲??" tone="blue">
       <div className="grid gap-4 lg:grid-cols-2">
         <div>
-          <h3 className="mb-2 text-sm font-bold text-emerald-800">확인된 지표</h3>
+          <h3 className="mb-2 text-sm font-bold text-emerald-800">?뺤씤??吏??/h3>
           {analysis.confirmed.length ? (
             <div className="space-y-2">
               {analysis.confirmed.map((item) => (
@@ -997,11 +1142,11 @@ export function IndicatorSummarySection({ analysis }: { analysis: TradingReport[
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">이미지에서 명확히 확인된 보조지표가 제한적입니다.</p>
+            <p className="text-sm text-slate-500">?대?吏?먯꽌 紐낇솗???뺤씤??蹂댁“吏?쒓? ?쒗븳?곸엯?덈떎.</p>
           )}
         </div>
         <div>
-          <h3 className="mb-2 text-sm font-bold text-slate-700">확인 제한 지표</h3>
+          <h3 className="mb-2 text-sm font-bold text-slate-700">?뺤씤 ?쒗븳 吏??/h3>
           <BulletList items={analysis.unavailable.map((item) => `${item.name}: ${item.reason}`)} tone="slate" />
         </div>
       </div>
@@ -1012,8 +1157,10 @@ export function IndicatorSummarySection({ analysis }: { analysis: TradingReport[
 
 export function ImageLimitNotice({ disclaimer }: { disclaimer: string }) {
   return (
-    <ResultSection title="이미지 기반 한계 안내" tone="yellow">
+    <ResultSection title="?대?吏 湲곕컲 ?쒓퀎 ?덈궡" tone="yellow">
       <p className="text-sm leading-6 text-slate-700">{disclaimer}</p>
     </ResultSection>
   );
 }
+
+

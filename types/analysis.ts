@@ -451,11 +451,14 @@ export interface AnalysisMeta {
   mainResistances?: string[];
   analyzedAt?: string;
   dataBasis?: "image_only" | "image_with_ohlcv" | "unknown";
+  priceUnit?: string;
+  priceUnitConfidence?: "low" | "medium" | "high";
 }
 
 export type FinalAction =
   | "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED"
   | "BREAKOUT_WAIT"
+  | "WAIT_FOR_SUPPORT_CONFIRMATION"
   | "NO_NEW_ENTRY_HOLD_OK"
   | "WAIT_FOR_BREAKOUT"
   | "WAIT_FOR_PULLBACK"
@@ -471,6 +474,25 @@ export type FinalAction =
   | "WAIT"
   | "HOLD"
   | "TAKE_PROFIT";
+
+export type PriceLocation =
+  | "near_support"
+  | "lower_range"
+  | "middle_range"
+  | "upper_range"
+  | "near_resistance"
+  | "breakout_area"
+  | "overextended"
+  | "unknown";
+
+export interface MarketContext {
+  priceLocation: PriceLocation;
+  rangePosition?: number | null;
+  isExtendedMove?: boolean;
+  nearSupport?: boolean;
+  nearResistance?: boolean;
+  breakoutRetestConfirmed?: boolean;
+}
 
 export interface ScoreFactor {
   label: string;
@@ -544,8 +566,15 @@ export interface RiskRewardDetail {
   interpretation: string;
 }
 
+export interface EntryStopLoss {
+  priceZone: string;
+  condition: string;
+  explanation: string;
+}
+
 export interface TradingReport {
   analysisMeta?: AnalysisMeta;
+  marketContext?: MarketContext;
   finalSummary: {
     finalAction: FinalAction;
     title: string;
@@ -574,6 +603,12 @@ export interface TradingReport {
       meaning: string;
       shortTerm?: { priceZone: string; condition: string; meaning: string };
       conservative?: { priceZone: string; condition: string; meaning: string };
+    };
+    stopLossByEntry?: {
+      currentEntry?: EntryStopLoss;
+      pullbackEntry?: EntryStopLoss;
+      breakoutEntry?: EntryStopLoss;
+      mediumTermInvalidation?: EntryStopLoss;
     };
     targets: {
       firstTarget: { priceZone: string; action: string };

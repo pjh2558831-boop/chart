@@ -849,7 +849,9 @@ function currentEntryConditionalLabel(report: TradingReport, score: number) {
   const riskScore = report.scoreSummary?.riskScore ?? 50;
   const priceUnitLow = report.analysisMeta?.priceUnitConfidence === "low";
   if (score < 30) return "현재가 진입 부적합";
+  if (score < 50 && (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range")) return "지지 확인 필요";
   if (score < 50) return "현재가 진입 불리";
+  if (score < 65 && (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range")) return "소액 조건부";
   if (score < 65) return "현재가 진입 확인 필요";
   if (marketContext.priceLocation === "near_resistance") return "현재가 진입 확인 필요";
   if (marketContext.breakoutRetestConfirmed) return "돌파 후 현재가 진입 후보";
@@ -939,6 +941,11 @@ function applyEntryScoreConsistencyCaps(
   if (marketContext.priceLocation === "overextended") entries.currentEntry.score = Math.min(entries.currentEntry.score, 45);
   if (!finite(currentRr)) entries.currentEntry.score = Math.min(entries.currentEntry.score, 40);
   else if (currentRr < 1) entries.currentEntry.score = Math.min(entries.currentEntry.score, 50);
+  if ((marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range") && (!finite(currentRr) || currentRr >= 1)) {
+    const supportFloor = finite(currentRr) && currentRr >= 1.2 ? 50 : 45;
+    entries.currentEntry.score = Math.max(entries.currentEntry.score, supportFloor);
+    entries.currentEntry.explanation = "현재가가 주요 지지권에 가까워 지지 이탈 여부를 확인하며 소액 조건부로만 검토할 수 있습니다.";
+  }
   if (!currentMayExceed70) entries.currentEntry.score = Math.min(entries.currentEntry.score, 70);
   if (entries.currentEntry.score < 50) {
     entries.currentEntry.explanation = "현재가 기준 손익비 또는 가격 위치가 불리해 즉시 진입보다는 확인이 필요합니다.";
@@ -955,6 +962,10 @@ function applyEntryScoreConsistencyCaps(
   if (!breakoutConfirmed) entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, 60);
   if (finite(breakoutRr) && breakoutRr < 1) entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, 50);
   if (!volumeConfirmed) entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, 65);
+  if (!breakoutConfirmed && finite(pivotPrice) && finite(breakoutRr) && breakoutRr >= 1) {
+    entries.breakoutEntry.score = Math.max(entries.breakoutEntry.score, 40);
+    entries.breakoutEntry.label = "돌파 확인 필요";
+  }
   if (!(breakoutConfirmed && riskRewardAllowsEntry(rr.breakout, 1.5))) {
     entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, 70);
   }
@@ -965,6 +976,10 @@ function applyEntryScoreConsistencyCaps(
   refreshCurrentEntryScoreLabel(report, entries.currentEntry);
   refreshEntryScoreLabel(entries.pullbackEntry, "pullbackEntry");
   refreshEntryScoreLabel(entries.breakoutEntry, "breakoutEntry");
+  if (!breakoutConfirmed && finite(pivotPrice) && finite(breakoutRr) && breakoutRr >= 1 && entries.breakoutEntry.score >= 30) {
+    entries.breakoutEntry.score = Math.max(entries.breakoutEntry.score, 40);
+    entries.breakoutEntry.label = "돌파 확인 필요";
+  }
   return entries;
 }
 
@@ -1605,24 +1620,39 @@ function validateReportConsistency(report: TradingReport) {
     if (report.priceRoles?.stopLoss) report.priceRoles.stopLoss.shortTerm = replacement;
   }
   report.tradePlan.stopLossByEntry = deriveStopLossByEntry(report);
+  const currentEntryStopPrice = priceFromText(report.tradePlan.stopLossByEntry.currentEntry?.priceZone)
+    ?? priceFromText(report.tradePlan.stopLoss.shortTerm?.priceZone)
+    ?? priceFromText(report.tradePlan.stopLoss.priceZone)
+    ?? priceFromText(report.priceRoles?.stopLoss?.shortTerm);
+  const currentEntryTargetPrice = priceFromText(cleanTargets([...pullbackTargets, ...breakoutTargets], report.priceRoles?.current?.priceZone)[0]);
+  const pullbackEntryStopPrice = priceFromText(report.tradePlan.stopLossByEntry.pullbackEntry?.priceZone)
+    ?? priceFromText(report.tradePlan.stopLoss.shortTerm?.priceZone)
+    ?? priceFromText(report.tradePlan.stopLoss.priceZone);
+  const breakoutEntryStopPrice = priceFromText(report.tradePlan.stopLossByEntry.breakoutEntry?.priceZone)
+    ?? priceFromText(report.tradePlan.stopLoss.shortTerm?.priceZone)
+    ?? priceFromText(report.tradePlan.stopLoss.priceZone);
 
   report.tradePlan.riskRewardByEntry = {
     current: riskReward(
       currentPrice,
-      priceFromText(report.tradePlan.stopLossByEntry.currentEntry?.priceZone ?? report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone),
-      priceFromText(cleanTargets([...pullbackTargets, ...breakoutTargets], report.priceRoles?.current?.priceZone)[0]),
+      currentEntryStopPrice,
+      currentEntryTargetPrice,
     ),
     pullback: riskReward(
       pullbackPrice,
-      priceFromText(report.tradePlan.stopLossByEntry.pullbackEntry?.priceZone ?? report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone),
+      pullbackEntryStopPrice,
       priceFromText(pullbackTargets[0]),
     ),
     breakout: riskReward(
       pivotPrice,
-      priceFromText(report.tradePlan.stopLossByEntry.breakoutEntry?.priceZone ?? report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone),
+      breakoutEntryStopPrice,
       priceFromText(breakoutTargets[0]),
     ),
   };
+  if (finite(report.tradePlan.riskRewardByEntry.current?.value) && finite(currentEntryStopPrice)) {
+    const stopText = formatPrice(currentEntryStopPrice);
+    report.tradePlan.riskRewardByEntry.current.interpretation = `단, ${stopText} 지지 이탈 시 빠른 손절이 필요합니다.`;
+  }
 
   const currentRr = report.tradePlan.riskRewardByEntry.current?.value ?? null;
   const pullbackRr = report.tradePlan.riskRewardByEntry.pullback?.value ?? null;
@@ -1634,10 +1664,18 @@ function validateReportConsistency(report: TradingReport) {
   if (finite(pullbackRr) && pullbackRr >= 1.5 && currentEntry.score < pullbackEntry.score) {
     pullbackEntry.explanation = "눌림목 기준 손익비가 더 좋아 현재가 추격보다 지지 확인 후 진입이 유리합니다.";
   }
-  if (breakoutEntry.score < 60 || !breakoutConfirmed) {
-    breakoutEntry.score = Math.min(breakoutEntry.score, 59);
-    breakoutEntry.label = "돌파 진입 확인 필요";
-    breakoutEntry.explanation = "돌파 후 재지지가 확인되기 전까지는 돌파 매수 후보로 보기 어렵습니다.";
+  const breakoutHasUsableSetup = finite(pivotPrice) && finite(breakoutEntryStopPrice) && finite(priceFromText(breakoutTargets[0]));
+  const breakoutRr = report.tradePlan.riskRewardByEntry.breakout?.value ?? null;
+  if (!breakoutConfirmed) {
+    if (breakoutHasUsableSetup && finite(breakoutRr) && breakoutRr >= 1) {
+      breakoutEntry.score = Math.max(Math.min(breakoutEntry.score, 55), 40);
+      breakoutEntry.label = "돌파 확인 필요";
+      breakoutEntry.explanation = "돌파 후 재지지가 확인되기 전까지는 부적합보다 확인 대기 구간으로 보는 것이 자연스럽습니다.";
+    } else if (breakoutEntry.score < 60) {
+      breakoutEntry.score = Math.min(breakoutEntry.score, 59);
+      breakoutEntry.label = "돌파 진입 확인 필요";
+      breakoutEntry.explanation = "돌파 목표나 손절 기준이 부족해 돌파 진입은 추가 확인이 필요합니다.";
+    }
   }
 
   score.entryScores = applyEntryScoreConsistencyCaps(report, score, { currentEntry, pullbackEntry, breakoutEntry });
@@ -1738,6 +1776,32 @@ function validateReportConsistency(report: TradingReport) {
     report.finalSummary.finalAction = consistentCurrentEntry.score < 50 ? "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED" : "PULLBACK_BUY_CANDIDATE";
     report.finalSummary.title = consistentCurrentEntry.score < 50 ? "현재가 진입 불리 / 눌림목 대기 우선" : "눌림목 매수 후보";
     report.finalSummary.oneLineConclusion = "현재가보다 주요 지지 구간의 반등 확인을 우선하는 편이 점수와 손익비 측면에서 더 자연스럽습니다.";
+  }
+  const supportConditionZone = safeDisplayText(
+    report.keyLevels.supports?.[0]?.priceZone
+      ?? report.priceRoles?.pullbackEntry?.priceZone
+      ?? report.tradePlan.stopLoss.shortTerm?.priceZone
+      ?? report.tradePlan.stopLossByEntry?.currentEntry?.priceZone,
+    "",
+  );
+  const stopConditionZone = safeDisplayText(
+    report.tradePlan.stopLossByEntry?.currentEntry?.priceZone
+      ?? report.tradePlan.stopLoss.shortTerm?.priceZone
+      ?? supportConditionZone,
+    "",
+  );
+  const supportFocusedAction =
+    supportArea ||
+    report.finalSummary.finalAction === "PULLBACK_BUY_CANDIDATE" ||
+    report.finalSummary.finalAction === "WAIT_FOR_SUPPORT_CONFIRMATION" ||
+    /지지권|눌림목/.test(report.finalSummary.title);
+  if (!terminalRisk && supportFocusedAction && supportConditionZone) {
+    if (!report.finalSummary.title.includes(supportConditionZone) && /지지권|지지 확인|눌림목/.test(report.finalSummary.title)) {
+      report.finalSummary.title = `${report.finalSummary.title} / ${supportConditionZone} 지지 확인 필요`;
+    }
+    if (stopConditionZone && !report.finalSummary.oneLineConclusion.includes("이탈 시 관점 약화")) {
+      report.finalSummary.oneLineConclusion = `${report.finalSummary.oneLineConclusion} ${stopConditionZone} 이탈 시 관점 약화에 유의해야 합니다.`;
+    }
   }
 
   if (score.riskScore >= 60 && score.totalScore >= 80) score.totalScore = 79;

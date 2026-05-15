@@ -104,7 +104,9 @@ function displayCurrentEntryScoreLabel(report: TradingReport, score: number | nu
   const rr = report.tradePlan.riskRewardByEntry?.current?.value;
   const riskScore = safeScore(report.scoreSummary?.riskScore) ?? 50;
   if (score < 30) return "부적합";
+  if (score < 50 && (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range")) return "지지 확인 필요";
   if (score < 50) return "불리";
+  if (score < 65 && (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range")) return "소액 조건부";
   if (score < 65) return "확인 필요";
   if (marketContext.nearResistance) return "확인 필요";
   if (marketContext.breakoutRetestConfirmed) return "돌파 후 현재가 진입 후보";
@@ -123,6 +125,7 @@ function riskRewardText(value?: RiskRewardDetail | null) {
   if (!value) return "확인 필요";
   if (value.value === null || !Number.isFinite(value.value)) return value.label || "확인 필요";
   if (value.value >= 5) return "5.0+ / 고손익비 후보";
+  if (value.value >= 1.5) return `약 ${value.value.toFixed(1)} / 조건부 가능`;
   return `${value.value} / ${riskRewardLabel(value.value, value.label)}`;
 }
 
@@ -665,7 +668,7 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
     <section className={`rounded-lg border p-5 shadow-soft ${actionTone[finalSummary.finalAction]}`}>
       <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr]">
         <div>
-          <p className="text-sm font-semibold opacity-80">理쒖쥌 ?됰룞 ?먮떒</p>
+          <p className="text-sm font-semibold opacity-80">최종 행동 판단</p>
           <h2 className="mt-3 text-3xl font-bold">{actionDetail.title}</h2>
           <p className="mt-4 text-base leading-7">{actionDetail.subtitle}</p>
           {actionDetail.reason ? <p className="mt-3 text-sm leading-6 opacity-80">{actionDetail.reason}</p> : null}

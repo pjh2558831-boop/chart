@@ -402,10 +402,10 @@ function getLevels(raw: AnalysisResponse) {
 
 function statusKo(value?: string | null) {
   const text = (value ?? "").toLowerCase();
-  if (text.includes("up") || text.includes("bull") || text.includes("above") || text.includes("?곸듅")) return "?곸듅 異붿꽭";
-  if (text.includes("down") || text.includes("bear") || text.includes("below") || text.includes("?섎씫")) return "?섎씫 異붿꽭";
-  if (text.includes("side") || text.includes("range") || text.includes("?〓낫")) return "?〓낫";
-  return "以묐┰";
+  if (text.includes("up") || text.includes("bull") || text.includes("above") || text.includes("상승")) return "상승 추세";
+  if (text.includes("down") || text.includes("bear") || text.includes("below") || text.includes("하락")) return "하락 추세";
+  if (text.includes("side") || text.includes("range") || text.includes("횡보")) return "횡보";
+  return "중립";
 }
 
 function confidence(value?: string | null): Confidence {
@@ -514,23 +514,23 @@ function indicatorExplanation(key: string, rawStatus?: string | null) {
     return "일목균형표는 확인되지만 구름대 기준 방향성은 추가 확인이 필요합니다.";
   }
   if (key === "bollingerBands") {
-    if (signal === "bullish") return "蹂쇰┛?諛대뱶??媛寃??뺤옣???뺤씤?섎㈃ ?뚰뙆 ?먮쫫??蹂댁“ 洹쇨굅媛 ?????덉뒿?덈떎.";
-    if (signal === "bearish") return "蹂쇰┛?諛대뱶 ?곷떒 遺???먮뒗 ?섎떒 ?댄깉 媛?μ꽦???덉쑝硫?異붽꺽 吏꾩엯? 二쇱쓽媛 ?꾩슂?⑸땲??";
-    return "蹂쇰┛?諛대뱶留뚯쑝濡쒕뒗 諛⑺뼢?깅낫??蹂?숈꽦 ?뺤씤????媛源앹뒿?덈떎.";
+    if (signal === "bullish") return "볼린저밴드 확장이 확인되면 돌파 흐름을 보조하는 근거가 될 수 있습니다.";
+    if (signal === "bearish") return "볼린저밴드 상단 부담 또는 하단 이탈 가능성이 있으면 추격 진입은 주의가 필요합니다.";
+    return "볼린저밴드만으로는 방향성보다 변동성 확인에 가깝습니다.";
   }
-  return "?대떦 吏?쒕뒗 ?⑤룆 ?먮떒蹂대떎 ?듭떖 媛寃⑸?? ?④퍡 ?뺤씤?댁빞 ?⑸땲??";
+  return "해당 지표는 단독 판단보다 핵심 가격대와 함께 확인해야 합니다.";
 }
 
 function unavailableIndicatorReason(key: string) {
   const reasons: Record<string, string> = {
-    rsi: "RSI媛 ?대?吏?먯꽌 紐낇솗???뺤씤?섏? ?딆븘 怨쇰ℓ???щ????먮떒???쒗븳?⑸땲??",
-    macd: "MACD媛 ?대?吏?먯꽌 紐낇솗???뺤씤?섏? ?딆븘 紐⑤찘? ?먮떒? ?쒗븳?곸엯?덈떎.",
-    volume: "嫄곕옒?됱씠 ?대?吏?먯꽌 紐낇솗???뺤씤?섏? ?딆븘 ?뚰뙆 ?좊ː???먮떒? ?쒗븳?⑸땲??",
-    movingAverages: "?대룞?됯퇏?좎씠 ?대?吏?먯꽌 紐낇솗???뺤씤?섏? ?딆븘 異붿꽭 ?뺣젹 ?먮떒? ?쒗븳?⑸땲??",
-    ichimoku: "?쇰ぉ洹좏삎??援щ쫫?媛 ?대?吏?먯꽌 紐낇솗???뺤씤?섏? ?딆븘 援щ쫫? 湲곗? ?먮떒? ?쒗븳?⑸땲??",
-    bollingerBands: "蹂쇰┛?諛대뱶媛 ?대?吏?먯꽌 紐낇솗???뺤씤?섏? ?딆븘 蹂?숈꽦 ?먮떒? ?쒗븳?⑸땲??",
+    rsi: "RSI가 이미지에서 명확히 확인되지 않아 과매수 여부 판단은 제한적입니다.",
+    macd: "MACD가 이미지에서 명확히 확인되지 않아 모멘텀 판단은 제한적입니다.",
+    volume: "거래량이 이미지에서 명확히 확인되지 않아 돌파 신뢰도 판단은 제한적입니다.",
+    movingAverages: "이동평균선이 이미지에서 명확히 확인되지 않아 추세 정렬 판단은 제한적입니다.",
+    ichimoku: "일목균형표 구름대가 이미지에서 명확히 확인되지 않아 구름대 기준 판단은 제한적입니다.",
+    bollingerBands: "볼린저밴드가 이미지에서 명확히 확인되지 않아 변동성 판단은 제한적입니다.",
   };
-  return reasons[key] ?? "?대?吏?먯꽌 紐낇솗???뺤씤?섏? ?딆뒿?덈떎.";
+  return reasons[key] ?? "이미지에서 명확히 확인되지 않았습니다.";
 }
 
 function candidateName(candidate?: { name?: string | null; label?: string | null } | null) {
@@ -610,10 +610,10 @@ function indicatorKeyFromNameClean(name?: string | null) {
   const text = (name ?? "").toLowerCase();
   if (text.includes("rsi")) return "rsi";
   if (text.includes("macd")) return "macd";
-  if (text.includes("嫄곕옒") || text.includes("volume")) return "volume";
-  if (text.includes("?대룞") || text.includes("moving") || text.includes("ma")) return "movingAverages";
-  if (text.includes("?쇰ぉ") || text.includes("援щ쫫") || text.includes("ichimoku")) return "ichimoku";
-  if (text.includes("蹂쇰┛?") || text.includes("bollinger")) return "bollingerBands";
+  if (text.includes("거래량") || text.includes("volume")) return "volume";
+  if (text.includes("이동") || text.includes("moving") || text.includes("ma")) return "movingAverages";
+  if (text.includes("일목") || text.includes("구름") || text.includes("ichimoku")) return "ichimoku";
+  if (text.includes("볼린저") || text.includes("bollinger")) return "bollingerBands";
   return "unknown";
 }
 
@@ -671,9 +671,9 @@ function normalizeIndicatorAnalysisClean(analysis: TradingReport["indicatorAnaly
 }
 
 function ensureCandidateLabel(name?: string | null) {
-  const label = name?.trim() || "紐낇솗???⑦꽩 ?놁쓬";
-  if (label === "紐낇솗???⑦꽩 ?놁쓬" || label.includes("?꾨낫") || label.includes("?쒕굹由ъ삤")) return label;
-  return `${label} ?꾨낫`;
+  const label = name?.trim() || "명확한 패턴 없음";
+  if (label === "명확한 패턴 없음" || label.includes("후보") || label.includes("시나리오")) return label;
+  return `${label} 후보`;
 }
 
 function visibleIndicatorCount(raw: AnalysisResponse) {
@@ -771,7 +771,7 @@ function normalizeScoreSummary(scoreSummary?: Partial<ScoreSummary> | null): Sco
     riskLabel: nonEmpty(scoreSummary?.riskLabel, riskScoreLabel(riskScore)),
     explanation: nonEmpty(
       scoreSummary?.explanation,
-      "?대?吏 湲곕컲 遺꾩꽍?대?濡??좉퇋 吏꾩엯, 蹂댁쑀 愿留? ?꾪뿕?꾨? 遺꾨━??蹂댁닔?곸쑝濡??댁꽍?⑸땲??",
+      "이미지 기반 분석으로 신규 진입, 보유 관망, 위험도를 분리해 보수적으로 해석합니다.",
     ),
     scoreFactors: {
       positive: scoreSummary?.scoreFactors?.positive ?? [],
@@ -1204,7 +1204,7 @@ function buildScoreSummary(raw: AnalysisResponse, nearResistance: boolean, rr: R
   const negative: NonNullable<ScoreSummary["scoreFactors"]>["negative"] = [];
   const risk: NonNullable<ScoreSummary["scoreFactors"]>["risk"] = [];
 
-  if (trend === "?곸듅 異붿꽭") {
+  if (trend === "상승 추세") {
     total += 15;
     buyScore += 10;
     holdScore += 15;
@@ -1240,8 +1240,8 @@ function buildScoreSummary(raw: AnalysisResponse, nearResistance: boolean, rr: R
     total -= 5;
     buyScore -= 5;
     riskScore += 5;
-    negative?.push({ label: "二쇱슂 蹂댁“吏???뺤씤 ?쒗븳", scoreImpact: -5, reason: "RSI/MACD ??二쇱슂 吏?쒓? 紐낇솗?섏? ?딆븘 蹂댁닔?곸쑝濡?遊낅땲??" });
-    risk?.push({ label: "蹂댁“吏???뺤씤 ?쒗븳", scoreImpact: 5, reason: "怨쇰ℓ???щ?? 紐⑤찘? ?먮떒???쒗븳?⑸땲??" });
+    negative?.push({ label: "주요 보조지표 확인 제한", scoreImpact: -5, reason: "RSI/MACD 등 주요 지표가 명확하지 않아 보수적으로 봅니다." });
+    risk?.push({ label: "보조지표 확인 제한", scoreImpact: 5, reason: "과매수 여부와 모멘텀 판단이 제한됩니다." });
   }
   if (supportBroken) {
     total -= 30;
@@ -1266,8 +1266,8 @@ function buildScoreSummary(raw: AnalysisResponse, nearResistance: boolean, rr: R
     holdScore,
     riskScore,
     explanation: nearResistance
-      ? "?꾩옱 媛寃⑹씠 ???援ш컙??媛源뚯썙 ?좉퇋 吏꾩엯 ?먯닔????퀬, 二쇱슂 吏吏???댄깉 ?꾧퉴吏??蹂댁쑀 愿留??먯닔媛 ?곷??곸쑝濡??믪뒿?덈떎."
-      : "異붿꽭? 吏吏 ?щ?瑜??④퍡 蹂대㈃ 議곌굔 ?뺤씤 ?꾧퉴吏??蹂댁닔?곸씤 ??묒씠 ?곸젅?⑸땲??",
+      ? "현재 가격이 저항 구간에 가까워 신규 진입 점수는 낮고, 주요 지지선 이탈 전까지는 보유 관망 점수가 상대적으로 높습니다."
+      : "추세와 지지 여부를 함께 보면 조건 확인 전까지는 보수적인 대응이 적절합니다.",
     scoreFactors: { positive, negative, risk },
   });
   score.totalLabel = scoreLabel(score.totalScore);
@@ -1281,7 +1281,7 @@ function buildScoreSummary(raw: AnalysisResponse, nearResistance: boolean, rr: R
 function hasVolumeConfirmation(report: TradingReport) {
   const confirmedVolume = (report.indicatorAnalysis?.confirmed ?? []).filter((item) => {
     const name = `${item.name ?? ""}`.toLowerCase();
-    return name.includes("volume") || name.includes("嫄곕옒");
+    return name.includes("volume") || name.includes("거래량");
   });
   const text = confirmedVolume
     .map((item) => `${item.signal ?? ""} ${item.explanation ?? ""}`.toLowerCase())
@@ -1509,16 +1509,16 @@ function validateReportConsistency(report: TradingReport) {
     report.tradePlan.targets.firstTarget.priceZone = breakoutTargets[0];
     report.tradePlan.targets.breakoutTargets = {
       ...(report.tradePlan.targets.breakoutTargets ?? {}),
-      firstTarget: { priceZone: breakoutTargets[0], action: "?뚰뙆 吏꾩엯 湲곗? 1李?紐⑺몴" },
-      ...(breakoutTargets[1] ? { secondTarget: { priceZone: breakoutTargets[1], action: "?뚰뙆 吏꾩엯 湲곗? 2李?紐⑺몴" } } : {}),
+      firstTarget: { priceZone: breakoutTargets[0], action: "돌파 진입 기준 1차 목표" },
+      ...(breakoutTargets[1] ? { secondTarget: { priceZone: breakoutTargets[1], action: "돌파 진입 기준 2차 목표" } } : {}),
     };
   }
   if (pullbackTargets[0]) {
     report.tradePlan.targets.pullbackTargets = {
       ...(report.tradePlan.targets.pullbackTargets ?? {}),
-      firstTarget: { priceZone: pullbackTargets[0], action: "?뚮┝紐?吏꾩엯 湲곗? 1李?紐⑺몴" },
-      ...(pullbackTargets[1] ? { secondTarget: { priceZone: pullbackTargets[1], action: "?뚮┝紐?吏꾩엯 湲곗? 2李?紐⑺몴" } } : {}),
-      ...(pullbackTargets[2] ? { thirdTarget: { priceZone: pullbackTargets[2], action: "?뚮┝紐?吏꾩엯 湲곗? 3李?紐⑺몴 ?꾨낫" } } : {}),
+      firstTarget: { priceZone: pullbackTargets[0], action: "눌림목 진입 기준 1차 목표" },
+      ...(pullbackTargets[1] ? { secondTarget: { priceZone: pullbackTargets[1], action: "눌림목 진입 기준 2차 목표" } } : {}),
+      ...(pullbackTargets[2] ? { thirdTarget: { priceZone: pullbackTargets[2], action: "눌림목 진입 기준 3차 목표 후보" } } : {}),
     };
   }
 
@@ -1528,13 +1528,13 @@ function validateReportConsistency(report: TradingReport) {
       report.priceRoles?.stopLoss?.conservative,
       report.priceRoles?.stopLoss?.invalidation,
     ]);
-    const replacement = lowerStop ?? "?뺤씤 ?꾩슂";
+    const replacement = lowerStop ?? "확인 필요";
     report.tradePlan.stopLoss.shortTerm = {
       priceZone: replacement,
-      condition: lowerStop ? `${replacement} ?댄깉` : "?뚮┝紐?吏꾩엯 湲곗? ?먯젅 媛寃?異붽? ?뺤씤 ?꾩슂",
-      meaning: lowerStop ? "?뚮┝紐?吏꾩엯 湲곗? ?④린 ?먯젅 ?꾨낫?낅땲??" : "吏꾩엯 媛寃⑷낵 媛숈? 媛寃⑹쓣 ?먯젅濡??곗? ?딅룄濡?怨꾩궛??蹂대쪟?⑸땲??",
+      condition: lowerStop ? `${replacement} 이탈` : "눌림목 진입 기준 손절 가격 추가 확인 필요",
+      meaning: lowerStop ? "눌림목 진입 기준 단기 손절 후보입니다." : "진입 가격과 같은 가격을 손절로 쓰지 않도록 계산을 보류합니다.",
     };
-    report.tradePlan.stopLoss.priceZone = lowerStop ? `?④린 ${replacement} ?댄깉` : "?뺤씤 ?꾩슂";
+    report.tradePlan.stopLoss.priceZone = lowerStop ? `단기 ${replacement} 이탈` : "확인 필요";
     if (report.priceRoles?.stopLoss) report.priceRoles.stopLoss.shortTerm = replacement;
   }
   report.tradePlan.stopLossByEntry = deriveStopLossByEntry(report);
@@ -1710,11 +1710,11 @@ function sanitizeTradingReport(report: TradingReport) {
   if (shortStopConflictsWithPullback && pullbackStopZone) {
     const shortStop = {
       priceZone: pullbackStopZone,
-      condition: `${pullbackStopZone} ?댄깉`,
-      meaning: "?뚮┝紐??좉퇋 吏꾩엯 湲곗????④린 ?먯젅 ?꾨낫?낅땲??",
+      condition: `${pullbackStopZone} 이탈`,
+      meaning: "눌림목 신규 진입 기준의 단기 손절 후보입니다.",
     };
     report.tradePlan.stopLoss.shortTerm = shortStop;
-    report.tradePlan.stopLoss.priceZone = `?④린 ${pullbackStopZone} ?댄깉`;
+    report.tradePlan.stopLoss.priceZone = `단기 ${pullbackStopZone} 이탈`;
     if (report.priceRoles?.stopLoss) {
       report.priceRoles.stopLoss.shortTerm = pullbackStopZone;
     }
@@ -1773,16 +1773,16 @@ function sanitizeTradingReport(report: TradingReport) {
     priceZone: firstBreakoutTarget,
   };
   report.tradePlan.targets.secondTarget = secondBreakoutTarget
-    ? { ...(report.tradePlan.targets.secondTarget ?? { action: "?뚰뙆 吏꾩엯 湲곗? 2李?紐⑺몴 ?꾨낫" }), priceZone: secondBreakoutTarget }
+    ? { ...(report.tradePlan.targets.secondTarget ?? { action: "돌파 진입 기준 2차 목표 후보" }), priceZone: secondBreakoutTarget }
     : undefined;
   report.tradePlan.targets.breakoutTargets = {
-    firstTarget: firstBreakoutTarget !== IMAGE_LIMIT_TEXT ? { priceZone: firstBreakoutTarget, action: "?뚰뙆 吏꾩엯 湲곗? 1李?紐⑺몴" } : undefined,
-    secondTarget: secondBreakoutTarget ? { priceZone: secondBreakoutTarget, action: "?뚰뙆 吏꾩엯 湲곗? 2李?紐⑺몴" } : undefined,
+    firstTarget: firstBreakoutTarget !== IMAGE_LIMIT_TEXT ? { priceZone: firstBreakoutTarget, action: "돌파 진입 기준 1차 목표" } : undefined,
+    secondTarget: secondBreakoutTarget ? { priceZone: secondBreakoutTarget, action: "돌파 진입 기준 2차 목표" } : undefined,
   };
   report.tradePlan.targets.pullbackTargets = {
-    firstTarget: sortedPullbackTargets[0] ? { priceZone: sortedPullbackTargets[0], action: "?뚮┝紐?吏꾩엯 湲곗? 1李?紐⑺몴" } : undefined,
-    secondTarget: sortedPullbackTargets[1] ? { priceZone: sortedPullbackTargets[1], action: "?뚮┝紐?吏꾩엯 湲곗? 2李?紐⑺몴" } : undefined,
-    thirdTarget: sortedPullbackTargets[2] ? { priceZone: sortedPullbackTargets[2], action: "?뚮┝紐?吏꾩엯 湲곗? 3李?紐⑺몴 ?꾨낫" } : undefined,
+    firstTarget: sortedPullbackTargets[0] ? { priceZone: sortedPullbackTargets[0], action: "눌림목 진입 기준 1차 목표" } : undefined,
+    secondTarget: sortedPullbackTargets[1] ? { priceZone: sortedPullbackTargets[1], action: "눌림목 진입 기준 2차 목표" } : undefined,
+    thirdTarget: sortedPullbackTargets[2] ? { priceZone: sortedPullbackTargets[2], action: "눌림목 진입 기준 3차 목표 후보" } : undefined,
   };
 
   report.tradePlan.stopLossByEntry = deriveStopLossByEntry(report);
@@ -1833,7 +1833,7 @@ function sanitizeTradingReport(report: TradingReport) {
   const guidePullback = safeDisplayText(report.priceRoles?.pullbackEntry?.priceZone ?? pullbackEntryZone, "주요 지지 구간");
   const guideShortStop = safeDisplayText(report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone, "단기 손절 기준");
   const guideConservativeStop = safeDisplayText(report.tradePlan.stopLoss.conservative?.priceZone, "보수적 손절 기준");
-  const guideInvalidation = safeDisplayText(report.tradePlan.invalidation.midTerm?.priceZone ?? report.tradePlan.invalidation.condition, "以묎린 臾댄슚??湲곗?");
+  const guideInvalidation = safeDisplayText(report.tradePlan.invalidation.midTerm?.priceZone ?? report.tradePlan.invalidation.condition, "중기 무효화 기준");
   const supportArea = report.marketContext.priceLocation === "near_support" || report.marketContext.priceLocation === "lower_range";
   const profitArea = report.marketContext.priceLocation === "upper_range" || report.marketContext.priceLocation === "near_resistance" || report.marketContext.priceLocation === "overextended";
   report.userActionGuide = supportArea
@@ -1976,12 +1976,12 @@ function buildFallbackReport(raw: AnalysisResponse): TradingReport {
   const scoreSummary = buildScoreSummary(raw, nearResistance, rr, supportBroken);
 
   let finalAction: FinalAction = "HOLD_AND_WATCH";
-  let title = "蹂댁쑀 愿留??곗꽭";
-  let oneLineConclusion = "二쇱슂 吏吏???댄깉 ?꾧퉴吏??蹂댁쑀 愿留앹씠 媛?ν븯吏留? ?좉퇋 吏꾩엯? 異붽? ?뺤씤???꾩슂?⑸땲??";
+  let title = "보유 관망 우세";
+  let oneLineConclusion = "주요 지지선 이탈 전까지는 보유 관망이 가능하지만 신규 진입은 추가 확인이 필요합니다.";
   if (supportBroken) {
     finalAction = "SELL_RISK";
-    title = "?먯젅 ?꾪뿕";
-    oneLineConclusion = "?④린 吏吏?좎쓣 ?댄깉???먯젅 ?꾪뿕??而ㅼ죱?듬땲??";
+    title = "손절 위험";
+    oneLineConclusion = "단기 지지선을 이탈해 손절 위험이 커졌습니다.";
   } else if (scoreSummary.buyScore < 30 && scoreSummary.holdScore < 40 && scoreSummary.riskScore >= 70) {
     finalAction = "NO_TRADE";
     title = "매매 부적합";
@@ -2110,14 +2110,14 @@ function buildFallbackReport(raw: AnalysisResponse): TradingReport {
           thirdTarget: targets[2] ? { priceZone: formatPrice(targets[2]), action: "눌림목 진입 기준 3차 목표 후보" } : undefined,
         },
         breakoutTargets: {
-          firstTarget: breakoutFirstTarget ? { priceZone: formatPrice(breakoutFirstTarget), action: "?뚰뙆 吏꾩엯 湲곗? 1李?紐⑺몴" } : undefined,
-          secondTarget: breakoutSecondTarget ? { priceZone: formatPrice(breakoutSecondTarget), action: "?뚰뙆 吏꾩엯 湲곗? 2李?紐⑺몴" } : undefined,
+          firstTarget: breakoutFirstTarget ? { priceZone: formatPrice(breakoutFirstTarget), action: "돌파 진입 기준 1차 목표" } : undefined,
+          secondTarget: breakoutSecondTarget ? { priceZone: formatPrice(breakoutSecondTarget), action: "돌파 진입 기준 2차 목표" } : undefined,
         },
       },
       invalidation: {
-        condition: `${formatPrice(midInvalidation)} ?댄깉 ??以묎린 ?곸듅 愿?먯쓣 ?먭린?⑸땲??`,
-        meaning: "以묎린 愿??臾댄슚??媛寃⑹? ?먯씡鍮?怨꾩궛???ъ슜?섏? ?딆뒿?덈떎.",
-        midTerm: { priceZone: formatPrice(midInvalidation), condition: "援ъ“??吏吏 ?댄깉", meaning: "以묎린 ?곸듅 愿??臾댄슚??湲곗??낅땲??" },
+        condition: `${formatPrice(midInvalidation)} 이탈 시 중기 상승 관점을 폐기합니다.`,
+        meaning: "중기 관점 무효화 가격은 단기 손익비 계산에 사용하지 않습니다.",
+        midTerm: { priceZone: formatPrice(midInvalidation), condition: "구조적 지지 이탈", meaning: "중기 상승 관점 무효화 기준입니다." },
       },
       riskReward: rr,
       riskRewardByEntry,
@@ -2144,21 +2144,21 @@ function buildFallbackReport(raw: AnalysisResponse): TradingReport {
     },
     patternAnalysis: {
       primaryPattern: {
-        name: primaryPatternIsWeak ? "紐낇솗???⑦꽩 ?놁쓬" : ensureCandidateLabel(candidateName(primaryPattern)),
+        name: primaryPatternIsWeak ? "명확한 패턴 없음" : ensureCandidateLabel(candidateName(primaryPattern)),
         confidence: primaryPatternIsWeak ? "low" : confidence(primaryPattern?.confidence),
-        reason: primaryPatternIsWeak ? "?꾩옱 ?대?吏?먯꽌???곗꽑?쒖쐞媛 ?믪? ?뺤젙 ?⑦꽩 ?꾨낫媛 ?쒕졆?섏? ?딆뒿?덈떎." : cleanText(primaryPattern?.evidence?.slice(0, 3).join(" / "), "媛寃?援ъ“??李멸퀬 媛?ν븳 ?⑦꽩 ?꾨낫?낅땲??"),
-        confirmationCondition: primaryPatternIsWeak ? "二쇱슂 吏吏???먮뒗 ???꽑?먯꽌 異붽? 諛섏쓳 ?뺤씤???꾩슂?⑸땲??" : cleanText(primaryPattern?.confirmationCondition, "二쇱슂 ????뚰뙆 ?먮뒗 吏吏 ?뺤씤???꾩슂?⑸땲??"),
-        invalidationCondition: primaryPatternIsWeak ? "?꾩옱 援ъ“留뚯쑝濡?蹂꾨룄 ?⑦꽩 臾댄슚??媛寃⑹쓣 ?곗젙?섍린 ?대졄?듬땲??" : cleanText(primaryPattern?.invalidationCondition, "二쇱슂 吏吏???댄깉 ???⑦꽩 ?꾨낫媛 ?쏀솕?⑸땲??"),
-        tradingMeaning: primaryPatternIsWeak ? "?꾩옱???⑦꽩 ?덉륫蹂대떎 吏吏 ?뺤씤 ?먮뒗 ????뚰뙆 ???ъ?吏 ?щ?媛 ??以묒슂?⑸땲??" : cleanText(primaryPattern?.tradingImplication || primaryPattern?.entryLogic, "?⑦꽩 ?대? ?덉륫 吏꾩엯蹂대떎 ?댄깉 諛⑺뼢 ?뺤씤 ????묓븯??寃껋씠 蹂댁닔?곸엯?덈떎."),
+        reason: primaryPatternIsWeak ? "현재 이미지에서는 우선순위가 높은 확정 패턴 후보가 뚜렷하지 않습니다." : cleanText(primaryPattern?.evidence?.slice(0, 3).join(" / "), "가격 구조상 참고 가능한 패턴 후보입니다."),
+        confirmationCondition: primaryPatternIsWeak ? "주요 지지선 또는 저항선에서 추가 반응 확인이 필요합니다." : cleanText(primaryPattern?.confirmationCondition, "주요 저항 돌파 또는 지지 확인이 필요합니다."),
+        invalidationCondition: primaryPatternIsWeak ? "현재 구조만으로 별도 패턴 무효화 가격을 산정하기 어렵습니다." : cleanText(primaryPattern?.invalidationCondition, "주요 지지선 이탈 시 패턴 후보가 약화됩니다."),
+        tradingMeaning: primaryPatternIsWeak ? "현재는 패턴 예측보다 지지 확인 또는 저항 돌파 후 재지지 여부가 더 중요합니다." : cleanText(primaryPattern?.tradingImplication || primaryPattern?.entryLogic, "패턴 내부 예측 진입보다 이탈 방향 확인 후 대응하는 것이 보수적입니다."),
       },
       secondaryPattern: secondaryPattern ? {
         name: ensureCandidateLabel(candidateName(secondaryPattern)),
         confidence: confidence(secondaryPattern.confidence),
-        reason: cleanText(secondaryPattern.evidence?.slice(0, 2).join(" / "), "蹂댁“ ?쒕굹由ъ삤濡쒕쭔 李멸퀬?섎ŉ, ?ㅼ젣 ??묒? 吏吏 ?뺤씤 ?먮뒗 ????뚰뙆 ???ъ?吏 ?щ?瑜??곗꽑?⑸땲??"),
+        reason: cleanText(secondaryPattern.evidence?.slice(0, 2).join(" / "), "보조 시나리오로만 참고하며, 실제 대응은 지지 확인 또는 저항 돌파 후 재지지 여부를 우선합니다."),
       } : null,
       excludedPatterns: raw.aiAnalysis?.patternCandidates?.slice(2, 5).map((item) => ({
         name: ensureCandidateLabel(candidateName(item)),
-        reason: "二쇱슂 ?⑦꽩 ?꾨낫蹂대떎 ?곗꽑?쒖쐞媛 ??븘 李멸퀬 ??ぉ?쇰줈 遺꾨쪟?덉뒿?덈떎.",
+        reason: "주요 패턴 후보보다 우선순위가 낮아 참고 항목으로 분류했습니다.",
       })) ?? [],
     },
     indicatorAnalysis: {
@@ -2175,9 +2175,9 @@ function buildFallbackReport(raw: AnalysisResponse): TradingReport {
       }),
     },
     evidence: {
-      positive: ["二쇱슂 吏吏???꾩뿉??媛寃⑹씠 ?좎??섎뒗吏 ?뺤씤???꾩슂?⑸땲??"],
-      negative: nearResistance ? ["?꾩옱 媛寃⑹씠 ???援ш컙??媛源뚯썙 ?좉퇋 異붽꺽留ㅼ닔?먮뒗 遺덈━?⑸땲??"] : [],
-      riskFactors: ["?대?吏 湲곕컲 遺꾩꽍?대?濡??ㅼ젣 OHLCV ?곗씠??寃利앹씠 ?꾩슂?⑸땲??", rr.interpretation],
+      positive: ["주요 지지선 위에서 가격이 유지되는지 확인이 필요합니다."],
+      negative: nearResistance ? ["현재 가격이 저항 구간에 가까워 신규 추격매수에는 불리합니다."] : [],
+      riskFactors: ["이미지 기반 분석이므로 실제 OHLCV 데이터 검증이 필요합니다.", rr.interpretation],
     },
     disclaimer: DISCLAIMER,
   };

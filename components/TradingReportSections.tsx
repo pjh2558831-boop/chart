@@ -98,6 +98,23 @@ function displayEntryScoreLabel(score: number | null) {
   return "유리";
 }
 
+function displayCurrentEntryScoreLabel(report: TradingReport, score: number | null, fallback?: string | null) {
+  if (score === null) return safeText(fallback, "확인 필요");
+  const marketContext = deriveDisplayMarketContext(report);
+  const rr = report.tradePlan.riskRewardByEntry?.current?.value;
+  const riskScore = safeScore(report.scoreSummary?.riskScore) ?? 50;
+  if (score < 30) return "부적합";
+  if (score < 50) return "불리";
+  if (score < 65) return "확인 필요";
+  if (marketContext.nearResistance) return "확인 필요";
+  if (marketContext.breakoutRetestConfirmed) return "돌파 후 현재가 진입 후보";
+  if (marketContext.priceLocation === "near_support") return "지지권 근처 소액 조건부";
+  if (score >= 70 && (riskScore >= 60 || typeof rr !== "number" || !Number.isFinite(rr) || rr < 1.5 || report.analysisMeta?.priceUnitConfidence === "low")) {
+    return "손절 짧게 조건부";
+  }
+  return displayEntryScoreLabel(score);
+}
+
 function hasContent(value?: string | null) {
   return Boolean(value && value !== "이미지 기준 추정 불가" && value !== "미확인");
 }
@@ -159,7 +176,8 @@ function indicatorTradingMeaning(name: string, signal?: string | null, explanati
 
 function unavailableIndicatorReason(name: string, reason?: string | null) {
   const text = safeText(reason, "");
-  if (text && !/[?�]/.test(text)) return text;
+  const replacementChar = String.fromCharCode(0xfffd);
+  if (text && !text.includes("?") && !text.includes(replacementChar)) return text;
   if (/rsi/i.test(name)) return "이미지에서 명확히 확인되지 않아 과매수 여부 판단은 제한적입니다.";
   if (/macd/i.test(name)) return "이미지에서 명확히 확인되지 않아 모멘텀 판단은 제한적입니다.";
   if (name.includes("볼린저") || /bollinger/i.test(name)) return "이미지에서 명확히 확인되지 않아 변동성 판단은 제한적입니다.";
@@ -321,6 +339,14 @@ function deriveFinalActionDetail(report: TradingReport): { title: string; subtit
       reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
     };
   }
+  if (breakoutEntry < 65 && pullbackEntry >= 65 && pivotPrice !== null && !breakoutRetestConfirmed) {
+    return {
+      title: "돌파 확인 대기 / 눌림목 지지 확인 시 관심",
+      subtitle: "핵심 전환 가격 돌파 후 재지지는 아직 확인되지 않았지만, 주요 지지 구간에서 반등이 나오면 눌림목 진입 후보로 볼 수 있습니다.",
+      actionType: "BREAKOUT_WAIT_PULLBACK_INTEREST",
+      reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
+    };
+  }
   if (breakoutEntry < 65 && pivotPrice !== null && !breakoutRetestConfirmed) {
     return {
       title: "돌파 확인 대기",
@@ -432,10 +458,13 @@ function getEntryScoreDisplayItems(report: TradingReport) {
     },
   ].map((entry) => {
     const score = safeScore(entry.item?.score) ?? entry.fallbackScore;
+    const label = entry.title === "현재가 진입"
+      ? displayCurrentEntryScoreLabel(report, score, entry.item?.label)
+      : displayEntryScoreLabel(score);
     return {
       title: entry.title,
       score,
-      label: displayEntryScoreLabel(score),
+      label,
       explanation: safeText(entry.item?.explanation, entry.fallbackReason),
     };
   });
@@ -490,12 +519,7 @@ function BulletList({ items, tone = "slate" }: { items: string[]; tone?: "green"
 
 export function AnalysisMetaCard({ meta }: { meta: TradingReport["analysisMeta"] }) {
   if (!meta) return null;
-  const dataBasisLabel = {
-    image_only: "이미지 기반 분석",
-    image_with_ohlcv: "이미지 + 가격 데이터 기반",
-    unknown: "데이터 기준 미확인",
-  }[meta.dataBasis ?? "image_only"];
-  const priceUnit = safeText(meta.priceUnit, "이미지 축 기준 추정");
+  const priceUnit = safeText(meta.priceUnit, "확인 필요");
   const priceUnitConfidence = meta.priceUnitConfidence ?? "low";
   const showPriceUnitWarning = priceUnitConfidence === "low" || priceUnit === "확인 필요" || priceUnit.includes("이미지 축");
   const rows = [
@@ -507,7 +531,6 @@ export function AnalysisMetaCard({ meta }: { meta: TradingReport["analysisMeta"]
     ["주요 지지", meta.mainSupports?.length ? meta.mainSupports.join(" / ") : "미확인"],
     ["주요 저항", meta.mainResistances?.length ? meta.mainResistances.join(" / ") : "미확인"],
     ["분석 기준 시각", meta.analyzedAt || "분석 시각 미확인"],
-    ["데이터 기준", dataBasisLabel],
   ];
 
   return (
@@ -544,7 +567,10 @@ export function EntryRecommendationRanking({ report }: { report: TradingReport }
     <ResultSection title="진입 방식별 추천 순위" description="현재가, 눌림목, 돌파 진입을 점수와 손익비 기준으로 비교합니다." tone="green">
       <div className="grid gap-3 lg:grid-cols-3">
         {ranking.map((item, index) => {
-          const label = displayEntryScoreLabel(item.score);
+          const label =
+            item.key === "current"
+              ? displayCurrentEntryScoreLabel(report, item.score, report.scoreSummary?.entryScores?.currentEntry?.label)
+              : displayEntryScoreLabel(item.score);
           const tone = item.score >= 65 ? "success" : item.score < 50 ? "warning" : "neutral";
           return (
             <article key={item.key} className="rounded-lg border border-slate-200 bg-white p-4">
@@ -994,7 +1020,7 @@ export function EvidenceSection({ evidence }: { evidence: TradingReport["evidenc
 export function PatternAnalysisSection({ analysis }: { analysis: TradingReport["patternAnalysis"] }) {
   const secondary = analysis.secondaryPattern;
   const primaryName = safeText(analysis.primaryPattern.name, "명확한 패턴 없음");
-  const noClearPattern = primaryName.includes("명확한 패턴 없음") || primaryName.includes("패턴 없음") || primaryName.includes("?놁쓬");
+  const noClearPattern = primaryName.includes("명확한 패턴 없음") || primaryName.includes("패턴 없음");
 
   return (
     <ResultSection title="주요 패턴 분석" tone="purple">

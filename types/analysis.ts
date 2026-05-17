@@ -485,6 +485,17 @@ export type PriceLocation =
   | "overextended"
   | "unknown";
 
+export type ChartRegime =
+  | "healthy_pullback"
+  | "downtrend"
+  | "overextended_surge"
+  | "breakout_retest_confirmed"
+  | "breakout_wait"
+  | "range_lower_support"
+  | "range_upper_resistance"
+  | "sideways"
+  | "unknown";
+
 export interface MarketContext {
   priceLocation: PriceLocation;
   rangePosition?: number | null;
@@ -492,6 +503,9 @@ export interface MarketContext {
   nearSupport?: boolean;
   nearResistance?: boolean;
   breakoutRetestConfirmed?: boolean;
+  chartRegime?: ChartRegime;
+  chartRegimeConfidence?: "low" | "medium" | "high";
+  chartRegimeReasons?: string[];
 }
 
 export interface ScoreFactor {

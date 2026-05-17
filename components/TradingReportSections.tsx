@@ -271,12 +271,82 @@ function deriveFinalActionDetail(report: TradingReport): { title: string; subtit
     ? Math.abs(currentPrice - stopPrice) / currentPrice <= 0.04
     : false;
   const overextended = priceLocation === "overextended" || Boolean(marketContext.isExtendedMove);
+  const regime = report.marketContext?.chartRegime ?? "unknown";
   const fallback = {
     title: safeText(report.finalSummary.title, actionLabel[report.finalSummary.finalAction] || "조건 확인 필요"),
     subtitle: safeText(report.finalSummary.oneLineConclusion, "현재 차트는 주요 지지와 저항 확인이 필요한 구간입니다."),
     actionType: safeText(actionLabel[report.finalSummary.finalAction], "조건 확인"),
     reason: safeText(score?.explanation ?? report.finalSummary.reason, "기술적 조건을 추가로 확인해야 합니다."),
   };
+
+  if (regime === "downtrend") {
+    return {
+      title: supportArea ? "하락 추세 반등 대기 / 지지 확인 필요" : "하락 추세 / 신규 진입 보류",
+      subtitle: supportArea
+        ? "현재 구간은 기술적 반등 가능성은 있으나, 추세 전환 확인 전까지 신규 진입은 신중해야 합니다."
+        : "하락 추세에서는 지지권 반등만으로 매수 후보를 강하게 보기 어렵습니다. 주요 저항 회복 또는 추세 전환 확인이 필요합니다.",
+      actionType: "DOWNTREND_WAIT",
+      reason: safeText(score?.explanation, fallback.reason),
+    };
+  }
+  if (regime === "overextended_surge") {
+    return {
+      title: pullbackEntry >= 65 ? "급등 후 눌림 대기 / 지지 확인 시 관심" : "급등 후 저항 근접 / 추격매수 주의",
+      subtitle: pullbackEntry >= 65
+        ? "단기 급등 후 저항 구간에 가까워 현재가 추격매수는 불리하고, 주요 지지 구간까지 눌림과 반등 확인이 필요합니다."
+        : "보유자는 일부 익절을 고려할 수 있지만, 미보유자는 주요 지지 구간까지 눌림을 기다리는 전략이 유리합니다.",
+      actionType: "OVEREXTENDED_WAIT",
+      reason: safeText(score?.explanation, fallback.reason),
+    };
+  }
+  if (regime === "breakout_retest_confirmed") {
+    return {
+      title: breakoutEntry >= 75 && breakoutRrValue !== null && breakoutRrValue >= 1.5 ? "돌파 후 재지지 확인 / 돌파 매수 후보" : "돌파 후 지지 전환 후보 / 확인 필요",
+      subtitle: breakoutEntry >= 75 && breakoutRrValue !== null && breakoutRrValue >= 1.5
+        ? "핵심 전환 가격 위에서 재지지가 유지되고 손익비가 충족되면 조건부 돌파 진입 후보로 볼 수 있습니다."
+        : "피벗 위에서 버티는 흐름은 확인되지만 이미지 기반 신뢰도와 손익비를 추가 확인해야 합니다.",
+      actionType: "BREAKOUT_RETEST",
+      reason: safeText(score?.entryScores?.breakoutEntry?.explanation, fallback.reason),
+    };
+  }
+  if (regime === "breakout_wait") {
+    return {
+      title: pullbackEntry >= 65 ? "돌파 확인 대기 / 눌림목 지지 확인 시 관심" : "돌파 확인 대기",
+      subtitle: pullbackEntry >= 65
+        ? "핵심 전환 가격 돌파 후 재지지는 아직 확인되지 않았지만, 주요 지지 구간에서 반등이 나오면 눌림목 진입 후보로 볼 수 있습니다."
+        : "핵심 전환 가격 돌파 후 재지지 확인 전까지는 신규 진입보다 대기가 유리합니다.",
+      actionType: "BREAKOUT_WAIT",
+      reason: safeText(score?.entryScores?.breakoutEntry?.explanation, fallback.reason),
+    };
+  }
+  if (regime === "range_upper_resistance") {
+    return {
+      title: partialProfitAllowed ? "저항 근접 / 보유자는 일부 익절, 미보유자는 추격매수 주의" : "돌파 확인 대기",
+      subtitle: partialProfitAllowed
+        ? "가격이 주요 저항 또는 목표 구간에 가까워 보유자는 일부 익절 또는 돌파 확인이 우선이고, 미보유자는 추격매수에 주의해야 합니다."
+        : "박스권 상단 또는 저항권에서는 추격매수보다 돌파 후 재지지 확인이 우선입니다.",
+      actionType: partialProfitAllowed ? "PARTIAL_TAKE_PROFIT" : "BREAKOUT_WAIT",
+      reason: safeText(report.finalSummary.reason ?? score?.explanation, fallback.reason),
+    };
+  }
+  if (regime === "range_lower_support") {
+    return {
+      title: pullbackEntry >= 60 || (report.tradePlan.riskRewardByEntry?.pullback?.value ?? 0) >= 1.2 ? "지지권 눌림목 매수 후보" : "지지 확인 대기",
+      subtitle: pullbackEntry >= 60 || (report.tradePlan.riskRewardByEntry?.pullback?.value ?? 0) >= 1.2
+        ? "주요 지지권에서 손절과 목표가가 비교적 분리되어 있어 반등 확인 시 눌림목 진입 후보로 볼 수 있습니다."
+        : "박스권 하단 또는 주요 지지 구간에 가까워 일부 익절보다 반등 확인이 우선입니다.",
+      actionType: "RANGE_SUPPORT",
+      reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
+    };
+  }
+  if (regime === "healthy_pullback") {
+    return {
+      title: "눌림목 매수 후보",
+      subtitle: "주요 지지 구간에서 반등이 확인되면 손절 기준을 짧게 둘 수 있어 눌림목 진입 조건이 가장 유리합니다.",
+      actionType: "PULLBACK_BUY",
+      reason: safeText(score?.entryScores?.pullbackEntry?.explanation, fallback.reason),
+    };
+  }
 
   if (currentEntry < 30 && pullbackEntry < 30 && breakoutEntry < 30 && holdScore < 40 && riskScore >= 70) {
     return {

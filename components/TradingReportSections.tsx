@@ -1,29 +1,8 @@
 ﻿"use client";
 
-import type { FinalAction, RiskRewardDetail, TradingReport } from "../types/analysis";
+import type { FinalAction, RiskRewardDetail, TradingActionState, TradingReport } from "../types/analysis";
 import ResultSection from "./ResultSection";
 import StatusBadge from "./StatusBadge";
-
-const actionTone: Record<FinalAction, string> = {
-  CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED: "border-emerald-300 bg-emerald-50 text-emerald-950",
-  BREAKOUT_WAIT: "border-blue-300 bg-blue-50 text-blue-950",
-  WAIT_FOR_SUPPORT_CONFIRMATION: "border-blue-300 bg-blue-50 text-blue-950",
-  NO_NEW_ENTRY_HOLD_OK: "border-blue-300 bg-blue-50 text-blue-950",
-  WAIT_FOR_BREAKOUT: "border-blue-300 bg-blue-50 text-blue-950",
-  WAIT_FOR_PULLBACK: "border-slate-300 bg-slate-50 text-slate-950",
-  CONDITIONAL_BUY: "border-emerald-300 bg-emerald-50 text-emerald-950",
-  PULLBACK_BUY_CANDIDATE: "border-emerald-400 bg-emerald-50 text-emerald-950",
-  BREAKOUT_BUY_CANDIDATE: "border-emerald-400 bg-emerald-50 text-emerald-950",
-  HOLD_AND_WATCH: "border-violet-300 bg-violet-50 text-violet-950",
-  PARTIAL_TAKE_PROFIT: "border-orange-300 bg-orange-50 text-orange-950",
-  REDUCE_POSITION: "border-amber-400 bg-amber-50 text-amber-950",
-  SELL_RISK: "border-red-500 bg-red-50 text-red-950",
-  NO_TRADE: "border-slate-300 bg-slate-100 text-slate-950",
-  BUY_CANDIDATE: "border-emerald-400 bg-emerald-50 text-emerald-950",
-  WAIT: "border-blue-300 bg-blue-50 text-blue-950",
-  HOLD: "border-violet-300 bg-violet-50 text-violet-950",
-  TAKE_PROFIT: "border-orange-300 bg-orange-50 text-orange-950",
-};
 
 const actionLabel: Record<FinalAction, string> = {
   CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED: "현재가 진입 불리 / 눌림목 대기 우선",
@@ -45,6 +24,84 @@ const actionLabel: Record<FinalAction, string> = {
   HOLD: "보유 관망",
   TAKE_PROFIT: "일부 익절 고려",
 };
+
+const actionStateLabel: Record<TradingActionState, string> = {
+  STRONG_BUY: "강한 매수 후보",
+  PULLBACK_ENTRY: "눌림목 진입 후보",
+  BREAKOUT_WAIT: "돌파 확인 대기",
+  HOLD_ONLY: "보유자 관망",
+  HIGH_RISK: "고위험 주의",
+  AVOID: "진입 회피",
+};
+
+const actionStateTone: Record<TradingActionState, string> = {
+  STRONG_BUY: "border-emerald-500 bg-emerald-50 text-emerald-950",
+  PULLBACK_ENTRY: "border-emerald-300 bg-emerald-50 text-emerald-950",
+  BREAKOUT_WAIT: "border-blue-300 bg-blue-50 text-blue-950",
+  HOLD_ONLY: "border-slate-300 bg-slate-50 text-slate-950",
+  HIGH_RISK: "border-amber-400 bg-amber-50 text-amber-950",
+  AVOID: "border-red-500 bg-red-50 text-red-950",
+};
+
+const actionStateBadgeTone: Record<TradingActionState, "success" | "warning" | "danger" | "neutral" | "info"> = {
+  STRONG_BUY: "success",
+  PULLBACK_ENTRY: "success",
+  BREAKOUT_WAIT: "info",
+  HOLD_ONLY: "neutral",
+  HIGH_RISK: "warning",
+  AVOID: "danger",
+};
+
+const actionStateGuidance: Record<TradingActionState, { answer: string; entry: string; holder: string; risk: string }> = {
+  STRONG_BUY: {
+    answer: "기술적 조건은 우호적이지만, 진입은 손절 기준을 정한 조건부 대응으로 봅니다.",
+    entry: "현재가 진입은 지지 유지와 거래량 확인을 전제로 소액 조건부 접근이 적절합니다.",
+    holder: "보유자는 핵심 지지선이 유지되는 동안 보유 관망을 우선할 수 있습니다.",
+    risk: "강한 매수 후보라도 지지선 이탈 시 관점 전환이 필요합니다.",
+  },
+  PULLBACK_ENTRY: {
+    answer: "현재가 추격보다 주요 지지 구간에서 눌림목 확인 후 대응하는 쪽이 더 자연스럽습니다.",
+    entry: "신규 진입은 지지 반응 확인 후 눌림목 중심으로 검토하는 것이 좋습니다.",
+    holder: "보유자는 주요 지지선 이탈 전까지 관망하되, 추가 매수는 지지 확인 후가 유리합니다.",
+    risk: "지지 확인 없이 진입하면 손익비가 흔들릴 수 있어 짧은 손절 기준이 필요합니다.",
+  },
+  BREAKOUT_WAIT: {
+    answer: "저항 돌파와 거래량 확인 전까지는 신규 진입보다 확인 대기가 우선입니다.",
+    entry: "현재가 진입은 신중하게 보고, 핵심 저항 돌파 후 재지지와 거래량 확인을 기다립니다.",
+    holder: "보유자는 주요 지지선 이탈 여부와 핵심 저항 돌파 여부를 함께 확인합니다.",
+    risk: "돌파 전 성급한 진입은 실패 돌파 리스크가 있어 손절 기준을 먼저 정해야 합니다.",
+  },
+  HOLD_ONLY: {
+    answer: "신규 진입 매력은 약하고, 보유자는 핵심 지지선 이탈 전까지 관망하는 흐름입니다.",
+    entry: "미보유자는 신규 진입보다 지지선과 저항 돌파 확인을 기다리는 편이 안전합니다.",
+    holder: "보유자는 주요 지지선이 깨지기 전까지 관망 가능하지만, 저항권에서는 일부 대응이 필요합니다.",
+    risk: "보유 관망도 지지선 이탈 시에는 비중 축소나 손절 기준 확인이 우선입니다.",
+  },
+  HIGH_RISK: {
+    answer: "위험 관리가 우선이며, 신규 진입보다 손절 기준과 자본 보호를 먼저 확인해야 합니다.",
+    entry: "미보유자는 무리한 신규 진입을 피하고 추세 안정 또는 지지 회복을 기다립니다.",
+    holder: "보유자는 지지선 이탈 여부를 우선 확인하고 반등 시 비중 조절도 고려할 수 있습니다.",
+    risk: "단기 손절과 중기 무효화 조건을 분리해 자본 보호 중심으로 대응해야 합니다.",
+  },
+  AVOID: {
+    answer: "진입 회피가 우선이며, 구조가 회복되기 전까지 매매를 서두르기 어렵습니다.",
+    entry: "미보유자는 신규 진입을 피하고 주요 지지 회복 또는 추세 전환을 먼저 확인합니다.",
+    holder: "보유자는 하방 위험을 우선 관리하고, 지지 회복 전에는 방어적 대응이 필요합니다.",
+    risk: "손절 기준을 넘긴 흐름이라면 추가 손실 방지가 가장 중요합니다.",
+  },
+};
+
+function resolveActionState(report: TradingReport): TradingActionState {
+  const state = report.finalSummary.actionState;
+  if (state && state in actionStateLabel) return state;
+  const action = report.finalSummary.finalAction;
+  if (action === "BREAKOUT_BUY_CANDIDATE" || action === "BUY_CANDIDATE" || action === "CONDITIONAL_BUY") return "STRONG_BUY";
+  if (action === "PULLBACK_BUY_CANDIDATE" || action === "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED" || action === "WAIT_FOR_PULLBACK") return "PULLBACK_ENTRY";
+  if (action === "BREAKOUT_WAIT" || action === "WAIT_FOR_BREAKOUT" || action === "WAIT_FOR_SUPPORT_CONFIRMATION" || action === "WAIT") return "BREAKOUT_WAIT";
+  if (action === "HOLD_AND_WATCH" || action === "NO_NEW_ENTRY_HOLD_OK" || action === "HOLD") return "HOLD_ONLY";
+  if (action === "SELL_RISK" || action === "REDUCE_POSITION" || action === "PARTIAL_TAKE_PROFIT" || action === "TAKE_PROFIT") return "HIGH_RISK";
+  return "AVOID";
+}
 function confidenceLabel(value?: string | null) {
   if (value === "high") return "높음";
   if (value === "medium") return "보통";
@@ -702,6 +759,10 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
   };
   const actionDetail = deriveFinalActionDetail(report);
   const entryScoreItems = getEntryScoreDisplayItems(report);
+  const actionState = resolveActionState(report);
+  const stateGuidance = actionStateGuidance[actionState];
+  const stateBadgeTone = actionStateBadgeTone[actionState];
+  const riskBadgeTone = score.riskScore >= 70 ? "danger" : score.riskScore >= 55 ? "warning" : "success";
   const pullbackTargets = report.priceRoles?.targets?.pullbackTargets ?? [
     tradePlan.targets.pullbackTargets?.firstTarget?.priceZone,
     tradePlan.targets.pullbackTargets?.secondTarget?.priceZone,
@@ -724,27 +785,23 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
     tradePlan.stopLossByEntry?.pullbackEntry?.priceZone ? `눌림목 ${tradePlan.stopLossByEntry.pullbackEntry.priceZone}` : "",
     tradePlan.stopLossByEntry?.breakoutEntry?.priceZone ? `돌파 ${tradePlan.stopLossByEntry.breakoutEntry.priceZone}` : "",
   ].filter(Boolean);
-  const tone = finalSummary.finalAction === "SELL_RISK" || finalSummary.finalAction === "REDUCE_POSITION"
-    ? "danger"
-    : finalSummary.finalAction.includes("BUY")
-        || finalSummary.finalAction === "CONDITIONAL_BUY"
-        || finalSummary.finalAction === "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED"
-      ? "success"
-      : finalSummary.finalAction === "PARTIAL_TAKE_PROFIT" || finalSummary.finalAction === "TAKE_PROFIT"
-        ? "warning"
-        : "info";
 
   return (
-    <section className={`rounded-lg border p-5 shadow-soft ${actionTone[finalSummary.finalAction]}`}>
+    <section className={`rounded-xl border p-5 shadow-soft ${actionStateTone[actionState]}`}>
       <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr]">
         <div>
           <p className="text-sm font-semibold opacity-80">최종 행동 판단</p>
           <h2 className="mt-3 text-3xl font-bold">{actionDetail.title}</h2>
           <p className="mt-4 text-base leading-7">{actionDetail.subtitle}</p>
           {actionDetail.reason ? <p className="mt-3 text-sm leading-6 opacity-80">{actionDetail.reason}</p> : null}
+          <div className="mt-4 rounded-lg border border-white/50 bg-white/80 p-4 text-slate-950">
+            <p className="text-xs font-bold text-slate-500">지금 할 일</p>
+            <p className="mt-1 text-base font-semibold leading-7">{stateGuidance.answer}</p>
+          </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <StatusBadge label={actionDetail.actionType} tone={tone} />
-            <StatusBadge label={`분석 점수 ${score.totalScore} / 100 · ${score.totalLabel}`} tone="neutral" />
+            <StatusBadge label={`상태 ${actionStateLabel[actionState]}`} tone={stateBadgeTone} />
+            <StatusBadge label={`종합 ${score.totalScore} / 100 · ${score.totalLabel}`} tone="neutral" />
+            <StatusBadge label={`위험도 ${score.riskScore} / 100 · ${score.riskLabel}`} tone={riskBadgeTone} />
             <StatusBadge label={`신뢰도 ${confidenceLabel(finalSummary.confidence)}`} tone="neutral" />
           </div>
           {score.explanation ? <p className="mt-3 text-sm leading-6 opacity-80">{score.explanation}</p> : null}
@@ -753,11 +810,13 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
         <div className="grid gap-3 text-sm">
           <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
             <p className="font-semibold">신규 진입</p>
-            <p className="mt-1 leading-6">{userActionGuide.nonHolder}</p>
+            <p className="mt-1 font-semibold leading-6">{stateGuidance.entry}</p>
+            <p className="mt-2 leading-6 text-slate-600">{userActionGuide.nonHolder}</p>
           </div>
           <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
             <p className="font-semibold">보유자 대응</p>
-            <p className="mt-1 leading-6">{userActionGuide.holder}</p>
+            <p className="mt-1 font-semibold leading-6">{stateGuidance.holder}</p>
+            <p className="mt-2 leading-6 text-slate-600">{userActionGuide.holder}</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
@@ -767,6 +826,7 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
               ) : (
                 <p className="mt-1">{tradePlan.stopLoss.priceZone}</p>
               )}
+              <p className="mt-2 text-xs leading-5 text-slate-600">{stateGuidance.risk}</p>
             </div>
             <div className="rounded-lg border border-white/40 bg-white/75 p-3 text-slate-900">
               <p className="font-semibold">목표 구간</p>

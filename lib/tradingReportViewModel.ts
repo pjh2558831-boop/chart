@@ -10,6 +10,7 @@
   PriceLocation,
   ScoreFactor,
   ScoreSummary,
+  TradingActionState,
   TradingReport,
 } from "../types/analysis";
 
@@ -943,6 +944,39 @@ const entryModeName: Record<EntryMode, string> = {
   breakoutEntry: "돌파 진입",
 };
 
+const tradingActionStateLabels: Record<TradingActionState, string> = {
+  STRONG_BUY: "강한 매수 후보",
+  PULLBACK_ENTRY: "눌림목 진입 후보",
+  BREAKOUT_WAIT: "돌파 확인 대기",
+  HOLD_ONLY: "보유자 관망",
+  HIGH_RISK: "고위험 주의",
+  AVOID: "진입 회피",
+};
+
+const tradingActionStateRanges: Record<TradingActionState, {
+  total: [number, number];
+  current: [number, number];
+  pullback: [number, number];
+  breakout: [number, number];
+  risk: [number, number];
+}> = {
+  STRONG_BUY: { total: [75, 90], current: [65, 85], pullback: [60, 80], breakout: [70, 90], risk: [20, 40] },
+  PULLBACK_ENTRY: { total: [55, 70], current: [35, 55], pullback: [65, 85], breakout: [45, 65], risk: [35, 55] },
+  BREAKOUT_WAIT: { total: [40, 60], current: [20, 45], pullback: [45, 70], breakout: [60, 80], risk: [45, 65] },
+  HOLD_ONLY: { total: [35, 55], current: [10, 35], pullback: [35, 55], breakout: [35, 60], risk: [45, 65] },
+  HIGH_RISK: { total: [20, 40], current: [0, 25], pullback: [10, 35], breakout: [10, 35], risk: [65, 85] },
+  AVOID: { total: [0, 25], current: [0, 15], pullback: [0, 20], breakout: [0, 20], risk: [80, 100] },
+};
+
+function knownTradingActionState(value: unknown): value is TradingActionState {
+  return typeof value === "string" && value in tradingActionStateLabels;
+}
+
+function clampToRange(value: unknown, range: [number, number]) {
+  const base = clamp(value, Math.round((range[0] + range[1]) / 2));
+  return Math.max(range[0], Math.min(range[1], base));
+}
+
 function entryScoreLabel(score: number) {
   if (score < 30) return "부적합";
   if (score < 50) return "불리";
@@ -1551,55 +1585,6 @@ function capHoldScoreForContext(
   if (context.riskScore >= 70) capped = Math.min(capped, 65);
   if (context.supportBroken) capped = Math.min(capped, 45);
   return clamp(capped, 60);
-}
-
-function warnDecisionInconsistencies(report: TradingReport) {
-  if (process.env.NODE_ENV === "production") return;
-  const regime = report.marketContext?.chartRegime ?? "unknown";
-  const location = report.marketContext?.priceLocation ?? "unknown";
-  const entries = report.scoreSummary?.entryScores ?? {};
-  const currentEntry = entries.currentEntry?.score ?? 0;
-  const pullbackEntry = entries.pullbackEntry?.score ?? 0;
-  const breakoutEntry = entries.breakoutEntry?.score ?? 0;
-  const finalAction = report.finalSummary?.finalAction;
-  const title = report.finalSummary?.title ?? "";
-  const breakoutConfirmed = Boolean(report.marketContext?.breakoutRetestConfirmed);
-  const nearResistance = Boolean(report.marketContext?.nearResistance);
-  const supportArea = location === "near_support" || location === "lower_range";
-
-  const warnings: string[] = [];
-  if (finalAction === "PULLBACK_BUY_CANDIDATE" && regime === "downtrend") {
-    warnings.push("downtrend 레짐에서 눌림목 매수 후보가 최종 판단으로 표시되었습니다.");
-  }
-  if (finalAction === "PULLBACK_BUY_CANDIDATE" && regime === "overextended_surge") {
-    warnings.push("overextended_surge 레짐에서 눌림목 매수 후보가 최종 판단으로 표시되었습니다.");
-  }
-  if (breakoutEntry >= 70 && !breakoutConfirmed) {
-    warnings.push("돌파 재지지 미확인 상태에서 돌파 진입 점수가 70 이상입니다.");
-  }
-  if (currentEntry >= 80 && nearResistance) {
-    warnings.push("저항 근처에서 현재가 진입 점수가 80 이상입니다.");
-  }
-  if ((finalAction === "PARTIAL_TAKE_PROFIT" || /일부 익절/.test(title)) && supportArea) {
-    warnings.push("지지권 또는 박스권 하단에서 일부 익절 문구가 표시되었습니다.");
-  }
-  if (regime === "downtrend" && (currentEntry > 45 || pullbackEntry > 55)) {
-    warnings.push("downtrend 레짐에서 현재가/눌림목 진입 점수 상한을 벗어났습니다.");
-  }
-  if (regime === "overextended_surge" && currentEntry > 40) {
-    warnings.push("overextended_surge 레짐에서 현재가 진입 점수 상한을 벗어났습니다.");
-  }
-
-  if (warnings.length > 0) {
-    console.warn("[trading-report decision validation]", {
-      regime,
-      priceLocation: location,
-      finalAction,
-      title,
-      entryScores: { currentEntry, pullbackEntry, breakoutEntry },
-      warnings,
-    });
-  }
 }
 
 function alignScoreWithAction(report: TradingReport) {
@@ -2252,6 +2237,133 @@ function validateReportConsistency(report: TradingReport) {
   report.scoreSummary = score;
 }
 
+function inferTradingActionState(report: TradingReport): TradingActionState {
+  if (knownTradingActionState(report.finalSummary.actionState)) return report.finalSummary.actionState;
+  const score = normalizeScoreSummary(report.scoreSummary);
+  const entries = score.entryScores ?? deriveEntryScores(report, score) ?? {};
+  const current = entries.currentEntry?.score ?? 0;
+  const pullback = entries.pullbackEntry?.score ?? 0;
+  const breakout = entries.breakoutEntry?.score ?? 0;
+  const regime = report.marketContext?.chartRegime ?? deriveChartRegime(report).regime;
+  const location = report.marketContext?.priceLocation ?? deriveMarketContext(report).priceLocation;
+  const action = report.finalSummary.finalAction;
+  const currentPrice = priceFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone);
+  const stopPrice = priceFromText(report.tradePlan.stopLossByEntry?.currentEntry?.priceZone ?? report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone);
+  const supportBroken = finite(currentPrice) && finite(stopPrice) && currentPrice < stopPrice * 0.995;
+
+  if (action === "NO_TRADE" || supportBroken || (score.riskScore >= 85 && current < 25 && pullback < 30)) return "AVOID";
+  if (action === "SELL_RISK" || action === "REDUCE_POSITION" || regime === "overextended_surge" || score.riskScore >= 75) return "HIGH_RISK";
+  if (regime === "breakout_retest_confirmed" && breakout >= 65 && score.riskScore < 60) return "STRONG_BUY";
+  if (regime === "breakout_wait" || regime === "range_upper_resistance" || action === "BREAKOUT_WAIT" || action === "WAIT_FOR_BREAKOUT") return "BREAKOUT_WAIT";
+  if (regime === "downtrend") {
+    return report.marketContext?.nearResistance || breakout >= Math.max(current, pullback) ? "BREAKOUT_WAIT" : "HOLD_ONLY";
+  }
+  if (action === "HOLD_AND_WATCH" || action === "NO_NEW_ENTRY_HOLD_OK" || action === "HOLD") return "HOLD_ONLY";
+  if (regime === "range_lower_support" || regime === "healthy_pullback" || action === "PULLBACK_BUY_CANDIDATE" || action === "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED" || location === "near_support" || location === "lower_range") return "PULLBACK_ENTRY";
+  if ((action === "CONDITIONAL_BUY" || action === "BUY_CANDIDATE" || action === "BREAKOUT_BUY_CANDIDATE") && score.totalScore >= 65 && score.riskScore < 55) return "STRONG_BUY";
+  if (score.holdScore >= 60 && current < 45) return "HOLD_ONLY";
+  if (pullback >= Math.max(current, breakout, 65)) return "PULLBACK_ENTRY";
+  return "BREAKOUT_WAIT";
+}
+
+function stateFinalAction(state: TradingActionState): FinalAction {
+  if (state === "STRONG_BUY") return "BREAKOUT_BUY_CANDIDATE";
+  if (state === "PULLBACK_ENTRY") return "PULLBACK_BUY_CANDIDATE";
+  if (state === "BREAKOUT_WAIT") return "BREAKOUT_WAIT";
+  if (state === "HOLD_ONLY") return "HOLD_AND_WATCH";
+  if (state === "HIGH_RISK") return "REDUCE_POSITION";
+  return "NO_TRADE";
+}
+
+function normalizeTradingReportDecision(report: TradingReport) {
+  const state = inferTradingActionState(report);
+  const ranges = tradingActionStateRanges[state];
+  const score = normalizeScoreSummary(report.scoreSummary);
+  const entryScores = {
+    currentEntry: normalizeEntryScore(score.entryScores?.currentEntry, "currentEntry"),
+    pullbackEntry: normalizeEntryScore(score.entryScores?.pullbackEntry, "pullbackEntry"),
+    breakoutEntry: normalizeEntryScore(score.entryScores?.breakoutEntry, "breakoutEntry"),
+  };
+  const label = tradingActionStateLabels[state];
+
+  score.totalScore = clampToRange(score.totalScore, ranges.total);
+  score.buyScore = clampToRange(score.buyScore, ranges.current);
+  score.riskScore = clampToRange(score.riskScore, ranges.risk);
+  score.holdScore = state === "HOLD_ONLY"
+    ? Math.max(clampToRange(score.holdScore, [60, 75]), score.buyScore + 10)
+    : state === "HIGH_RISK" || state === "AVOID"
+      ? Math.min(clamp(score.holdScore, 45), state === "AVOID" ? 35 : 55)
+      : clamp(score.holdScore, 60);
+
+  entryScores.currentEntry.score = clampToRange(entryScores.currentEntry.score, ranges.current);
+  entryScores.pullbackEntry.score = clampToRange(entryScores.pullbackEntry.score, ranges.pullback);
+  entryScores.breakoutEntry.score = clampToRange(entryScores.breakoutEntry.score, ranges.breakout);
+
+  refreshCurrentEntryScoreLabel(report, entryScores.currentEntry);
+  refreshEntryScoreLabel(entryScores.pullbackEntry, "pullbackEntry");
+  refreshEntryScoreLabel(entryScores.breakoutEntry, "breakoutEntry");
+  if (state === "PULLBACK_ENTRY") {
+    entryScores.currentEntry.explanation = "현재가 진입보다 주요 지지 구간의 반등 확인을 우선하는 상태입니다.";
+    entryScores.pullbackEntry.explanation = "지지 확인 후 손절 기준을 짧게 둘 수 있을 때 눌림목 진입 후보로 볼 수 있습니다.";
+  } else if (state === "BREAKOUT_WAIT") {
+    entryScores.currentEntry.explanation = "돌파 확인 전 현재가 진입은 손익비와 변동성 확인이 필요합니다.";
+    entryScores.breakoutEntry.explanation = "저항 돌파와 재지지 확인이 핵심 조건입니다.";
+  } else if (state === "HOLD_ONLY") {
+    entryScores.currentEntry.explanation = "신규 진입 조건은 약하고 보유자 중심 관망이 더 자연스럽습니다.";
+  } else if (state === "HIGH_RISK" || state === "AVOID") {
+    entryScores.currentEntry.explanation = "위험도가 높아 현재가 신규 진입은 피하거나 강하게 제한해야 합니다.";
+    entryScores.pullbackEntry.explanation = "지지 구조가 안정되기 전까지 눌림목 진입도 보수적으로 봅니다.";
+    entryScores.breakoutEntry.explanation = "추세 회복 또는 돌파 후 재지지가 확인되기 전까지 돌파 진입은 제한적입니다.";
+  }
+
+  score.entryScores = entryScores;
+  score.totalLabel = label;
+  score.label = label;
+  score.buyLabel = buyScoreLabel(score.buyScore);
+  score.holdLabel = holdScoreLabel(score.holdScore);
+  score.riskLabel = riskScoreLabel(score.riskScore);
+  score.explanation = `${label}: ${entryModePreferenceExplanationClean(report, score)}`;
+  report.scoreSummary = score;
+
+  report.finalSummary.actionState = state;
+  report.finalSummary.finalAction = stateFinalAction(state);
+  report.finalSummary.title = label;
+  report.finalSummary.oneLineConclusion = {
+    STRONG_BUY: "돌파 또는 지지 조건이 비교적 맞아 조건부 매수 후보로 볼 수 있지만, 손절 기준 확인은 필요합니다.",
+    PULLBACK_ENTRY: "현재가 추격보다 주요 지지 구간에서 반등 확인 후 눌림목 진입을 검토하는 상태입니다.",
+    BREAKOUT_WAIT: "저항 돌파와 재지지 확인 전까지는 신규 진입보다 확인 대기가 우선입니다.",
+    HOLD_ONLY: "신규 진입 조건은 약하지만 보유자는 주요 지지선 이탈 전까지 관망할 수 있습니다.",
+    HIGH_RISK: "위험도가 높아 신규 진입보다 손절 기준과 비중 관리가 우선입니다.",
+    AVOID: "지지 구조나 손익비가 약해 신규 진입은 피하는 것이 보수적입니다.",
+  }[state];
+
+  report.userActionGuide = {
+    ...report.userActionGuide,
+    nonHolder: state === "STRONG_BUY"
+      ? "조건이 확인된 경우에만 소액 조건부 진입 후보로 참고합니다."
+      : state === "PULLBACK_ENTRY"
+        ? "현재가보다 주요 지지 구간에서 반등 확인 후 눌림목 진입을 검토합니다."
+        : state === "BREAKOUT_WAIT"
+          ? "저항 돌파 후 재지지 확인 전까지 신규 진입은 보류하는 것이 유리합니다."
+          : state === "HOLD_ONLY"
+            ? "신규 진입은 약하므로 지지 확인 전까지 대기하는 것이 유리합니다."
+            : "신규 진입은 피하고 위험 관리 조건을 우선 확인합니다.",
+    holder: state === "HOLD_ONLY"
+      ? "주요 지지선 이탈 전까지 보유 관망은 가능하지만, 이탈 시 관점 재검토가 필요합니다."
+      : state === "HIGH_RISK" || state === "AVOID"
+        ? "주요 지지 이탈 여부를 우선 확인하고, 반등 시 비중 축소도 고려할 수 있습니다."
+        : report.userActionGuide.holder,
+  };
+  report.tradePlan.stopLoss.meaning = state === "HIGH_RISK" || state === "AVOID"
+    ? "위험 관리가 우선이므로 단기 손절과 중기 무효화 조건을 분리해 확인합니다."
+    : report.tradePlan.stopLoss.meaning;
+  report.tradePlan.targets.firstTarget.action = state === "BREAKOUT_WAIT"
+    ? "돌파 후 재지지 확인 시 목표 후보"
+    : state === "PULLBACK_ENTRY"
+      ? "눌림목 진입 기준 목표 후보"
+      : report.tradePlan.targets.firstTarget.action;
+}
+
 function sanitizeTradingReport(report: TradingReport) {
   report.finalSummary.finalAction = normalizeFinalAction(report.finalSummary.finalAction);
   const pivotZone = report.priceRoles?.pivot?.priceZone ?? report.tradePlan.transitionLevel?.priceZone;
@@ -2459,7 +2571,7 @@ function sanitizeTradingReport(report: TradingReport) {
 
   alignScoreWithAction(report);
   validateReportConsistency(report);
-  warnDecisionInconsistencies(report);
+  normalizeTradingReportDecision(report);
   enhanceScoreFactors(report);
   report.disclaimer = DISCLAIMER;
   return report;

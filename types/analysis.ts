@@ -475,6 +475,14 @@ export type FinalAction =
   | "HOLD"
   | "TAKE_PROFIT";
 
+export type TradingActionState =
+  | "STRONG_BUY"
+  | "PULLBACK_ENTRY"
+  | "BREAKOUT_WAIT"
+  | "HOLD_ONLY"
+  | "HIGH_RISK"
+  | "AVOID";
+
 export type PriceLocation =
   | "near_support"
   | "lower_range"
@@ -591,6 +599,7 @@ export interface TradingReport {
   marketContext?: MarketContext;
   finalSummary: {
     finalAction: FinalAction;
+    actionState?: TradingActionState;
     title: string;
     oneLineConclusion: string;
     confidence: Confidence | string;

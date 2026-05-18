@@ -81,7 +81,6 @@ export async function upsertProfileForUser(user: User) {
     {
       id: user.id,
       email: user.email,
-      plan: "free",
     },
     { onConflict: "id" },
   );

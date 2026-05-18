@@ -8,7 +8,7 @@ const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const ALLOWED_ANALYSIS_MODES = new Set(["fast", "standard", "precision"]);
 const DEFAULT_ANALYSIS_MODE = "standard";
 
-const ANALYZE_TIMEOUT_MS = 120_000;
+const ANALYZE_TIMEOUT_MS = 55_000;
 const GENERAL_TIMEOUT_MS = 20_000;
 
 export function jsonError(status: number, detail: unknown) {
@@ -19,8 +19,26 @@ function stripTrailingSlash(value: string) {
   return value.replace(/\/$/, "");
 }
 
+function isLocalUrl(value: string) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?($|\/)/i.test(value);
+}
+
 function getBackendUrl(request: NextRequest) {
-  const backendUrl = stripTrailingSlash(process.env.BACKEND_API_URL || DEFAULT_BACKEND_API_URL);
+  const configuredBackendUrl = process.env.BACKEND_API_URL?.trim();
+  const isProduction = process.env.NODE_ENV === "production";
+  if (!configuredBackendUrl && isProduction) {
+    return {
+      error: jsonError(500, "BACKEND_API_URL 환경변수가 설정되지 않았습니다."),
+    };
+  }
+
+  const backendUrl = stripTrailingSlash(configuredBackendUrl || DEFAULT_BACKEND_API_URL);
+  if (isProduction && isLocalUrl(backendUrl)) {
+    return {
+      error: jsonError(500, "운영 환경에서는 localhost 백엔드 주소를 사용할 수 없습니다."),
+    };
+  }
+
   const requestOrigin = stripTrailingSlash(request.nextUrl.origin);
   const productionOrigin = stripTrailingSlash(PRODUCTION_SITE_URL);
 

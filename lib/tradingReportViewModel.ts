@@ -659,8 +659,8 @@ function stopBelowEntry(entry: number | null | undefined, candidates: Array<numb
 
 function indicatorSignal(value?: string | null): "bullish" | "bearish" | "neutral" {
   const text = (value ?? "").toLowerCase();
-  if (text.includes("bull") || text.includes("up") || text.includes("above") || text.includes("?곸듅")) return "bullish";
-  if (text.includes("bear") || text.includes("down") || text.includes("below") || text.includes("?섎씫")) return "bearish";
+  if (text.includes("bull") || text.includes("up") || text.includes("above") || text.includes("상승")) return "bullish";
+  if (text.includes("bear") || text.includes("down") || text.includes("below") || text.includes("하락")) return "bearish";
   return "neutral";
 }
 

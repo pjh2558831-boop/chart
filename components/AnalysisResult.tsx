@@ -6,23 +6,8 @@ import { useAuth } from "../context/AuthContext";
 import { submitFeedback } from "../lib/api";
 import { normalizeTradingReport } from "../lib/tradingReportViewModel";
 import type { AnalysisResponse } from "../types/analysis";
+import AnalysisReportDashboard from "./AnalysisReportDashboard";
 import ResultSection from "./ResultSection";
-import {
-  AnalysisMetaCard,
-  EntryRecommendationRanking,
-  EvidenceSection,
-  FinalActionCard,
-  ImageLimitNotice,
-  IndicatorSummarySection,
-  KeyLevelsSection,
-  NextConfirmationChecklist,
-  OneLineActionSummary,
-  PatternAnalysisSection,
-  ScenarioSection,
-  ScoreFactorsSection,
-  TradePlanTable,
-  UserActionGuideTable,
-} from "./TradingReportSections";
 
 interface AnalysisResultProps {
   result: AnalysisResponse | null;
@@ -47,7 +32,9 @@ function FeedbackSection({ analysisId }: { analysisId?: number }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="font-semibold text-slate-950">이 분석이 맞았나요?</p>
-            <p className="mt-1 text-sm text-slate-600">피드백을 남기면 리포트 품질 개선에 도움이 됩니다.</p>
+            <p className="mt-1 text-sm text-slate-600">
+              피드백을 남기면 리포트 품질 개선에 활용됩니다.
+            </p>
           </div>
           <button
             type="button"
@@ -174,21 +161,8 @@ export default function AnalysisResult({ result }: AnalysisResultProps) {
   const report = normalizeTradingReport(result);
 
   return (
-    <div className="mx-auto max-w-[1100px] space-y-6">
-      <AnalysisMetaCard meta={report.analysisMeta} />
-      <OneLineActionSummary report={report} />
-      <FinalActionCard report={report} />
-      <EntryRecommendationRanking report={report} />
-      <UserActionGuideTable guide={report.userActionGuide} />
-      <TradePlanTable plan={report.tradePlan} priceRoles={report.priceRoles} />
-      <KeyLevelsSection levels={report.keyLevels} priceRoles={report.priceRoles} />
-      <ScenarioSection scenarios={report.scenarios} />
-      <NextConfirmationChecklist report={report} />
-      <ScoreFactorsSection scoreSummary={report.scoreSummary} />
-      <EvidenceSection evidence={report.evidence} />
-      <IndicatorSummarySection analysis={report.indicatorAnalysis} />
-      <PatternAnalysisSection analysis={report.patternAnalysis} />
-      <ImageLimitNotice disclaimer={report.disclaimer} />
+    <div className="space-y-6">
+      <AnalysisReportDashboard result={result} report={report} />
       <FeedbackSection analysisId={result.analysisId} />
     </div>
   );

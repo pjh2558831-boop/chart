@@ -91,6 +91,18 @@ const actionStateGuidance: Record<TradingActionState, { answer: string; entry: s
   },
 };
 
+const chartRegimeLabel: Record<string, string> = {
+  downtrend: "하락 추세",
+  overextended_surge: "급등 과열",
+  breakout_retest_confirmed: "돌파 후 재지지",
+  breakout_wait: "돌파 확인 대기",
+  range_lower_support: "박스권 하단",
+  range_upper_resistance: "박스권 상단",
+  healthy_pullback: "건전한 눌림",
+  sideways: "방향 확인",
+  unknown: "상태 확인 필요",
+};
+
 function resolveActionState(report: TradingReport): TradingActionState {
   const state = report.finalSummary.actionState;
   if (state && state in actionStateLabel) return state;
@@ -296,6 +308,14 @@ function deriveDisplayMarketContext(report: TradingReport) {
 }
 
 function deriveFinalActionDetail(report: TradingReport): { title: string; subtitle: string; actionType: string; reason: string } {
+  if (report.normalizedFinalAction) {
+    return {
+      title: safeText(report.normalizedFinalAction.title, "조건 확인 필요"),
+      subtitle: safeText(report.normalizedFinalAction.subtitle, "현재 차트는 주요 지지와 저항 확인이 필요한 구간입니다."),
+      actionType: safeText(report.normalizedFinalAction.actionType, "조건 확인"),
+      reason: safeText(report.normalizedFinalAction.reason, "기술적 조건을 추가로 확인해야 합니다."),
+    };
+  }
   const score = report.scoreSummary;
   const currentEntry = safeScore(score?.entryScores?.currentEntry?.score) ?? riskRewardScore(report.tradePlan.riskRewardByEntry?.current) ?? 50;
   const pullbackEntry = safeScore(score?.entryScores?.pullbackEntry?.score) ?? riskRewardScore(report.tradePlan.riskRewardByEntry?.pullback) ?? 50;
@@ -763,6 +783,8 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
   const stateGuidance = actionStateGuidance[actionState];
   const stateBadgeTone = actionStateBadgeTone[actionState];
   const riskBadgeTone = score.riskScore >= 70 ? "danger" : score.riskScore >= 55 ? "warning" : "success";
+  const regimeType = report.chartRegime?.type ?? report.marketContext?.chartRegime ?? "unknown";
+  const regimeLabel = chartRegimeLabel[regimeType] ?? chartRegimeLabel.unknown;
   const pullbackTargets = report.priceRoles?.targets?.pullbackTargets ?? [
     tradePlan.targets.pullbackTargets?.firstTarget?.priceZone,
     tradePlan.targets.pullbackTargets?.secondTarget?.priceZone,
@@ -800,6 +822,7 @@ export function FinalActionCard({ report }: { report: TradingReport }) {
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <StatusBadge label={`상태 ${actionStateLabel[actionState]}`} tone={stateBadgeTone} />
+            <StatusBadge label={`차트 상태 ${regimeLabel}`} tone="neutral" />
             <StatusBadge label={`종합 ${score.totalScore} / 100 · ${score.totalLabel}`} tone="neutral" />
             <StatusBadge label={`위험도 ${score.riskScore} / 100 · ${score.riskLabel}`} tone={riskBadgeTone} />
             <StatusBadge label={`신뢰도 ${confidenceLabel(finalSummary.confidence)}`} tone="neutral" />

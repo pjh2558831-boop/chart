@@ -516,6 +516,19 @@ export interface MarketContext {
   chartRegimeReasons?: string[];
 }
 
+export interface NormalizedChartRegime {
+  type: ChartRegime;
+  confidence: "low" | "medium" | "high";
+  reasons: string[];
+}
+
+export interface NormalizedFinalAction {
+  title: string;
+  subtitle: string;
+  actionType: string;
+  reason: string;
+}
+
 export interface ScoreFactor {
   label: string;
   scoreImpact: number;
@@ -597,6 +610,9 @@ export interface EntryStopLoss {
 export interface TradingReport {
   analysisMeta?: AnalysisMeta;
   marketContext?: MarketContext;
+  chartRegime?: NormalizedChartRegime;
+  normalizedFinalAction?: NormalizedFinalAction;
+  validationWarnings?: string[];
   finalSummary: {
     finalAction: FinalAction;
     actionState?: TradingActionState;

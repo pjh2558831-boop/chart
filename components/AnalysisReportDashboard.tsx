@@ -15,6 +15,18 @@ type DashboardProps = {
   report: TradingReport;
 };
 
+type CurrentPriceDisplay = {
+  price: string;
+  interpretation: string;
+  hasNumericPrice: boolean;
+};
+
+type SignalInfo = {
+  label: "BUY" | "HOLD" | "CAUTION";
+  helper: string;
+  tone: Tone;
+};
+
 const RISK_NOTICE =
   "본 리포트는 AI 기반 기술적 분석 결과이며, 투자 참고 자료로만 활용하시기 바랍니다. 모든 투자 결정의 책임은 투자자 본인에게 있으며, 본 리포트는 투자 자문이 아닙니다.";
 
@@ -45,6 +57,12 @@ function safeNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function isPlainNumericText(value: unknown) {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  return /^-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(text);
+}
+
 function safeScore(value: unknown) {
   const number = safeNumber(value);
   if (number === null) return null;
@@ -69,11 +87,12 @@ function formatPrice(value: unknown) {
   });
 }
 
-function formatPercent(value: unknown) {
+function formatNumericPrice(value: unknown) {
   const number = safeNumber(value);
   if (number === null) return "-";
-  const sign = number > 0 ? "+" : "";
-  return `${sign}${number.toFixed(2)}%`;
+  return number.toLocaleString("ko-KR", {
+    maximumFractionDigits: Math.abs(number) >= 100 ? 0 : 2,
+  });
 }
 
 function confidenceLabel(value?: Confidence | string | null) {
@@ -96,16 +115,27 @@ function getActionState(report: TradingReport): TradingActionState {
   return "AVOID";
 }
 
-function getSignalLabel(actionState: TradingActionState) {
-  if (actionState === "STRONG_BUY" || actionState === "PULLBACK_ENTRY") return "BUY";
-  if (actionState === "HIGH_RISK" || actionState === "AVOID") return "SELL";
-  return "HOLD";
-}
-
-function getSignalTone(signal: string): Tone {
-  if (signal === "BUY") return "positive";
-  if (signal === "SELL") return "negative";
-  return "info";
+function getSignalInfo(actionState: TradingActionState, report: TradingReport): SignalInfo {
+  const finalAction = report.finalSummary.finalAction;
+  if (actionState === "STRONG_BUY" && finalAction === "BREAKOUT_BUY_CANDIDATE") {
+    return { label: "BUY", helper: "매수 우세", tone: "positive" };
+  }
+  if (actionState === "STRONG_BUY") {
+    return { label: "BUY", helper: "조건부 우세", tone: "positive" };
+  }
+  if (actionState === "PULLBACK_ENTRY") {
+    return { label: "HOLD", helper: "지지 확인 필요", tone: "info" };
+  }
+  if (actionState === "BREAKOUT_WAIT") {
+    return { label: "HOLD", helper: "돌파 확인 대기", tone: "info" };
+  }
+  if (actionState === "HOLD_ONLY") {
+    return { label: "HOLD", helper: "관망 우세", tone: "neutral" };
+  }
+  if (actionState === "HIGH_RISK") {
+    return { label: "CAUTION", helper: "주의 필요", tone: "warning" };
+  }
+  return { label: "CAUTION", helper: "진입 회피", tone: "negative" };
 }
 
 function getScoreTone(score: number | null, mode: "normal" | "risk" = "normal"): Tone {
@@ -143,7 +173,7 @@ function signalBoxClasses(tone: Tone) {
 }
 
 function cardClass(extra = "") {
-  return `rounded-xl border border-slate-200 bg-white p-5 shadow-sm ${extra}`;
+  return `rounded-xl border border-slate-200 bg-white p-6 leading-relaxed shadow-sm [word-break:keep-all] ${extra}`;
 }
 
 function SectionTitle({ title, description }: { title: string; description?: string }) {
@@ -205,14 +235,33 @@ function getMarket(result: AnalysisResponse) {
   );
 }
 
-function getCurrentPrice(result: AnalysisResponse, report: TradingReport) {
-  return safeText(
-    report.analysisMeta?.currentPriceZone,
-    safeText(
-      report.priceRoles?.current?.priceZone,
-      formatPrice(result.aiAnalysis.priceAxisObservations?.currentPriceEstimate?.value),
-    ),
-  );
+function getCurrentPriceDisplay(result: AnalysisResponse, report: TradingReport): CurrentPriceDisplay {
+  const numericEstimate = safeNumber(result.aiAnalysis.priceAxisObservations?.currentPriceEstimate?.value);
+  if (numericEstimate !== null) {
+    const zoneText = safeText(report.analysisMeta?.currentPriceZone, safeText(report.priceRoles?.current?.priceZone, ""));
+    return {
+      price: formatNumericPrice(numericEstimate),
+      interpretation: zoneText && !isPlainNumericText(zoneText) ? zoneText : "이미지 기준 추정",
+      hasNumericPrice: true,
+    };
+  }
+
+  const candidates = [report.priceRoles?.current?.priceZone, report.analysisMeta?.currentPriceZone];
+  const plainNumericText = candidates.find((item) => isPlainNumericText(item));
+  if (plainNumericText) {
+    return {
+      price: formatNumericPrice(plainNumericText),
+      interpretation: "이미지 기준 추정",
+      hasNumericPrice: true,
+    };
+  }
+
+  const interpretation = candidates.map((item) => safeText(item, "")).find(Boolean);
+  return {
+    price: "-",
+    interpretation: interpretation || "가격 해석 데이터 없음",
+    hasNumericPrice: false,
+  };
 }
 
 function getCurrency(result: AnalysisResponse, report: TradingReport) {
@@ -270,18 +319,20 @@ function ReportHeader() {
 }
 
 function MiniLevelChart({ result, report }: DashboardProps) {
-  const currentText = getCurrentPrice(result, report);
+  const currentDisplay = getCurrentPriceDisplay(result, report);
+  const currentText = currentDisplay.price;
   const supportText = report.analysisMeta?.mainSupports?.[0] ?? report.keyLevels.supports[0]?.priceZone;
   const resistanceText = report.analysisMeta?.mainResistances?.[0] ?? report.keyLevels.resistances[0]?.priceZone;
-  const current = parsePrice(currentText);
+  const current = parsePrice(currentDisplay.hasNumericPrice ? currentText : currentDisplay.interpretation);
   const support = parsePrice(supportText);
   const resistance = parsePrice(resistanceText);
   const canPosition = current !== null && support !== null && resistance !== null && resistance > support;
   const position = canPosition
     ? Math.max(0, Math.min(100, ((current - support) / (resistance - support)) * 100))
     : null;
+  const hasAnyLevel = Boolean(safeText(supportText, "") || safeText(resistanceText, "") || currentDisplay.hasNumericPrice || currentDisplay.interpretation !== "가격 해석 데이터 없음");
 
-  if (!supportText && !resistanceText && !currentText) {
+  if (!hasAnyLevel) {
     return (
       <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
         가격 흐름 데이터 없음
@@ -303,18 +354,21 @@ function MiniLevelChart({ result, report }: DashboardProps) {
           style={{ left: `calc(${position ?? 50}% - 8px)` }}
         />
       </div>
-      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+      <div className="mt-4 grid grid-cols-3 gap-2 text-xs leading-5">
         <div>
           <p className="font-semibold text-slate-500">주요 지지</p>
-          <p className="mt-1 font-bold text-slate-900">{safeText(supportText, "-")}</p>
+          <p className="mt-1 font-bold text-slate-900 [word-break:keep-all]">{safeText(supportText, "-")}</p>
         </div>
         <div className="text-center">
           <p className="font-semibold text-slate-500">현재 가격</p>
-          <p className="mt-1 font-bold text-slate-900">{currentText}</p>
+          <p className="mt-1 font-bold text-slate-900">{currentDisplay.hasNumericPrice ? currentText : "-"}</p>
+          {!currentDisplay.hasNumericPrice ? (
+            <p className="mt-1 text-[11px] font-semibold text-slate-500 [word-break:keep-all]">{currentDisplay.interpretation}</p>
+          ) : null}
         </div>
         <div className="text-right">
           <p className="font-semibold text-slate-500">주요 저항</p>
-          <p className="mt-1 font-bold text-slate-900">{safeText(resistanceText, "-")}</p>
+          <p className="mt-1 font-bold text-slate-900 [word-break:keep-all]">{safeText(resistanceText, "-")}</p>
         </div>
       </div>
     </div>
@@ -323,52 +377,59 @@ function MiniLevelChart({ result, report }: DashboardProps) {
 
 function SummaryHero({ result, report }: DashboardProps) {
   const actionState = getActionState(report);
-  const signal = getSignalLabel(actionState);
-  const signalTone = getSignalTone(signal);
+  const signal = getSignalInfo(actionState, report);
   const totalScore = safeScore(report.scoreSummary?.totalScore);
   const market = getMarket(result);
-  const confidence = totalScore === null ? "-" : `${totalScore} / 100`;
+  const confidence = totalScore === null ? "분석 불가" : `${totalScore} / 100`;
   const trend = safeText(result.aiAnalysis.visualTrend, getRegimeLabel(report));
+  const currentDisplay = getCurrentPriceDisplay(result, report);
+  const currency = currentDisplay.hasNumericPrice ? getCurrency(result, report) : "";
 
   return (
     <section className={cardClass("overflow-hidden")}>
-      <div className="grid gap-6 xl:grid-cols-[1.35fr_1fr_180px] xl:items-stretch">
-        <div>
+      <div className="grid gap-6 2xl:grid-cols-[minmax(320px,1.15fr)_minmax(520px,1.65fr)_minmax(190px,220px)] 2xl:items-stretch">
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-3xl font-bold tracking-tight text-slate-950">{getStockName(result, report)}</h2>
-            <span className="text-base font-semibold text-slate-600">{getTicker(result)}</span>
+            <h2 className="text-3xl font-bold tracking-tight text-slate-950 [word-break:keep-all]">{getStockName(result, report)}</h2>
+            <span className="whitespace-nowrap text-base font-semibold text-slate-600">{getTicker(result)}</span>
             {market !== "-" ? <SmallBadge tone="info">{market}</SmallBadge> : null}
           </div>
-          <div className="mt-6 flex flex-wrap items-end gap-x-4 gap-y-2">
-            <p className="text-5xl font-bold tracking-tight text-slate-950">{getCurrentPrice(result, report)}</p>
-            <p className="pb-2 text-base font-semibold text-slate-600">{getCurrency(result, report)}</p>
-            <p className="pb-2 text-sm font-semibold text-slate-400">
-              {formatPrice(null)} / {formatPercent(null)}
-            </p>
+          <div className="mt-6 space-y-3">
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+              <p className="whitespace-nowrap text-5xl font-bold tracking-tight text-slate-950">{currentDisplay.price}</p>
+              {currency ? <p className="pb-2 text-base font-semibold text-slate-600">{currency}</p> : null}
+              <p className="pb-2 text-sm font-semibold text-slate-400">등락 데이터 없음</p>
+            </div>
+            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-600">
+              <span className="font-bold text-slate-900">가격 해석</span>
+              <span className="mx-2 text-slate-300">|</span>
+              <span className="[word-break:keep-all]">{currentDisplay.interpretation}</span>
+            </div>
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-3">
-          <div className="border-slate-200 sm:border-l sm:pl-6">
+        <div className="grid min-w-0 gap-4 sm:grid-cols-3">
+          <div className="min-w-[9rem] rounded-lg border border-slate-100 bg-white/70 p-4">
             <p className="text-sm font-semibold text-slate-500">AI 신뢰도</p>
-            <p className="mt-3 text-3xl font-bold text-blue-700">{confidence}</p>
+            <p className="mt-3 whitespace-nowrap text-3xl font-bold text-blue-700">{confidence}</p>
             <p className="mt-2 text-sm font-semibold text-emerald-700">{confidenceLabel(report.finalSummary.confidence)}</p>
           </div>
-          <div className="border-slate-200 sm:border-l sm:pl-6">
+          <div className="min-w-[9rem] rounded-lg border border-slate-100 bg-white/70 p-4">
             <p className="text-sm font-semibold text-slate-500">트렌드 방향</p>
-            <p className="mt-3 text-2xl font-bold text-slate-950">{trend}</p>
-            <p className="mt-2 text-sm text-slate-500">{getRegimeLabel(report)}</p>
+            <p className="mt-3 text-xl font-bold leading-7 text-slate-950 [word-break:keep-all]">{trend}</p>
+            <p className="mt-2 text-sm leading-5 text-slate-500 [word-break:keep-all]">{getRegimeLabel(report)}</p>
           </div>
-          <div className="border-slate-200 sm:border-l sm:pl-6">
+          <div className="min-w-[9rem] rounded-lg border border-slate-100 bg-white/70 p-4">
             <p className="text-sm font-semibold text-slate-500">분석 기준 시각</p>
-            <p className="mt-3 text-base font-bold text-slate-950">{safeText(report.analysisMeta?.analyzedAt, "분석 시각 미확인")}</p>
+            <p className="mt-3 text-base font-bold leading-6 text-slate-950 [word-break:keep-all]">{safeText(report.analysisMeta?.analyzedAt, "분석 시각 미확인")}</p>
             <p className="mt-2 text-sm text-slate-500">이미지 기반 분석</p>
           </div>
         </div>
 
-        <div className={`flex min-h-32 flex-col items-center justify-center rounded-lg border px-6 py-5 text-center ${signalBoxClasses(signalTone)}`}>
-          <p className="text-4xl font-extrabold tracking-tight">{signal}</p>
-          <p className="mt-2 text-sm font-bold">{getFinalTitle(report)}</p>
+        <div className={`flex min-h-32 flex-col items-center justify-center rounded-lg border px-6 py-5 text-center ${signalBoxClasses(signal.tone)}`}>
+          <p className="whitespace-nowrap text-4xl font-extrabold tracking-tight">{signal.label}</p>
+          <p className="mt-2 whitespace-nowrap text-sm font-extrabold">{signal.helper}</p>
+          <p className="mt-2 text-xs font-semibold leading-5 opacity-80 [word-break:keep-all]">{getFinalTitle(report)}</p>
         </div>
       </div>
 
@@ -398,8 +459,8 @@ function MarketSummaryCard({ report }: { report: TradingReport }) {
           <div key={label} className="flex gap-3">
             <Marker tone={tone as Tone} />
             <div>
-              <p className="text-sm font-bold text-slate-950">{label}</p>
-              <p className="mt-1 text-sm leading-6 text-slate-600">{safeText(value, "분석 데이터 없음")}</p>
+              <p className="whitespace-nowrap text-sm font-bold text-slate-950">{label}</p>
+              <p className="mt-1 text-sm leading-7 text-slate-600 [word-break:keep-all]">{safeText(value, "분석 데이터 없음")}</p>
             </div>
           </div>
         ))}
@@ -431,8 +492,10 @@ function ScoreCircle({ score }: { score: number | null }) {
         />
       </svg>
       <div className="absolute text-center">
-        <p className="text-4xl font-bold text-slate-950">{score === null ? "-" : score}</p>
-        <p className="text-sm font-semibold text-slate-500">/ 100</p>
+        <p className={score === null ? "text-base font-bold text-slate-500" : "text-4xl font-bold text-slate-950"}>
+          {score === null ? "분석 불가" : score}
+        </p>
+        <p className="text-sm font-semibold text-slate-500">{score === null ? "점수 없음" : "/ 100"}</p>
       </div>
     </div>
   );
@@ -450,12 +513,12 @@ function MetricBar({ label, score, mode = "normal" }: { label: string; score: nu
   }[tone];
 
   return (
-    <div className="grid grid-cols-[92px_1fr_44px] items-center gap-3 text-sm">
-      <span className="font-semibold text-slate-700">{label}</span>
+    <div className="grid grid-cols-[92px_1fr_74px] items-center gap-3 text-sm">
+      <span className="whitespace-nowrap font-semibold text-slate-700">{label}</span>
       <div className="h-2 rounded-full bg-slate-100">
         <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
       </div>
-      <span className="text-right font-bold text-slate-900">{score === null ? "-" : score}</span>
+      <span className="whitespace-nowrap text-right text-xs font-bold text-slate-900">{score === null ? "분석 불가" : score}</span>
     </div>
   );
 }
@@ -486,8 +549,10 @@ function SignalScoreCard({ report }: { report: TradingReport }) {
 }
 
 function PriceLevelsCard({ result, report }: DashboardProps) {
+  const currentDisplay = getCurrentPriceDisplay(result, report);
   const rows = [
-    ["현재 가격", getCurrentPrice(result, report)],
+    ["현재 가격", currentDisplay.price],
+    ["가격 해석", currentDisplay.interpretation],
     ["주요 지지선", report.analysisMeta?.mainSupports?.[0] ?? firstLevelText(report.keyLevels.supports[0])],
     ["보조 지지선", report.analysisMeta?.mainSupports?.[1] ?? firstLevelText(report.keyLevels.supports[1])],
     ["주요 저항선", report.analysisMeta?.mainResistances?.[0] ?? firstLevelText(report.keyLevels.resistances[0])],
@@ -504,8 +569,8 @@ function PriceLevelsCard({ result, report }: DashboardProps) {
           <tbody className="divide-y divide-slate-100">
             {rows.map(([label, value]) => (
               <tr key={label}>
-                <th className="w-36 bg-slate-50 px-4 py-3 font-semibold text-slate-600">{label}</th>
-                <td className="px-4 py-3 font-semibold text-slate-950">{safeText(value, "-")}</td>
+                <th className="w-36 whitespace-nowrap bg-slate-50 px-4 py-3 font-semibold text-slate-600">{label}</th>
+                <td className="px-4 py-3 font-semibold leading-6 text-slate-950 [word-break:keep-all]">{safeText(value, "-")}</td>
               </tr>
             ))}
           </tbody>
@@ -592,9 +657,9 @@ function IndicatorSummaryCard({ result, report }: DashboardProps) {
               const signal = indicatorSignal(row.interpretation);
               return (
                 <tr key={row.name}>
-                  <td className="px-4 py-3 font-bold text-slate-950">{row.name}</td>
-                  <td className="px-4 py-3 text-slate-700">{formatPrice(row.value)}</td>
-                  <td className="px-4 py-3 leading-6 text-slate-600">{safeText(row.interpretation, "분석 불가")}</td>
+                  <td className="whitespace-nowrap px-4 py-3 font-bold text-slate-950">{row.name}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.value == null ? "분석 불가" : formatPrice(row.value)}</td>
+                  <td className="px-4 py-3 leading-7 text-slate-600 [word-break:keep-all]">{safeText(row.interpretation, "분석 불가")}</td>
                   <td className="px-4 py-3"><SmallBadge tone={signal.tone}>{signal.label}</SmallBadge></td>
                 </tr>
               );
@@ -620,7 +685,7 @@ function ScenarioAnalysisCard({ report }: { report: TradingReport }) {
         {scenarios.map(([title, scenario, tone]) => (
           <article key={title as string} className={`rounded-lg border p-4 ${toneClasses(tone as Tone)}`}>
             <h3 className="text-sm font-bold">{title as string}</h3>
-            <dl className="mt-3 space-y-2 text-xs leading-5">
+            <dl className="mt-3 space-y-2 text-xs leading-6 [word-break:keep-all]">
               <div>
                 <dt className="font-bold opacity-70">조건</dt>
                 <dd>{safeText((scenario as TradingReport["scenarios"]["bullish"]).condition, "분석 데이터 없음")}</dd>
@@ -655,7 +720,7 @@ function PatternDetectionCard({ result, report }: DashboardProps) {
   const confidence = confidenceScore(primary.confidence);
   const continuation = candidate?.confidenceScore != null && Number.isFinite(candidate.confidenceScore)
     ? `${Math.round(candidate.confidenceScore)}%`
-    : "-";
+    : "분석 불가";
 
   return (
     <section className={cardClass()}>
@@ -667,7 +732,7 @@ function PatternDetectionCard({ result, report }: DashboardProps) {
         </div>
         <div>
           <p className="text-sm font-semibold text-slate-500">감지된 구조</p>
-          <p className="mt-2 text-lg font-bold text-slate-950">{patternName}</p>
+          <p className="mt-2 text-lg font-bold leading-7 text-slate-950 [word-break:keep-all]">{patternName}</p>
         </div>
         <div>
           <p className="text-sm font-semibold text-slate-500">추세 연속 확률</p>
@@ -675,7 +740,7 @@ function PatternDetectionCard({ result, report }: DashboardProps) {
         </div>
         <div className="md:col-span-1">
           <p className="text-sm font-semibold text-slate-500">핵심 해석</p>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{safeText(primary.tradingMeaning || primary.reason, "현재는 패턴보다 주요 가격대 확인이 우선입니다.")}</p>
+          <p className="mt-2 text-sm leading-7 text-slate-600 [word-break:keep-all]">{safeText(primary.tradingMeaning || primary.reason, "현재는 패턴보다 주요 가격대 확인이 우선입니다.")}</p>
         </div>
       </div>
     </section>
@@ -692,8 +757,8 @@ function InsightNoteCard({ report }: { report: TradingReport }) {
   return (
     <section className={cardClass()}>
       <SectionTitle title="기관 인사이트 노트" />
-      <div className="space-y-2 text-sm leading-6 text-slate-600">
-        {(lines.length ? lines : ["주요 가격대와 지표 확인을 통해 조건부 대응이 필요합니다."]).map((line) => (
+      <div className="max-h-36 space-y-2 overflow-hidden text-sm leading-7 text-slate-600 [word-break:keep-all]">
+        {(lines.length ? lines : ["주요 가격대와 지표 확인을 통해 조건부 대응이 필요합니다."]).slice(0, 4).map((line) => (
           <p key={line}>{line}</p>
         ))}
       </div>
@@ -705,7 +770,7 @@ function RiskNoticeCard() {
   return (
     <section className={cardClass()}>
       <SectionTitle title="리스크 고지" />
-      <p className="text-sm leading-6 text-slate-600">{RISK_NOTICE}</p>
+      <p className="text-sm leading-7 text-slate-600 [word-break:keep-all]">{RISK_NOTICE}</p>
     </section>
   );
 }
@@ -725,24 +790,24 @@ function ReportFooter({ result, report }: DashboardProps) {
 
 export default function AnalysisReportDashboard({ result, report }: DashboardProps) {
   return (
-    <div className="mx-auto max-w-[1440px] space-y-4 rounded-2xl bg-slate-50/80 p-3 text-slate-950 sm:p-5">
+    <div className="mx-auto max-w-[1440px] space-y-5 rounded-2xl bg-slate-50/80 p-3 text-slate-950 sm:p-5">
       <ReportHeader />
       <SummaryHero result={result} report={report} />
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="space-y-4">
+      <div className="grid gap-5 xl:grid-cols-2">
+        <div className="space-y-5">
           <MarketSummaryCard report={report} />
           <PriceLevelsCard result={result} report={report} />
           <ScenarioAnalysisCard report={report} />
         </div>
-        <div className="space-y-4">
+        <div className="space-y-5">
           <SignalScoreCard report={report} />
           <IndicatorSummaryCard result={result} report={report} />
           <PatternDetectionCard result={result} report={report} />
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid gap-5 xl:grid-cols-2">
         <InsightNoteCard report={report} />
         <RiskNoticeCard />
       </div>

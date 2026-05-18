@@ -27,6 +27,54 @@ type SignalInfo = {
   tone: Tone;
 };
 
+type DashboardContext = {
+  stockName: string;
+  ticker: string;
+  chartTimeframe: string;
+  currentPriceText: string;
+  currentPrice: number | null;
+  pivotText: string;
+  pivotPrice: number | null;
+  supportText: string;
+  supportPrice: number | null;
+  resistanceText: string;
+  resistancePrice: number | null;
+  targetText: string;
+  targetPrice: number | null;
+  priceUnit: string;
+  priceUnitConfidence: "low" | "medium" | "high";
+  chartRegime: string;
+  breakoutRetestConfirmed: boolean;
+  currentRiskReward: number | null;
+  pullbackRiskReward: number | null;
+  breakoutRiskReward: number | null;
+  currentPosition: string;
+  targetRoom: {
+    label: string;
+    explanation: string;
+  };
+  preferredStrategy: string;
+};
+
+type DashboardFinalAction = {
+  title: string;
+  subtitle: string;
+  actionType: string;
+  reason: string;
+};
+
+type EntryModeJudgment = {
+  key: "current" | "pullback" | "breakout";
+  title: string;
+  judgment: string;
+  reason: string;
+  condition: string;
+  stop: string;
+  target: string;
+  riskReward: string;
+  tone: Tone;
+};
+
 const RISK_NOTICE =
   "본 리포트는 AI 기반 기술적 분석 결과이며, 투자 참고 자료로만 활용하시기 바랍니다. 모든 투자 결정의 책임은 투자자 본인에게 있으며, 본 리포트는 투자 자문이 아닙니다.";
 
@@ -268,6 +316,12 @@ function getCurrency(result: AnalysisResponse, report: TradingReport) {
   return safeText(result.aiAnalysis.symbolDetection?.currency, safeText(report.analysisMeta?.priceUnit, "-"));
 }
 
+function percentGap(from: number | null, to: number | null) {
+  if (from === null || to === null || from === 0) return null;
+  const value = Math.abs(to - from) / Math.abs(from) * 100;
+  return Number.isFinite(value) ? value : null;
+}
+
 function firstLevelText(level?: { priceZone: string; meaning?: string } | null) {
   if (!level) return "-";
   return safeText(level.priceZone);
@@ -287,6 +341,290 @@ function getStopText(report: TradingReport) {
     report.tradePlan.stopLossByEntry?.currentEntry?.priceZone,
     safeText(report.tradePlan.stopLoss.shortTerm?.priceZone, safeText(report.tradePlan.stopLoss.priceZone, "-")),
   );
+}
+
+function riskRewardText(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "확인 필요";
+  if (value <= 0) return "진입 부적합";
+  if (value < 1) return "불리";
+  if (value < 1.5) return "보통";
+  return `약 ${value.toFixed(1)} / 조건부 가능`;
+}
+
+function deriveCurrentPosition(context: Omit<DashboardContext, "currentPosition" | "targetRoom" | "preferredStrategy">) {
+  const { currentPrice, pivotPrice, supportPrice, resistancePrice, targetPrice, breakoutRetestConfirmed } = context;
+  if (currentPrice === null) return "가격 위치 확인 필요";
+  if (breakoutRetestConfirmed || (pivotPrice !== null && currentPrice >= pivotPrice * 1.005)) return "돌파 확인 구간";
+
+  const targetGap = targetPrice !== null ? percentGap(currentPrice, targetPrice) : null;
+  if (targetPrice !== null && targetPrice >= currentPrice * 0.995 && targetGap !== null && targetGap <= 1.5) {
+    return "목표가 근접";
+  }
+
+  const resistanceGap = resistancePrice !== null ? percentGap(currentPrice, resistancePrice) : null;
+  if (resistancePrice !== null && resistancePrice >= currentPrice * 0.995 && resistanceGap !== null && resistanceGap <= 1.5) {
+    return "저항 바로 아래";
+  }
+
+  const supportGap = supportPrice !== null ? percentGap(currentPrice, supportPrice) : null;
+  if (supportPrice !== null && currentPrice >= supportPrice && supportGap !== null && supportGap <= 3) {
+    return "지지권 근처";
+  }
+
+  if (supportPrice !== null && resistancePrice !== null && resistancePrice > supportPrice) {
+    const rangePosition = (currentPrice - supportPrice) / (resistancePrice - supportPrice);
+    if (Number.isFinite(rangePosition)) {
+      if (rangePosition <= 0.35) return "박스권 하단";
+      if (rangePosition < 0.7) return "박스권 중단";
+      return "박스권 상단";
+    }
+  }
+
+  return "가격 위치 확인 필요";
+}
+
+function deriveTargetRoom(context: Omit<DashboardContext, "targetRoom" | "preferredStrategy">) {
+  const current = context.currentPrice;
+  const upper = context.targetPrice ?? context.resistancePrice;
+  const support = context.supportPrice;
+  const currentRr = context.currentRiskReward;
+  if (current === null || upper === null || upper <= current) {
+    return {
+      label: "확인 필요",
+      explanation: "목표가와 현재가의 거리 계산이 제한되어 목표 여유 확인이 필요합니다.",
+    };
+  }
+
+  const targetGapPercent = percentGap(current, upper);
+  const supportGap = support !== null ? current - support : null;
+  const rawRiskReward = supportGap !== null && supportGap > 0 ? (upper - current) / supportGap : null;
+  const rr = typeof currentRr === "number" && Number.isFinite(currentRr) ? currentRr : rawRiskReward;
+
+  if ((targetGapPercent !== null && targetGapPercent <= 1.5) || (rr !== null && rr < 1)) {
+    return {
+      label: "목표 여유 낮음",
+      explanation: `현재가와 ${context.targetText !== "-" ? context.targetText : context.resistanceText} 구간의 거리가 매우 가까워 현재가 진입 손익비가 낮습니다.`,
+    };
+  }
+  if (rr !== null && rr >= 1.5) {
+    return {
+      label: "목표 여유 있음",
+      explanation: `주요 지지에서 반등 확인 시 ${context.targetText !== "-" ? context.targetText : context.resistanceText} 구간까지 상승 여지를 볼 수 있습니다.`,
+    };
+  }
+  return {
+    label: "목표 여유 보통",
+    explanation: "현재가 기준 목표 여유는 일부 있으나, 손절 기준과 지지 반응 확인이 필요합니다.",
+  };
+}
+
+function derivePreferredStrategy(context: Pick<DashboardContext, "chartRegime" | "currentPosition" | "targetRoom" | "pullbackRiskReward" | "breakoutRetestConfirmed">) {
+  if (context.chartRegime === "downtrend") return "추세 전환 확인 전 신규 진입 보류";
+  if (context.chartRegime === "breakout_retest_confirmed" || context.breakoutRetestConfirmed) return "돌파 후 재지지 유지 여부 확인";
+  if (context.currentPosition === "목표가 근접" || context.currentPosition === "저항 바로 아래" || context.targetRoom.label === "목표 여유 낮음") {
+    return "추격매수보다 돌파 후 재지지 확인";
+  }
+  if (context.currentPosition === "지지권 근처" || context.currentPosition === "박스권 하단" || (context.pullbackRiskReward ?? 0) >= 1.2) {
+    return "눌림목 지지 확인 후 관심";
+  }
+  return "주요 지지/저항 확인 필요";
+}
+
+function deriveDashboardContext(result: AnalysisResponse, report: TradingReport): DashboardContext {
+  const currentDisplay = getCurrentPriceDisplay(result, report);
+  const currentPriceText = currentDisplay.hasNumericPrice ? currentDisplay.price : safeText(currentDisplay.interpretation, "이미지 기준 추정 불가");
+  const pivotText = safeText(report.analysisMeta?.keyPivotPrice, safeText(report.priceRoles?.pivot?.priceZone, "미확인"));
+  const supportFallback = firstLevelText(report.keyLevels.supports[0]);
+  const resistanceFallback = firstLevelText(report.keyLevels.resistances[0]);
+  const supportText = safeText(report.analysisMeta?.mainSupports?.[0], supportFallback !== "-" ? supportFallback : "미확인");
+  const resistanceText = safeText(report.analysisMeta?.mainResistances?.[0], resistanceFallback !== "-" ? resistanceFallback : "미확인");
+  const targetFallback = getTargetText(report);
+  const targetText = targetFallback !== "-" ? safeText(targetFallback, "미확인") : "미확인";
+  const rawPriceUnit = safeText(report.analysisMeta?.priceUnit, "");
+  const priceUnitConfidence = report.analysisMeta?.priceUnitConfidence ?? "low";
+  const partialContext = {
+    stockName: getStockName(result, report),
+    ticker: getTicker(result),
+    chartTimeframe: safeText(report.analysisMeta?.chartTimeframe, "추정 불가"),
+    currentPriceText,
+    currentPrice: parsePrice(currentPriceText),
+    pivotText,
+    pivotPrice: parsePrice(pivotText),
+    supportText,
+    supportPrice: parsePrice(supportText),
+    resistanceText,
+    resistancePrice: parsePrice(resistanceText),
+    targetText,
+    targetPrice: parsePrice(targetText),
+    priceUnit: rawPriceUnit && rawPriceUnit !== "-" ? rawPriceUnit : "가격 단위 확인 필요",
+    priceUnitConfidence,
+    chartRegime: report.chartRegime?.type ?? report.marketContext?.chartRegime ?? "unknown",
+    breakoutRetestConfirmed: Boolean(report.marketContext?.breakoutRetestConfirmed),
+    currentRiskReward: report.tradePlan.riskRewardByEntry?.current?.value ?? null,
+    pullbackRiskReward: report.tradePlan.riskRewardByEntry?.pullback?.value ?? null,
+    breakoutRiskReward: report.tradePlan.riskRewardByEntry?.breakout?.value ?? null,
+  };
+  const currentPosition = deriveCurrentPosition(partialContext);
+  const targetRoom = deriveTargetRoom({ ...partialContext, currentPosition });
+  return {
+    ...partialContext,
+    currentPosition,
+    targetRoom,
+    preferredStrategy: derivePreferredStrategy({ ...partialContext, currentPosition, targetRoom }),
+  };
+}
+
+function deriveDashboardFinalAction(report: TradingReport, context: DashboardContext): DashboardFinalAction {
+  const normalized = report.normalizedFinalAction;
+  if (context.chartRegime === "downtrend") {
+    return {
+      title: "하락 추세 / 신규 진입 보류",
+      subtitle: "기술적 반등 가능성은 있으나 추세 전환 확인 전까지 신규 진입은 신중해야 합니다.",
+      actionType: "DOWNTREND_CAUTION",
+      reason: "하락 추세에서는 지지권 반등만으로 매수 후보를 강하게 보기 어렵습니다.",
+    };
+  }
+  if (context.chartRegime === "breakout_retest_confirmed" || context.breakoutRetestConfirmed) {
+    return {
+      title: "돌파 후 재지지 확인 / 돌파 매수 후보",
+      subtitle: "핵심 전환 가격 위에서 지지가 유지되면 다음 저항까지 상승 여지를 볼 수 있습니다.",
+      actionType: "BREAKOUT_RETEST",
+      reason: "돌파 가격 위에서 재지지 여부가 핵심 조건입니다.",
+    };
+  }
+  if ((context.currentPosition === "목표가 근접" || context.targetRoom.label === "목표 여유 낮음") && context.currentPosition !== "지지권 근처") {
+    return {
+      title: "목표가 근접 / 추격매수 주의",
+      subtitle: "현재가는 주요 저항 또는 목표 구간에 가까워 신규 진입보다 돌파 후 재지지 확인이 필요합니다.",
+      actionType: "TARGET_CLOSE_CHASE_RISK",
+      reason: context.targetRoom.explanation,
+    };
+  }
+  if (context.currentPosition === "저항 바로 아래" || context.currentPosition === "박스권 상단" || context.chartRegime === "range_upper_resistance") {
+    return {
+      title: "저항 근접 / 보유자는 일부 익절, 미보유자는 대기",
+      subtitle: "보유자는 일부 익절 또는 돌파 안착 여부를 확인하고, 미보유자는 추격매수를 피하는 것이 유리합니다.",
+      actionType: "RESISTANCE_HOLDER_ONLY",
+      reason: "저항권에서는 신규 진입보다 보유자 대응과 돌파 확인이 우선입니다.",
+    };
+  }
+  if (context.currentPosition === "지지권 근처" || context.currentPosition === "박스권 하단" || context.chartRegime === "range_lower_support" || context.chartRegime === "healthy_pullback") {
+    return {
+      title: "눌림목 대기 / 지지 확인 시 관심",
+      subtitle: "주요 지지 구간에서 반등이 확인되면 손절 기준을 짧게 두고 진입 후보로 볼 수 있습니다.",
+      actionType: "PULLBACK_WAIT",
+      reason: "지지 확인 전에는 즉시 진입보다 반등 확인이 필요합니다.",
+    };
+  }
+  if (context.pivotPrice !== null && !context.breakoutRetestConfirmed) {
+    return {
+      title: "돌파 확인 대기",
+      subtitle: "핵심 전환 가격 돌파 후 위에서 버티는지 확인 전까지는 신규 진입보다 대기가 유리합니다.",
+      actionType: "BREAKOUT_WAIT",
+      reason: "돌파 후 재지지가 아직 확인되지 않았습니다.",
+    };
+  }
+  return {
+    title: safeText(normalized?.title, getFinalTitle(report)),
+    subtitle: safeText(normalized?.subtitle, getFinalSubtitle(report)),
+    actionType: safeText(normalized?.actionType, "REPORT_FALLBACK"),
+    reason: safeText(normalized?.reason, "주요 지지와 저항 확인이 필요합니다."),
+  };
+}
+
+function entryTone(judgment: string): Tone {
+  if (/후보|관심|가능/.test(judgment)) return "positive";
+  if (/부적합|불리/.test(judgment)) return "negative";
+  if (/확인|대기/.test(judgment)) return "warning";
+  return "neutral";
+}
+
+function getEntryModeJudgments(report: TradingReport, context: DashboardContext): EntryModeJudgment[] {
+  const entries = report.scoreSummary?.entryScores ?? {};
+  const currentScore = entries.currentEntry?.score ?? 0;
+  const pullbackScore = entries.pullbackEntry?.score ?? 0;
+  const breakoutScore = entries.breakoutEntry?.score ?? 0;
+  const currentStop = report.tradePlan.stopLossByEntry?.currentEntry;
+  const pullbackStop = report.tradePlan.stopLossByEntry?.pullbackEntry;
+  const breakoutStop = report.tradePlan.stopLossByEntry?.breakoutEntry;
+  const pullbackEntry = report.tradePlan.entry.pullbackEntry;
+  const breakoutEntry = report.tradePlan.entry.breakoutEntry;
+  const currentUnfavorable = context.currentPosition === "목표가 근접" || context.currentPosition === "저항 바로 아래" || context.targetRoom.label === "목표 여유 낮음" || (context.currentRiskReward !== null && context.currentRiskReward < 1);
+  const currentJudgment = currentUnfavorable ? (currentScore < 30 ? "부적합" : "불리") : currentScore >= 65 ? "조건부 가능" : currentScore >= 50 ? "확인 필요" : "불리";
+  const pullbackJudgment = context.supportText !== "미확인" ? (pullbackScore >= 65 ? "지지 확인 시 관심" : "확인 필요") : "확인 필요";
+  const breakoutJudgment = context.breakoutRetestConfirmed && breakoutScore >= 65 ? "돌파 매수 후보" : context.pivotText !== "미확인" ? "돌파 확인 필요" : "확인 필요";
+
+  const rows: EntryModeJudgment[] = [
+    {
+      key: "current",
+      title: "현재가 진입",
+      judgment: currentJudgment,
+      reason: currentUnfavorable
+        ? `현재가가 ${context.resistanceText !== "미확인" ? context.resistanceText : context.targetText} 저항 또는 목표 구간에 가까워 목표 여유가 작습니다.`
+        : safeText(entries.currentEntry?.explanation, "현재가 진입은 지지와 손절 기준 확인이 필요합니다."),
+      condition: currentUnfavorable ? "돌파 후 재지지 확인 전까지 신규 진입은 신중" : "짧은 손절 기준 확인 시 제한적으로 검토",
+      stop: safeText(currentStop?.condition, safeText(currentStop?.priceZone, "확인 필요")),
+      target: context.targetText !== "미확인" ? context.targetText : context.resistanceText,
+      riskReward: riskRewardText(context.currentRiskReward),
+      tone: entryTone(currentJudgment),
+    },
+    {
+      key: "pullback",
+      title: "눌림목 진입",
+      judgment: pullbackJudgment,
+      reason: context.supportText !== "미확인"
+        ? `${context.supportText} 부근 지지 반응이 확인되면 현재가 추격보다 조건이 개선될 수 있습니다.`
+        : "명확한 지지 가격 확인이 필요합니다.",
+      condition: pullbackEntry?.condition ?? `${context.supportText} 부근 지지 확인 시 관심`,
+      stop: safeText(pullbackStop?.condition, safeText(pullbackStop?.priceZone, "확인 필요")),
+      target: context.targetText !== "미확인" ? context.targetText : context.resistanceText,
+      riskReward: riskRewardText(context.pullbackRiskReward),
+      tone: entryTone(pullbackJudgment),
+    },
+    {
+      key: "breakout",
+      title: "돌파 진입",
+      judgment: breakoutJudgment,
+      reason: context.breakoutRetestConfirmed
+        ? "핵심 전환 가격 위에서 재지지가 유지되는지 확인하는 것이 핵심입니다."
+        : `${context.pivotText} 돌파 후 위에서 버티는 재지지 확인이 필요합니다.`,
+      condition: breakoutEntry?.condition ?? `${context.pivotText} 돌파 후 위에서 재지지`,
+      stop: safeText(breakoutStop?.condition, context.pivotText !== "미확인" ? `${context.pivotText} 재이탈` : "확인 필요"),
+      target: report.tradePlan.targets.breakoutTargets?.firstTarget?.priceZone ?? context.targetText,
+      riskReward: context.breakoutRetestConfirmed ? riskRewardText(context.breakoutRiskReward) : "돌파 확인 필요",
+      tone: entryTone(breakoutJudgment),
+    },
+  ];
+
+  return rows.map((row) => ({
+    ...row,
+    target: safeText(row.target, "확인 필요"),
+    condition: safeText(row.condition, "확인 필요"),
+    stop: safeText(row.stop, "확인 필요"),
+    riskReward: safeText(row.riskReward, "확인 필요"),
+  }));
+}
+
+function getConfidenceReasons(report: TradingReport, context: DashboardContext) {
+  const reasons: string[] = [];
+  if (context.currentPosition === "목표가 근접" || context.currentPosition === "저항 바로 아래") {
+    reasons.push("현재가가 주요 저항 또는 목표 구간에 가까워 신규 진입 판단 신뢰도가 제한됩니다.");
+  }
+  if (context.priceUnitConfidence === "low" || context.priceUnit.includes("확인 필요") || context.priceUnit.includes("이미지")) {
+    reasons.push("가격 단위가 이미지 기준 추정이라 실제 시세와 차이가 있을 수 있습니다.");
+  }
+  if (context.currentRiskReward === null || context.currentRiskReward < 1) {
+    reasons.push("현재가 기준 손익비가 낮거나 계산이 제한되어 지지/저항 재확인이 필요합니다.");
+  }
+  if (report.indicatorAnalysis.unavailable.length > 0) {
+    reasons.push("보조지표 일부가 이미지에서 명확히 확인되지 않습니다.");
+  }
+  for (const reason of [...(report.chartRegime?.reasons ?? []), ...(report.evidence.riskFactors ?? [])]) {
+    const safe = safeText(reason, "");
+    if (safe && !reasons.includes(safe)) reasons.push(safe);
+    if (reasons.length >= 4) break;
+  }
+  return reasons.slice(0, 4).length ? reasons.slice(0, 4) : ["이미지 기반 분석이므로 실제 가격 데이터와 체결 조건 확인이 필요합니다."];
 }
 
 function ReportHeader() {
@@ -315,6 +653,134 @@ function ReportHeader() {
         </button>
       </div>
     </header>
+  );
+}
+
+function AnalysisBasisSummary({ context }: { context: DashboardContext }) {
+  const rows = [
+    ["종목/티커", `${context.stockName}${context.ticker !== "-" ? ` / ${context.ticker}` : ""}`],
+    ["분석 기준 차트", context.chartTimeframe],
+    ["현재가 또는 추정 현재가", context.currentPriceText || "이미지 기준 추정 불가"],
+    ["핵심 전환 가격", context.pivotText],
+    ["최근 지지", context.supportText],
+    ["최근 저항", context.resistanceText],
+    ["현재가 위치", context.currentPosition],
+    ["가격 단위", context.priceUnit],
+    ["우선 전략", context.preferredStrategy],
+  ];
+
+  return (
+    <section className={cardClass()}>
+      <SectionTitle title="분석 기준 요약" description="실제 대응에 필요한 가격대와 위치 정보를 우선 표시합니다." />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+            <p className="whitespace-nowrap text-xs font-bold text-slate-500">{label}</p>
+            <p className="mt-1 text-sm font-bold leading-6 text-slate-950 [word-break:keep-all]">{safeText(value, "미확인")}</p>
+          </div>
+        ))}
+      </div>
+      {context.priceUnitConfidence === "low" || context.priceUnit.includes("확인 필요") ? (
+        <p className="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800 [word-break:keep-all]">
+          가격 단위는 이미지 축 기준 추정값일 수 있어 실제 시세 단위와 차이가 있을 수 있습니다.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function FinalActionSummaryCard({ report, context, action }: { report: TradingReport; context: DashboardContext; action: DashboardFinalAction }) {
+  return (
+    <section className={cardClass("border-blue-100 bg-blue-50/40")}>
+      <p className="text-xs font-bold uppercase tracking-wide text-blue-700">최종 행동 요약</p>
+      <p className="mt-2 text-lg font-extrabold leading-8 text-slate-950 [word-break:keep-all]">{action.title}</p>
+      <p className="mt-2 text-sm leading-7 text-slate-700 [word-break:keep-all]">{safeText(action.subtitle, getFinalSubtitle(report))}</p>
+      <div className="mt-4 rounded-lg border border-white/70 bg-white px-4 py-3">
+        <p className="text-xs font-bold text-slate-500">목표 여유</p>
+        <p className="mt-1 text-sm font-bold text-slate-950">{context.targetRoom.label}</p>
+        <p className="mt-1 text-sm leading-6 text-slate-600 [word-break:keep-all]">{context.targetRoom.explanation}</p>
+      </div>
+    </section>
+  );
+}
+
+function FinalActionJudgmentCard({ report, context, action }: { report: TradingReport; context: DashboardContext; action: DashboardFinalAction }) {
+  const actionState = getActionState(report);
+  const signal = getSignalInfo(actionState, report);
+  const totalScore = safeScore(report.scoreSummary?.totalScore);
+  const riskScore = safeScore(report.scoreSummary?.riskScore);
+
+  return (
+    <section className={cardClass("border-slate-300")}>
+      <div className="grid gap-5 lg:grid-cols-[1fr_260px]">
+        <div>
+          <p className="text-sm font-bold text-slate-500">최종 행동 판단</p>
+          <h2 className="mt-2 text-2xl font-extrabold leading-9 text-slate-950 [word-break:keep-all]">{action.title}</h2>
+          <p className="mt-3 text-sm leading-7 text-slate-600 [word-break:keep-all]">{action.subtitle}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <SmallBadge tone={signal.tone}>{signal.helper}</SmallBadge>
+            <SmallBadge tone="info">차트 상태 {chartRegimeLabel[context.chartRegime] ?? chartRegimeLabel.unknown}</SmallBadge>
+            <SmallBadge tone={getScoreTone(riskScore, "risk")}>리스크 {riskScore === null ? "분석 불가" : `${riskScore} / 100`}</SmallBadge>
+            <SmallBadge tone={context.priceUnitConfidence === "low" ? "warning" : "neutral"}>신뢰도 {confidenceLabel(report.finalSummary.confidence)}</SmallBadge>
+          </div>
+        </div>
+        <div className={`flex min-h-36 flex-col items-center justify-center rounded-lg border px-6 py-5 text-center ${signalBoxClasses(signal.tone)}`}>
+          <p className="whitespace-nowrap text-4xl font-extrabold tracking-tight">{signal.label}</p>
+          <p className="mt-2 whitespace-nowrap text-sm font-extrabold">{signal.helper}</p>
+          <p className="mt-3 text-sm font-bold text-slate-600">{totalScore === null ? "점수 분석 불가" : `종합 ${totalScore} / 100`}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EntryModesCard({ report, context }: { report: TradingReport; context: DashboardContext }) {
+  const items = getEntryModeJudgments(report, context);
+  return (
+    <section className={cardClass()}>
+      <SectionTitle title="진입 방식별 판단" description="현재가, 눌림목, 돌파 진입을 조건과 손절 기준별로 분리합니다." />
+      <div className="grid gap-4 xl:grid-cols-3">
+        {items.map((item) => (
+          <article key={item.key} className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="text-base font-extrabold text-slate-950">{item.title}</h3>
+              <SmallBadge tone={item.tone}>{item.judgment}</SmallBadge>
+            </div>
+            <p className="mt-3 text-sm leading-7 text-slate-600 [word-break:keep-all]">{item.reason}</p>
+            <dl className="mt-4 space-y-2 text-sm">
+              {[
+                ["조건", item.condition],
+                ["손절", item.stop],
+                ["목표", item.target],
+                ["손익비", item.riskReward],
+              ].map(([label, value]) => (
+                <div key={label} className="grid grid-cols-[64px_1fr] gap-3">
+                  <dt className="whitespace-nowrap font-bold text-slate-500">{label}</dt>
+                  <dd className="font-semibold leading-6 text-slate-900 [word-break:keep-all]">{safeText(value, "확인 필요")}</dd>
+                </div>
+              ))}
+            </dl>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ConfidenceReasonCard({ report, context }: { report: TradingReport; context: DashboardContext }) {
+  const reasons = getConfidenceReasons(report, context);
+  return (
+    <section className={cardClass()}>
+      <SectionTitle title="신뢰도 판단 이유" />
+      <ul className="grid gap-2 text-sm leading-7 text-slate-700 md:grid-cols-2">
+        {reasons.map((reason) => (
+          <li key={reason} className="flex gap-2 [word-break:keep-all]">
+            <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
+            <span>{reason}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -420,8 +886,8 @@ function SummaryHero({ result, report }: DashboardProps) {
             <p className="mt-2 text-sm leading-5 text-slate-500 [word-break:keep-all]">{getRegimeLabel(report)}</p>
           </div>
           <div className="min-w-[9rem] rounded-lg border border-slate-100 bg-white/70 p-4">
-            <p className="text-sm font-semibold text-slate-500">분석 기준 시각</p>
-            <p className="mt-3 text-base font-bold leading-6 text-slate-950 [word-break:keep-all]">{safeText(report.analysisMeta?.analyzedAt, "분석 시각 미확인")}</p>
+            <p className="text-sm font-semibold text-slate-500">분석 정보</p>
+            <p className="mt-3 text-base font-bold leading-6 text-slate-950 [word-break:keep-all]">{safeText(report.analysisMeta?.analyzedAt, "시간 정보 미확인")}</p>
             <p className="mt-2 text-sm text-slate-500">이미지 기반 분석</p>
           </div>
         </div>
@@ -607,7 +1073,7 @@ function indicatorValue(readings: IndicatorReadings | undefined, result: Analysi
   return null;
 }
 
-function IndicatorSummaryCard({ result, report }: DashboardProps) {
+function IndicatorSummaryCard({ result, report, context }: DashboardProps & { context: DashboardContext }) {
   const readings = result.aiAnalysis.indicatorReadings;
   const confirmed = report.indicatorAnalysis.confirmed;
   const confirmedByName = (name: string) => confirmed.find((item) => item.name.includes(name));
@@ -638,6 +1104,8 @@ function IndicatorSummaryCard({ result, report }: DashboardProps) {
       interpretation: readings?.bollingerBands?.status ?? readings?.bollingerBands?.reason ?? result.technicalAnalysis?.bollingerBands?.interpretation,
     },
   ];
+  const scaleLimited = context.priceUnitConfidence === "low" || context.priceUnit.includes("확인 필요");
+  const unavailable = report.indicatorAnalysis.unavailable ?? [];
 
   return (
     <section className={cardClass()}>
@@ -655,10 +1123,11 @@ function IndicatorSummaryCard({ result, report }: DashboardProps) {
           <tbody className="divide-y divide-slate-100">
             {rows.map((row) => {
               const signal = indicatorSignal(row.interpretation);
+              const valueLimited = scaleLimited && (row.name === "MACD" || row.name === "이동평균선");
               return (
                 <tr key={row.name}>
                   <td className="whitespace-nowrap px-4 py-3 font-bold text-slate-950">{row.name}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.value == null ? "분석 불가" : formatPrice(row.value)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-500">{valueLimited ? "수치 확인 제한" : row.value == null ? "분석 불가" : formatPrice(row.value)}</td>
                   <td className="px-4 py-3 leading-7 text-slate-600 [word-break:keep-all]">{safeText(row.interpretation, "분석 불가")}</td>
                   <td className="px-4 py-3"><SmallBadge tone={signal.tone}>{signal.label}</SmallBadge></td>
                 </tr>
@@ -667,6 +1136,18 @@ function IndicatorSummaryCard({ result, report }: DashboardProps) {
           </tbody>
         </table>
       </div>
+      {unavailable.length ? (
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-sm font-bold text-slate-700">확인 제한 지표</p>
+          <ul className="mt-2 grid gap-1 text-sm leading-6 text-slate-600 md:grid-cols-2">
+            {unavailable.slice(0, 4).map((item) => (
+              <li key={`${item.name}-${item.reason}`} className="[word-break:keep-all]">
+                <span className="font-semibold text-slate-900">{safeText(item.name, "지표")}</span>: {safeText(item.reason, "이미지에서 명확히 확인되지 않음")}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -789,28 +1270,29 @@ function ReportFooter({ result, report }: DashboardProps) {
 }
 
 export default function AnalysisReportDashboard({ result, report }: DashboardProps) {
+  const context = deriveDashboardContext(result, report);
+  const action = deriveDashboardFinalAction(report, context);
+
   return (
     <div className="mx-auto max-w-[1440px] space-y-5 rounded-2xl bg-slate-50/80 p-3 text-slate-950 sm:p-5">
       <ReportHeader />
-      <SummaryHero result={result} report={report} />
+      <AnalysisBasisSummary context={context} />
+      <FinalActionSummaryCard report={report} context={context} action={action} />
+      <FinalActionJudgmentCard report={report} context={context} action={action} />
+      <EntryModesCard report={report} context={context} />
 
       <div className="grid gap-5 xl:grid-cols-2">
         <div className="space-y-5">
-          <MarketSummaryCard report={report} />
           <PriceLevelsCard result={result} report={report} />
           <ScenarioAnalysisCard report={report} />
         </div>
         <div className="space-y-5">
-          <SignalScoreCard report={report} />
-          <IndicatorSummaryCard result={result} report={report} />
-          <PatternDetectionCard result={result} report={report} />
+          <IndicatorSummaryCard result={result} report={report} context={context} />
+          <ConfidenceReasonCard report={report} context={context} />
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        <InsightNoteCard report={report} />
-        <RiskNoticeCard />
-      </div>
+      <RiskNoticeCard />
 
       <ReportFooter result={result} report={report} />
     </div>

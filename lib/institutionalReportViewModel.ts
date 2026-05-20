@@ -523,10 +523,11 @@ function entryTone(label: string): EntryTone {
 
 function entryScoreLabel(score: number | null) {
   if (score === null) return FALLBACK.needsCheck;
-  if (score <= 29) return "부적합";
-  if (score <= 49) return "불리";
-  if (score <= 64) return "확인 필요";
-  if (score <= 79) return "후보";
+  if (score <= 19) return "부적합";
+  if (score <= 39) return "불리";
+  if (score <= 54) return "확인 필요";
+  if (score <= 69) return "조건부";
+  if (score <= 84) return "후보";
   return "유리";
 }
 

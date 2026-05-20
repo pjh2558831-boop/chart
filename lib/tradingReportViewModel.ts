@@ -8,6 +8,7 @@
   MarketContext,
   PriceRoles,
   PriceLocation,
+  RiskRewardDetail,
   ScoreFactor,
   ScoreSummary,
   TradingActionState,
@@ -1032,10 +1033,11 @@ function clampToRange(value: unknown, range: [number, number]) {
 }
 
 function entryScoreLabel(score: number) {
-  if (score < 30) return "부적합";
-  if (score < 50) return "불리";
-  if (score < 65) return "확인 필요";
-  if (score < 80) return "후보";
+  if (score < 20) return "부적합";
+  if (score < 40) return "불리";
+  if (score < 55) return "확인 필요";
+  if (score < 70) return "조건부";
+  if (score < 85) return "후보";
   return "유리";
 }
 
@@ -1048,12 +1050,17 @@ function currentEntryConditionalLabel(report: TradingReport, score: number) {
   const rr = report.tradePlan.riskRewardByEntry?.current?.value ?? null;
   const riskScore = report.scoreSummary?.riskScore ?? 50;
   const priceUnitLow = report.analysisMeta?.priceUnitConfidence === "low";
-  if (score < 30) return "현재가 진입 부적합";
-  if (score < 50 && (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range")) return "지지 확인 필요";
-  if (score < 50) return "현재가 진입 불리";
-  if (score < 65 && (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range")) return "소액 조건부";
-  if (score < 65) return "현재가 진입 확인 필요";
-  if (marketContext.priceLocation === "near_resistance") return "현재가 진입 확인 필요";
+  if (score < 20) return "현재가 진입 부적합";
+  if (marketContext.priceLocation === "near_resistance" || marketContext.priceLocation === "upper_range" || marketContext.priceLocation === "overextended") {
+    if (score < 40) return "추격 주의";
+    return "저항 근접";
+  }
+  if (score < 40 && (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range")) return "지지 확인 필요";
+  if (score < 40) return "현재가 진입 불리";
+  if (score < 55 && (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range")) return "지지 확인 필요";
+  if (score < 55) return "현재가 진입 확인 필요";
+  if (score < 70 && (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range")) return "소액 조건부";
+  if (score < 70) return "현재가 조건부";
   if (marketContext.breakoutRetestConfirmed) return "돌파 후 현재가 진입 후보";
   if (marketContext.priceLocation === "near_support") return "지지권 근처 소액 조건부";
   if (score >= 70 && (riskScore >= 60 || !finite(rr) || rr < 1.5 || priceUnitLow)) {
@@ -1245,6 +1252,306 @@ function applyEntryScoreConsistencyCaps(
     entries.pullbackEntry.label = "눌림 대기";
   }
   return entries;
+}
+
+function balancedScoreBias(value: unknown) {
+  const score = safeScore(value, 50) ?? 50;
+  return Math.max(-10, Math.min(10, (score - 50) * 0.25));
+}
+
+function riskRewardScoreAdjustment(value?: RiskRewardDetail | null) {
+  if (!finite(value?.value)) return -5;
+  if (value.value < 1) return -20;
+  if (value.value < 1.5) return -5;
+  if (value.value < 2.5) return 10;
+  if (value.value < 4) return 15;
+  return 20;
+}
+
+function capBalancedScore(value: number, max: number) {
+  return Math.min(value, max);
+}
+
+function floorBalancedScore(value: number, min: number) {
+  return Math.max(value, min);
+}
+
+function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
+  const derivedRegime = deriveChartRegime(report);
+  const marketContext = {
+    ...deriveMarketContext(report),
+    ...report.marketContext,
+  };
+  const regime = report.chartRegime?.type ?? marketContext.chartRegime ?? derivedRegime.type;
+  const score = normalizeScoreSummary(report.scoreSummary);
+  const existingEntries = score.entryScores ?? {};
+  const currentEntry = normalizeEntryScore(existingEntries.currentEntry, "currentEntry", 50);
+  const pullbackEntry = normalizeEntryScore(existingEntries.pullbackEntry, "pullbackEntry", 50);
+  const breakoutEntry = normalizeEntryScore(existingEntries.breakoutEntry, "breakoutEntry", 50);
+  const rr = report.tradePlan.riskRewardByEntry ?? {};
+  const currentPrice = priceFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone);
+  const pivotPrice = priceFromText(report.priceRoles?.pivot?.priceZone ?? report.analysisMeta?.keyPivotPrice ?? report.tradePlan.transitionLevel?.priceZone);
+  const nearestSupport = priceFromText(
+    report.priceRoles?.pullbackEntry?.priceZone ??
+      report.keyLevels.supports?.[0]?.priceZone ??
+      report.tradePlan.stopLoss.shortTerm?.priceZone ??
+      report.tradePlan.stopLoss.priceZone,
+  );
+  const nearestResistance = priceFromText(
+    report.keyLevels.resistances?.[0]?.priceZone ??
+      report.priceRoles?.pivot?.priceZone ??
+      report.analysisMeta?.keyPivotPrice ??
+      report.tradePlan.targets.firstTarget?.priceZone,
+  );
+  const currentStop = priceFromText(report.tradePlan.stopLossByEntry?.currentEntry?.priceZone ?? report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone);
+  const pullbackPrice = priceFromText(report.priceRoles?.pullbackEntry?.priceZone ?? report.tradePlan.entry.pullbackEntry?.priceZone);
+  const pullbackStop = priceFromText(report.tradePlan.stopLossByEntry?.pullbackEntry?.priceZone ?? report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone);
+  const pullbackTarget = priceFromText(report.tradePlan.targets.pullbackTargets?.firstTarget?.priceZone ?? report.priceRoles?.targets?.pullbackTargets?.[0] ?? report.tradePlan.targets.firstTarget?.priceZone);
+  const breakoutStop = priceFromText(report.tradePlan.stopLossByEntry?.breakoutEntry?.priceZone ?? report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone);
+  const breakoutTarget = priceFromText(report.tradePlan.targets.breakoutTargets?.firstTarget?.priceZone ?? report.priceRoles?.targets?.breakoutTargets?.[0] ?? report.tradePlan.targets.firstTarget?.priceZone);
+  const currentTarget = priceFromText(
+    filterTargetsAbove(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone, [
+      ...(report.priceRoles?.targets?.pullbackTargets ?? []),
+      ...(report.priceRoles?.targets?.breakoutTargets ?? []),
+      report.tradePlan.targets.firstTarget?.priceZone,
+      report.tradePlan.targets.secondTarget?.priceZone,
+    ])[0],
+  ) ?? nearestResistance;
+  const breakoutConfirmed = Boolean(marketContext.breakoutRetestConfirmed) || (
+    finite(currentPrice) &&
+    finite(pivotPrice) &&
+    currentPrice >= pivotPrice * 1.005
+  );
+  const supportBroken = finite(currentPrice) && finite(currentStop) && currentPrice < currentStop * 0.995;
+  const currentStopValid = finite(currentPrice) && finite(currentStop) && currentStop < currentPrice;
+  const pullbackSetupClear = finite(pullbackPrice) && finite(pullbackStop) && finite(pullbackTarget) && pullbackStop < pullbackPrice && pullbackTarget > pullbackPrice * 1.003;
+  const breakoutSetupClear = finite(pivotPrice) && finite(breakoutStop) && finite(breakoutTarget) && breakoutStop < pivotPrice && breakoutTarget > pivotPrice * 1.003;
+  const targetGapPercent = finite(currentPrice) && finite(currentTarget) && currentPrice > 0
+    ? ((currentTarget - currentPrice) / currentPrice) * 100
+    : null;
+  const targetGapVerySmall = targetGapPercent !== null && targetGapPercent <= 1.5;
+  const meaningfulTargetGap = targetGapPercent !== null && targetGapPercent >= 3;
+  const nearSupport = marketContext.nearSupport || marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range";
+  const nearResistance = marketContext.nearResistance || marketContext.priceLocation === "near_resistance" || marketContext.priceLocation === "upper_range" || marketContext.priceLocation === "overextended";
+  const volumeConfirmed = hasVolumeConfirmation(report);
+  const indicatorText = [
+    ...(report.indicatorAnalysis?.confirmed ?? []).map((item) => `${item.signal} ${item.explanation}`),
+    ...(report.evidence?.positive ?? []),
+  ].join(" ");
+  const supportiveIndicators = /bullish|상승|우호|매수|증가|위에|positive/i.test(indicatorText);
+  const unclearIndicators = !supportiveIndicators || (report.indicatorAnalysis?.unavailable ?? []).length > (report.indicatorAnalysis?.confirmed ?? []).length;
+  const patternConfidence = report.patternAnalysis?.primaryPattern?.confidence;
+  const patternSupportive = patternConfidence === "high" || patternConfidence === "medium";
+  const priceUnitLow = report.analysisMeta?.priceUnitConfidence === "low" || safeDisplayText(report.analysisMeta?.priceUnit, "").includes("확인 필요");
+
+  let currentScore = 50 + balancedScoreBias(currentEntry.score);
+  let pullbackScore = 50 + balancedScoreBias(pullbackEntry.score);
+  let breakoutScore = 50 + balancedScoreBias(breakoutEntry.score);
+
+  if (regime === "healthy_pullback") pullbackScore += 10;
+  if (regime === "range_lower_support") {
+    currentScore += 5;
+    pullbackScore += 10;
+  }
+  if (regime === "range_upper_resistance") currentScore -= 15;
+  if (regime === "breakout_wait") breakoutScore += 5;
+  if (regime === "breakout_retest_confirmed") breakoutScore += 20;
+  if (regime === "overextended_surge") currentScore -= 20;
+  if (regime === "downtrend") {
+    currentScore -= 20;
+    pullbackScore -= 15;
+    breakoutScore -= 10;
+  }
+
+  currentScore += riskRewardScoreAdjustment(rr.current);
+  pullbackScore += riskRewardScoreAdjustment(rr.pullback);
+  breakoutScore += riskRewardScoreAdjustment(rr.breakout);
+
+  if (nearSupport && currentStopValid) currentScore += 10;
+  if (nearSupport && pullbackSetupClear) pullbackScore += 10;
+  if (nearResistance && !breakoutConfirmed) currentScore -= 20;
+  if (targetGapVerySmall) currentScore -= 20;
+  if (meaningfulTargetGap) {
+    currentScore += 5;
+    pullbackScore += 10;
+    if (breakoutSetupClear) breakoutScore += 10;
+  }
+  if (nearSupport && pullbackSetupClear && !supportBroken) pullbackScore += 10;
+  if (breakoutConfirmed) breakoutScore += 20;
+  if (volumeConfirmed) {
+    currentScore += 3;
+    pullbackScore += 3;
+    breakoutScore += 7;
+  }
+  if (supportiveIndicators) {
+    currentScore += 5;
+    pullbackScore += 5;
+    breakoutScore += 5;
+  } else if (unclearIndicators) {
+    currentScore -= 5;
+    pullbackScore -= 5;
+    breakoutScore -= 5;
+  }
+  if (patternSupportive) {
+    pullbackScore += 3;
+    breakoutScore += 3;
+  }
+  if (priceUnitLow) {
+    currentScore -= 7;
+    pullbackScore -= 5;
+    breakoutScore -= 5;
+  }
+  if (score.riskScore >= 70) {
+    currentScore -= 20;
+    pullbackScore -= 20;
+    breakoutScore -= 20;
+  } else if (score.riskScore >= 55) {
+    currentScore -= 10;
+    pullbackScore -= 10;
+    breakoutScore -= 10;
+  } else if (score.riskScore < 40) {
+    if (riskRewardAllowsEntry(rr.current, 1)) currentScore += 5;
+    if (riskRewardAllowsEntry(rr.pullback, 1)) pullbackScore += 5;
+    if (riskRewardAllowsEntry(rr.breakout, 1)) breakoutScore += 5;
+  }
+
+  const breakoutReclaimConfirmed = breakoutConfirmed || (finite(currentPrice) && finite(pivotPrice) && currentPrice >= pivotPrice * 1.005);
+  const breakoutTargetTooClose = finite(currentPrice) && finite(breakoutTarget) && breakoutTarget <= currentPrice * 1.003;
+  if (regime === "downtrend") {
+    currentScore = capBalancedScore(currentScore, supportBroken ? 30 : 45);
+    pullbackScore = capBalancedScore(pullbackScore, supportBroken ? 35 : 55);
+    breakoutScore = capBalancedScore(breakoutScore, breakoutReclaimConfirmed ? 60 : 50);
+  } else if (regime === "overextended_surge") {
+    currentScore = capBalancedScore(currentScore, 40);
+    breakoutScore = capBalancedScore(breakoutScore, breakoutConfirmed ? 70 : 60);
+    if (!pullbackSetupClear || !riskRewardAllowsEntry(rr.pullback, 1)) pullbackScore = capBalancedScore(pullbackScore, 60);
+  } else if (regime === "range_upper_resistance") {
+    currentScore = capBalancedScore(currentScore, 60);
+    if (!breakoutConfirmed) breakoutScore = capBalancedScore(breakoutScore, 65);
+  } else if (regime === "breakout_wait") {
+    breakoutScore = capBalancedScore(breakoutScore, 60);
+    if (!nearSupport || !currentStopValid) currentScore = capBalancedScore(currentScore, 65);
+  } else if (regime === "breakout_retest_confirmed") {
+    if (breakoutSetupClear) breakoutScore = floorBalancedScore(breakoutScore, riskRewardAllowsEntry(rr.breakout, 1.5) ? 75 : 65);
+    if (!volumeConfirmed) breakoutScore = capBalancedScore(breakoutScore, 80);
+    if (breakoutTargetTooClose) breakoutScore = capBalancedScore(breakoutScore, 60);
+  } else if (regime === "range_lower_support") {
+    if (pullbackSetupClear) pullbackScore = floorBalancedScore(pullbackScore, 65);
+    if (nearSupport && currentStopValid && !supportBroken) currentScore = floorBalancedScore(currentScore, 45);
+    if (!breakoutConfirmed) breakoutScore = capBalancedScore(breakoutScore, 60);
+  } else if (regime === "healthy_pullback" && pullbackSetupClear) {
+    pullbackScore = floorBalancedScore(pullbackScore, 65);
+  }
+
+  const currentExtremeLow = supportBroken ||
+    targetGapVerySmall ||
+    (finite(rr.current?.value) && rr.current.value < 0.5) ||
+    (regime === "downtrend" && !breakoutReclaimConfirmed && score.riskScore >= 75);
+  const pullbackExtremeLow = supportBroken ||
+    !finite(pullbackPrice) ||
+    (finite(pullbackTarget) && finite(pullbackPrice) && pullbackTarget <= pullbackPrice * 1.003) ||
+    (finite(rr.pullback?.value) && rr.pullback.value < 0.5);
+  const breakoutExtremeLow = !finite(pivotPrice) ||
+    !finite(breakoutTarget) ||
+    (finite(breakoutTarget) && finite(pivotPrice) && breakoutTarget <= pivotPrice * 1.003) ||
+    (finite(rr.breakout?.value) && rr.breakout.value < 0.5);
+  if (!currentExtremeLow) currentScore = floorBalancedScore(currentScore, nearSupport ? 40 : 20);
+  if (!pullbackExtremeLow) pullbackScore = floorBalancedScore(pullbackScore, pullbackSetupClear && riskRewardAllowsEntry(rr.pullback, 1.5) ? 45 : 25);
+  if (!breakoutExtremeLow) breakoutScore = floorBalancedScore(breakoutScore, breakoutSetupClear ? 30 : 25);
+
+  const currentIdeal = !priceUnitLow && score.riskScore < 40 && riskRewardAllowsEntry(rr.current, 2.5) && (breakoutConfirmed || (nearSupport && currentStopValid));
+  const pullbackIdeal = !priceUnitLow && score.riskScore < 40 && riskRewardAllowsEntry(rr.pullback, 2.5) && pullbackSetupClear && nearSupport;
+  const breakoutIdeal = !priceUnitLow && score.riskScore < 40 && riskRewardAllowsEntry(rr.breakout, 2.5) && breakoutSetupClear && breakoutConfirmed && volumeConfirmed && !breakoutTargetTooClose;
+  if (!currentIdeal) currentScore = capBalancedScore(currentScore, 89);
+  if (!pullbackIdeal) pullbackScore = capBalancedScore(pullbackScore, 89);
+  if (!breakoutIdeal) breakoutScore = capBalancedScore(breakoutScore, 89);
+  if (currentIdeal) currentScore = capBalancedScore(currentScore, 95);
+  if (pullbackIdeal) pullbackScore = capBalancedScore(pullbackScore, 95);
+  if (breakoutIdeal) breakoutScore = capBalancedScore(breakoutScore, 95);
+
+  currentEntry.score = clamp(currentScore, 50);
+  pullbackEntry.score = clamp(pullbackScore, 50);
+  breakoutEntry.score = clamp(breakoutScore, 50);
+
+  currentEntry.label = currentBalancedEntryLabel(report, currentEntry.score, {
+    nearSupport,
+    nearResistance,
+    targetGapVerySmall,
+  });
+  pullbackEntry.label = pullbackBalancedEntryLabel(pullbackEntry.score, {
+    regime,
+    pullbackSetupClear,
+  });
+  breakoutEntry.label = breakoutBalancedEntryLabel(breakoutEntry.score, {
+    breakoutConfirmed,
+    breakoutSetupClear,
+    pivotExists: finite(pivotPrice),
+  });
+
+  if (nearResistance || targetGapVerySmall) {
+    currentEntry.explanation = "현재가가 저항 또는 목표 구간에 가까워 현재가 추격매수는 신중해야 합니다.";
+  } else if (nearSupport) {
+    currentEntry.explanation = "현재가가 지지권에 가까워도 지지 이탈 여부와 짧은 손절 기준을 함께 확인해야 합니다.";
+  }
+  if (pullbackSetupClear) {
+    pullbackEntry.explanation = "주요 지지, 손절, 목표가가 분리되어 있어 지지 반응 확인 시 눌림목 후보로 볼 수 있습니다.";
+  }
+  if (!breakoutConfirmed && breakoutSetupClear) {
+    breakoutEntry.explanation = "돌파 기준과 목표는 있으나 돌파 후 재지지가 확인되기 전까지는 확인 대기 구간입니다.";
+  } else if (breakoutConfirmed) {
+    breakoutEntry.explanation = "핵심 전환 가격 위에서 재지지가 유지되는지 확인하며 돌파 진입 후보로 봅니다.";
+  }
+
+  score.entryScores = {
+    currentEntry,
+    pullbackEntry,
+    breakoutEntry,
+  };
+  score.explanation = entryModePreferenceExplanationClean(report, score);
+  report.scoreSummary = score;
+  return report;
+}
+
+function currentBalancedEntryLabel(
+  report: TradingReport,
+  score: number,
+  context: { nearSupport: boolean; nearResistance: boolean; targetGapVerySmall: boolean },
+) {
+  const marketContext = deriveMarketContext(report);
+  if (score < 20) return "부적합";
+  if (context.nearResistance || context.targetGapVerySmall || marketContext.priceLocation === "overextended") {
+    return score < 40 ? "추격 주의" : "저항 근접";
+  }
+  if (context.nearSupport) {
+    if (score < 55) return "지지 확인 필요";
+    return "소액 조건부";
+  }
+  if (score < 40) return "불리";
+  if (score < 55) return "확인 필요";
+  if (score < 70) return "조건부";
+  if (score < 85) return "후보";
+  return "유리";
+}
+
+function pullbackBalancedEntryLabel(score: number, context: { regime: ChartRegime; pullbackSetupClear: boolean }) {
+  if (score < 20) return "부적합";
+  if (context.regime === "overextended_surge" && score >= 50) return "눌림 대기";
+  if (!context.pullbackSetupClear && score < 55) return "지지 확인 필요";
+  if (score < 40) return "불리";
+  if (score < 55) return "지지 확인 필요";
+  if (score < 85) return "조건부 후보";
+  return "유리";
+}
+
+function breakoutBalancedEntryLabel(score: number, context: { breakoutConfirmed: boolean; breakoutSetupClear: boolean; pivotExists: boolean }) {
+  if (score < 20) return "부적합";
+  if (!context.breakoutConfirmed) {
+    if (context.pivotExists && context.breakoutSetupClear) return "돌파 확인 필요";
+    return score < 40 ? "확인 필요" : "돌파 확인 필요";
+  }
+  if (score < 70) return "재지지 확인 필요";
+  if (score < 85) return "돌파 후보";
+  return "유리";
 }
 
 function adjustEntryScoresByRegime(report: TradingReport): TradingReport {
@@ -2656,7 +2963,7 @@ export function validateTradingReportConsistency(report: TradingReport): string[
   if ((/PULLBACK_BUY|눌림목 매수 후보/.test(actionText)) && (regime === "downtrend" || regime === "overextended_surge")) {
     warnings.push("추세/과열 상태에서 눌림목 매수 판단이 과도하지 않은지 확인 필요");
   }
-  if ((/BREAKOUT.*BUY|돌파 매수 후보|돌파 후 재지지 확인/.test(actionText) || report.finalSummary.finalAction === "BREAKOUT_BUY_CANDIDATE") && !breakoutConfirmed) {
+  if ((/BREAKOUT.*BUY|돌파 매수 후보/.test(actionText) || report.finalSummary.finalAction === "BREAKOUT_BUY_CANDIDATE") && !breakoutConfirmed) {
     warnings.push("돌파 후 재지지 확인 전 돌파 매수 후보 표시 여부 확인 필요");
   }
   if (currentEntry >= 80 && (location === "near_resistance" || location === "upper_range" || location === "overextended")) {
@@ -2966,6 +3273,7 @@ function sanitizeTradingReport(report: TradingReport) {
   adjustEntryScoresByRegime(report);
   normalizeTradingReportDecision(report);
   adjustEntryScoresByRegime(report);
+  normalizeEntryScoresByContext(report);
   enhanceScoreFactors(report);
   applyNormalizedPostProcessingFields(report);
   report.disclaimer = DISCLAIMER;

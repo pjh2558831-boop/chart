@@ -4,7 +4,6 @@ import { useState } from "react";
 
 import { useAuth } from "../context/AuthContext";
 import { submitFeedback } from "../lib/api";
-import { normalizeTradingReport } from "../lib/tradingReportViewModel";
 import type { AnalysisResponse } from "../types/analysis";
 import AnalysisReportDashboard from "./AnalysisReportDashboard";
 import ResultSection from "./ResultSection";
@@ -158,11 +157,9 @@ function FeedbackSection({ analysisId }: { analysisId?: number }) {
 export default function AnalysisResult({ result }: AnalysisResultProps) {
   if (!result) return null;
 
-  const report = normalizeTradingReport(result);
-
   return (
     <div className="space-y-6">
-      <AnalysisReportDashboard result={result} report={report} />
+      <AnalysisReportDashboard result={result} />
       <FeedbackSection analysisId={result.analysisId} />
     </div>
   );

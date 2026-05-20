@@ -1348,15 +1348,21 @@ function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
   let pullbackScore = 50 + balancedScoreBias(pullbackEntry.score);
   let breakoutScore = 50 + balancedScoreBias(breakoutEntry.score);
 
-  if (regime === "healthy_pullback") pullbackScore += 10;
+  if (regime === "healthy_pullback") pullbackScore += 15;
   if (regime === "range_lower_support") {
     currentScore += 5;
-    pullbackScore += 10;
+    pullbackScore += 15;
   }
-  if (regime === "range_upper_resistance") currentScore -= 15;
-  if (regime === "breakout_wait") breakoutScore += 5;
-  if (regime === "breakout_retest_confirmed") breakoutScore += 20;
-  if (regime === "overextended_surge") currentScore -= 20;
+  if (regime === "range_upper_resistance") {
+    currentScore -= 20;
+    if (nearResistance) breakoutScore += 5;
+  }
+  if (regime === "breakout_wait") breakoutScore += 10;
+  if (regime === "breakout_retest_confirmed") breakoutScore += 25;
+  if (regime === "overextended_surge") {
+    currentScore -= 20;
+    breakoutScore -= 10;
+  }
   if (regime === "downtrend") {
     currentScore -= 20;
     pullbackScore -= 15;
@@ -1372,7 +1378,7 @@ function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
   if (nearResistance && !breakoutConfirmed) currentScore -= 20;
   if (targetGapVerySmall) currentScore -= 20;
   if (meaningfulTargetGap) {
-    currentScore += 5;
+    currentScore += 10;
     pullbackScore += 10;
     if (breakoutSetupClear) breakoutScore += 10;
   }
@@ -1425,6 +1431,7 @@ function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
     currentScore = capBalancedScore(currentScore, 40);
     breakoutScore = capBalancedScore(breakoutScore, breakoutConfirmed ? 70 : 60);
     if (!pullbackSetupClear || !riskRewardAllowsEntry(rr.pullback, 1)) pullbackScore = capBalancedScore(pullbackScore, 60);
+    else if (!nearSupport || priceUnitLow) pullbackScore = capBalancedScore(pullbackScore, 75);
   } else if (regime === "range_upper_resistance") {
     currentScore = capBalancedScore(currentScore, 60);
     if (!breakoutConfirmed) breakoutScore = capBalancedScore(breakoutScore, 65);
@@ -1437,15 +1444,18 @@ function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
     if (breakoutTargetTooClose) breakoutScore = capBalancedScore(breakoutScore, 60);
   } else if (regime === "range_lower_support") {
     if (pullbackSetupClear) pullbackScore = floorBalancedScore(pullbackScore, 65);
+    pullbackScore = capBalancedScore(pullbackScore, pullbackSetupClear && nearSupport && score.riskScore < 55 ? 85 : 75);
     if (nearSupport && currentStopValid && !supportBroken) currentScore = floorBalancedScore(currentScore, 45);
+    currentScore = capBalancedScore(currentScore, nearSupport && currentStopValid && score.riskScore < 55 ? 70 : 65);
     if (!breakoutConfirmed) breakoutScore = capBalancedScore(breakoutScore, 60);
   } else if (regime === "healthy_pullback" && pullbackSetupClear) {
     pullbackScore = floorBalancedScore(pullbackScore, 65);
+    pullbackScore = capBalancedScore(pullbackScore, nearSupport && score.riskScore < 55 ? 85 : 75);
   }
 
   const currentExtremeLow = supportBroken ||
-    targetGapVerySmall ||
     (finite(rr.current?.value) && rr.current.value < 0.5) ||
+    (targetGapVerySmall && nearResistance && score.riskScore >= 70) ||
     (regime === "downtrend" && !breakoutReclaimConfirmed && score.riskScore >= 75);
   const pullbackExtremeLow = supportBroken ||
     !finite(pullbackPrice) ||
@@ -1456,8 +1466,15 @@ function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
     (finite(breakoutTarget) && finite(pivotPrice) && breakoutTarget <= pivotPrice * 1.003) ||
     (finite(rr.breakout?.value) && rr.breakout.value < 0.5);
   if (!currentExtremeLow) currentScore = floorBalancedScore(currentScore, nearSupport ? 40 : 20);
-  if (!pullbackExtremeLow) pullbackScore = floorBalancedScore(pullbackScore, pullbackSetupClear && riskRewardAllowsEntry(rr.pullback, 1.5) ? 45 : 25);
-  if (!breakoutExtremeLow) breakoutScore = floorBalancedScore(breakoutScore, breakoutSetupClear ? 30 : 25);
+  if (!pullbackExtremeLow) pullbackScore = floorBalancedScore(pullbackScore, pullbackSetupClear && riskRewardAllowsEntry(rr.pullback, 1.5) ? 55 : 25);
+  if (!breakoutExtremeLow) breakoutScore = floorBalancedScore(breakoutScore, breakoutSetupClear ? (breakoutConfirmed ? 60 : 40) : 25);
+
+  const currentClearlyInvalid = supportBroken ||
+    (regime === "downtrend" && !breakoutReclaimConfirmed && score.riskScore >= 75) ||
+    score.riskScore >= 80;
+  if (nearResistance && !breakoutConfirmed && !currentClearlyInvalid) {
+    currentScore = floorBalancedScore(currentScore, 20);
+  }
 
   const currentIdeal = !priceUnitLow && score.riskScore < 40 && riskRewardAllowsEntry(rr.current, 2.5) && (breakoutConfirmed || (nearSupport && currentStopValid));
   const pullbackIdeal = !priceUnitLow && score.riskScore < 40 && riskRewardAllowsEntry(rr.pullback, 2.5) && pullbackSetupClear && nearSupport;

@@ -12,6 +12,7 @@ export type SignalTone = "buy" | "watch" | "caution" | "hold" | "risk" | "neutra
 export type EntryTone = "positive" | "neutral" | "caution" | "risk";
 export type ScenarioTone = "positive" | "neutral" | "risk";
 export type IndicatorTone = "positive" | "neutral" | "caution" | "risk";
+export type PatternDisplayCategory = "continuation" | "reversal" | "range" | "breakout" | "no_clear_pattern" | "unknown";
 
 export type EntryModeCard = {
   score: number | null;
@@ -83,7 +84,8 @@ export interface InstitutionalReportViewModel {
     momentumScore: number | null;
     breakoutScore: number | null;
     riskScore: number | null;
-    volatilityScore: number | null;
+    entryScore: number | null;
+    entryScoreLabel: string;
   };
   keyLevels: {
     currentPrice: string;
@@ -111,9 +113,11 @@ export interface InstitutionalReportViewModel {
   };
   indicators: IndicatorRow[];
   pattern: {
+    category: PatternDisplayCategory;
     confidence: string;
     detectedStructure: string;
     continuationProbability: string;
+    metrics: Array<{ label: string; value: string }>;
     interpretation: string;
   };
   insightNotes: string[];
@@ -715,14 +719,114 @@ function buildScenario(title: string, scenario: { condition?: string; expectedMo
   };
 }
 
-function buildInsightNotes(report: TradingReport, finalAction: InstitutionalReportViewModel["finalAction"], targetExplanation: string) {
-  const lines = [
-    finalAction.reason,
-    safeText(report.scoreSummary?.explanation, ""),
-    targetExplanation,
-    safeText(report.chartRegime?.reasons?.[0], ""),
-  ].map((line) => safeText(line, "")).filter(Boolean);
-  return Array.from(new Set(lines)).slice(0, 4);
+function buildBestEntryScore(entryMode: InstitutionalReportViewModel["entryMode"]) {
+  const candidates = [
+    { score: entryMode.currentEntry.score, label: "현재가 진입 우세" },
+    { score: entryMode.pullbackEntry.score, label: "눌림목 진입 우세" },
+    { score: entryMode.breakoutEntry.score, label: "돌파 진입 우세" },
+  ].filter((item): item is { score: number; label: string } => typeof item.score === "number" && Number.isFinite(item.score));
+
+  if (!candidates.length) return { entryScore: null, entryScoreLabel: FALLBACK.needsCheck };
+  const best = candidates.reduce((winner, item) => (item.score > winner.score ? item : winner), candidates[0]);
+  return { entryScore: best.score, entryScoreLabel: best.label };
+}
+
+function derivePatternCategory(rawReport: AnalysisResponse, report: TradingReport): PatternDisplayCategory {
+  const primaryCandidate = rawReport.aiAnalysis?.patternCandidates?.[0];
+  const candidateCategory = safeText(primaryCandidate?.category, "").toLowerCase();
+  const primaryName = safeText(report.patternAnalysis.primaryPattern.name, "");
+  const normalizedName = `${safeText(primaryCandidate?.name, "")} ${safeText(primaryCandidate?.label, "")} ${primaryName}`.toLowerCase();
+  const confidence = report.patternAnalysis.primaryPattern.confidence;
+
+  if (!primaryName || primaryName === "명확한 패턴 없음" || confidence === "low" || candidateCategory === "unknown") {
+    return "no_clear_pattern";
+  }
+  if (["continuation", "reversal", "range", "breakout"].includes(candidateCategory)) {
+    return candidateCategory as PatternDisplayCategory;
+  }
+  if (/double top|double bottom|head and shoulders|h&s|이중천장|이중바닥|헤드앤숄더|머리어깨|쌍봉|쌍바닥/.test(normalizedName)) return "reversal";
+  if (/range|box|박스|횡보/.test(normalizedName)) return "range";
+  if (/breakout|돌파/.test(normalizedName)) return "breakout";
+  if (/triangle|flag|pennant|wedge|channel|삼각|깃발|페넌트|쐐기|채널/.test(normalizedName)) return "continuation";
+  return "unknown";
+}
+
+function buildPatternDisplay(rawReport: AnalysisResponse, report: TradingReport): InstitutionalReportViewModel["pattern"] {
+  const primary = report.patternAnalysis.primaryPattern;
+  const primaryCandidate = rawReport.aiAnalysis?.patternCandidates?.[0];
+  const category = derivePatternCategory(rawReport, report);
+  const confidence = confidenceLabel(primary.confidence);
+  const detectedStructure = category === "no_clear_pattern"
+    ? "명확한 패턴 없음"
+    : safeText(primary.name, "명확한 패턴 없음");
+
+  if (category === "no_clear_pattern") {
+    return {
+      category,
+      confidence,
+      detectedStructure,
+      continuationProbability: "분석 불가",
+      metrics: [],
+      interpretation: "현재는 패턴보다 주요 지지 반응과 핵심 전환 가격 돌파 여부가 중요합니다.",
+    };
+  }
+
+  const continuationProbability = primaryCandidate?.confidenceScore != null && Number.isFinite(primaryCandidate.confidenceScore)
+    ? `${Math.round(primaryCandidate.confidenceScore)}%`
+    : "분석 불가";
+  const confirmation = firstText([primary.confirmationCondition, primaryCandidate?.confirmationCondition], "주요 가격대 확인 필요");
+  const invalidation = firstText([primary.invalidationCondition, primaryCandidate?.invalidationCondition], "무효화 조건 확인 필요");
+  const interpretation = firstText(
+    [primary.tradingMeaning, primary.reason, primaryCandidate?.tradingImplication],
+    "현재는 패턴보다 주요 가격대 확인이 우선입니다.",
+  );
+
+  if (category === "reversal") {
+    return {
+      category,
+      confidence,
+      detectedStructure,
+      continuationProbability: "해당 없음",
+      metrics: [
+        { label: "반락 위험", value: primary.confidence === "high" ? "주의" : "확인 필요" },
+        { label: "확인 조건", value: confirmation },
+        { label: "무효화 조건", value: invalidation },
+      ],
+      interpretation,
+    };
+  }
+
+  const metricLabel = category === "breakout" ? "돌파 신뢰도" : category === "range" ? "박스권 신뢰도" : "추세 연속 확률";
+  return {
+    category,
+    confidence,
+    detectedStructure,
+    continuationProbability,
+    metrics: [{ label: metricLabel, value: continuationProbability }],
+    interpretation,
+  };
+}
+
+function buildInsightNotes(report: TradingReport, context: PriceContext) {
+  const support = context.supportText !== FALLBACK.unknown ? context.supportText : "";
+  const resistance = context.resistanceText !== FALLBACK.unknown ? context.resistanceText : "";
+  const pivot = context.pivotText !== FALLBACK.unknown ? context.pivotText : "";
+  const notes: string[] = [];
+
+  if (context.chartRegime === "downtrend") {
+    notes.push("하락 추세에서는 반등만으로 매수 후보를 강하게 보기 어렵습니다.");
+    notes.push("주요 저항 회복 또는 추세 전환 확인이 필요합니다.");
+  } else if (context.chartRegime === "overextended_surge") {
+    notes.push("단기 급등 후 저항 구간에서는 미보유자의 추격매수보다 눌림 대기가 유리합니다.");
+    notes.push("보유자는 일부 익절 또는 돌파 안착 여부를 확인할 수 있습니다.");
+  } else {
+    if (resistance) notes.push(`현재가는 ${resistance} 부근 저항과 목표 여유를 함께 확인해야 합니다.`);
+    if (support) notes.push(`${support} 부근 지지 반응이 확인되면 눌림목 진입 조건이 개선됩니다.`);
+    if (pivot) notes.push(`${pivot} 돌파 후 재지지가 확인되면 다음 목표 구간까지 상승 여지를 볼 수 있습니다.`);
+  }
+
+  if (notes.length < 2) notes.push(safeText(report.chartRegime?.reasons?.[0], "주요 지지와 저항 확인 후 조건부 대응이 필요합니다."));
+  return Array.from(new Set(notes.map((line) => safeText(line, "")).filter(Boolean))).slice(0, 4);
 }
 
 function buildRiskNotice(report: TradingReport) {
@@ -750,8 +854,10 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
   const context = buildPriceContext(rawReport, normalizedReport);
   const finalAction = deriveFinalAction(normalizedReport, context);
   const entryMode = buildEntryModes(normalizedReport, context);
+  const bestEntry = buildBestEntryScore(entryMode);
   const signal = deriveSignal(normalizedReport, context, entryMode);
   const totalScore = safeScore(normalizedReport.scoreSummary?.totalScore);
+  const patternDisplay = buildPatternDisplay(rawReport, normalizedReport);
   const priceUnit = firstText(
     [normalizedReport.analysisMeta?.priceUnit, rawReport.aiAnalysis?.symbolDetection?.currency],
     FALLBACK.noUnit,
@@ -809,7 +915,8 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
       momentumScore: safeScore(normalizedReport.scoreSummary?.buyScore),
       breakoutScore: safeScore(normalizedReport.scoreSummary?.entryScores?.breakoutEntry?.score),
       riskScore: safeScore(normalizedReport.scoreSummary?.riskScore),
-      volatilityScore: null,
+      entryScore: bestEntry.entryScore,
+      entryScoreLabel: bestEntry.entryScoreLabel,
     },
     keyLevels: {
       currentPrice: context.currentText,
@@ -836,18 +943,8 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
       bearish: buildScenario("하락 시나리오", normalizedReport.scenarios.bearish, "risk"),
     },
     indicators: buildIndicators(rawReport, normalizedReport),
-    pattern: {
-      confidence: confidenceLabel(normalizedReport.patternAnalysis.primaryPattern.confidence),
-      detectedStructure: safeText(normalizedReport.patternAnalysis.primaryPattern.name, "명확한 패턴 없음"),
-      continuationProbability: rawReport.aiAnalysis?.patternCandidates?.[0]?.confidenceScore != null && Number.isFinite(rawReport.aiAnalysis.patternCandidates[0].confidenceScore)
-        ? `${Math.round(rawReport.aiAnalysis.patternCandidates[0].confidenceScore)}%`
-        : "분석 불가",
-      interpretation: firstText(
-        [normalizedReport.patternAnalysis.primaryPattern.tradingMeaning, normalizedReport.patternAnalysis.primaryPattern.reason],
-        "현재는 패턴보다 주요 가격대 확인이 우선입니다.",
-      ),
-    },
-    insightNotes: buildInsightNotes(normalizedReport, finalAction, context.targetGapExplanation),
+    pattern: patternDisplay,
+    insightNotes: buildInsightNotes(normalizedReport, context),
     riskNotice: buildRiskNotice(normalizedReport),
   };
 }

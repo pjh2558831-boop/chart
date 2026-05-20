@@ -337,7 +337,12 @@ function SignalScoreCard({ vm }: { vm: InstitutionalReportViewModel }) {
           <MetricBar label="모멘텀" score={vm.scorePanel.momentumScore} />
           <MetricBar label="돌파 확률" score={vm.scorePanel.breakoutScore} />
           <MetricBar label="리스크 수준" score={vm.scorePanel.riskScore} riskMode />
-          <MetricBar label="변동성 점수" score={vm.scorePanel.volatilityScore} />
+          <div>
+            <MetricBar label="진입 점수" score={vm.scorePanel.entryScore} />
+            <p className="mt-1 text-right text-xs font-semibold leading-5 text-slate-500 [word-break:keep-all]">
+              {safeValue(vm.scorePanel.entryScoreLabel, "확인 필요")}
+            </p>
+          </div>
         </div>
       </div>
     </Card>
@@ -461,6 +466,18 @@ function ScenarioAnalysisCard({ vm }: { vm: InstitutionalReportViewModel }) {
 }
 
 function PatternDetectionCard({ vm }: { vm: InstitutionalReportViewModel }) {
+  if (vm.pattern.category === "no_clear_pattern") {
+    return (
+      <Card>
+        <SectionTitle title="AI 패턴 감지" />
+        <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-4 [overflow-wrap:break-word] [word-break:keep-all]">
+          <p className="text-sm font-bold text-slate-950">주요 패턴: {vm.pattern.detectedStructure}</p>
+          <p className="mt-2 text-sm leading-7 text-slate-600">{vm.pattern.interpretation}</p>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <SectionTitle title="AI 패턴 감지" />
@@ -473,10 +490,12 @@ function PatternDetectionCard({ vm }: { vm: InstitutionalReportViewModel }) {
           <p className="text-sm font-semibold text-slate-500">감지된 구조</p>
           <p className="mt-2 text-lg font-bold leading-7 text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]">{vm.pattern.detectedStructure}</p>
         </div>
-        <div>
-          <p className="text-sm font-semibold text-slate-500">추세 연속 확률</p>
-          <p className="mt-2 text-2xl font-bold text-slate-950">{vm.pattern.continuationProbability}</p>
-        </div>
+        {vm.pattern.metrics.map((metric) => (
+          <div key={metric.label}>
+            <p className="text-sm font-semibold text-slate-500">{metric.label}</p>
+            <p className="mt-2 text-lg font-bold leading-7 text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]">{safeValue(metric.value, "확인 필요")}</p>
+          </div>
+        ))}
         <div>
           <p className="text-sm font-semibold text-slate-500">핵심 해석</p>
           <p className="mt-2 text-sm leading-7 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">{vm.pattern.interpretation}</p>
@@ -491,11 +510,11 @@ function InsightNoteCard({ notes }: { notes: string[] }) {
   return (
     <Card>
       <SectionTitle title="기관 인사이트 노트" />
-      <div className="max-h-36 space-y-2 overflow-hidden text-sm leading-7 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
+      <ul className="max-h-40 list-disc space-y-2 overflow-hidden pl-5 text-sm leading-7 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
         {lines.slice(0, 4).map((line) => (
-          <p key={line}>{line}</p>
+          <li key={line}>{line}</li>
         ))}
-      </div>
+      </ul>
     </Card>
   );
 }

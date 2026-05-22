@@ -170,9 +170,9 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
 
         <div className="grid min-w-0 gap-4 md:grid-cols-3">
           <div className="min-w-0 rounded-lg border border-slate-100 bg-white/80 p-4">
-            <p className="text-sm font-semibold text-slate-500">AI 신뢰도</p>
+            <p className="text-sm font-semibold tracking-normal text-slate-500">리포트 신뢰도</p>
             <p className="mt-3 text-3xl font-bold leading-tight text-blue-700 [overflow-wrap:break-word]">
-              {hero.confidenceScore === null ? "분석 불가" : `${hero.confidenceScore} / 100`}
+              {hero.confidenceScore === null ? "점수 확인 필요" : `${hero.confidenceScore} / 100`}
             </p>
             <p className="mt-2 text-sm font-semibold text-emerald-700">{hero.confidenceLabel}</p>
           </div>
@@ -298,7 +298,7 @@ function ScoreCircle({ score }: { score: number | null }) {
       </svg>
       <div className="absolute text-center">
         <p className={score === null ? "text-base font-bold text-slate-500" : "text-4xl font-bold text-slate-950"}>
-          {score === null ? "분석 불가" : score}
+          {score === null ? "점수 확인 필요" : score}
         </p>
         <p className="text-sm font-semibold text-slate-500">{score === null ? "점수 없음" : "/ 100"}</p>
       </div>
@@ -320,7 +320,7 @@ function MetricBar({ label, score, riskMode = false }: { label: string; score: n
       <div className="h-2 rounded-full bg-slate-100">
         <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
       </div>
-      <span className="text-right text-xs font-bold leading-5 text-slate-900 [overflow-wrap:break-word]">{score === null ? "분석 불가" : score}</span>
+      <span className="text-right text-xs font-bold leading-5 text-slate-900 [overflow-wrap:break-word]">{score === null ? "확인 필요" : score}</span>
     </div>
   );
 }
@@ -436,7 +436,7 @@ function ScenarioItem({ scenario }: { scenario: ScenarioCard }) {
           <dd>{scenario.condition}</dd>
         </div>
         <div>
-          <dt className="font-bold opacity-70">확률</dt>
+          <dt className="font-bold opacity-70">채택 가능성</dt>
           <dd>{scenario.probability}</dd>
         </div>
         <div>

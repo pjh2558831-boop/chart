@@ -34,15 +34,21 @@ function safeValue(value: string | number | null | undefined, fallback = "-") {
 }
 
 function compactSignalLabel(label: string | number | null | undefined) {
-  const text = safeValue(label, "대기");
-  if (text.includes("매수")) return "매수";
-  if (text.includes("위험")) return "위험";
+  const text = safeValue(label, "관망");
+  const compactLabels = ["돌파 대기", "눌림 대기", "지지 확인", "저항 확인", "관망", "주의", "위험 관리", "진입 보류", "매수 후보"];
+  if (compactLabels.includes(text)) return text;
+  if (text.includes("매수 후보")) return "매수 후보";
+  if (text.includes("돌파") && (text.includes("대기") || text.includes("확인"))) return "돌파 대기";
+  if (text.includes("눌림")) return "눌림 대기";
+  if (text.includes("지지") && text.includes("확인")) return "지지 확인";
+  if (text.includes("저항") && text.includes("확인")) return "저항 확인";
+  if (text.includes("위험")) return "위험 관리";
   if (text.includes("주의")) return "주의";
   if (text.includes("보유") || text.includes("관망")) return "관망";
   if (text.includes("진입 보류")) return "진입 보류";
   if (text.includes("보류")) return "진입 보류";
-  if (text.includes("대기")) return "대기";
-  return text.length > 5 ? "대기" : text;
+  if (text.includes("대기")) return "관망";
+  return text.length > 5 ? "관망" : text;
 }
 
 function cardClass(extra = "") {

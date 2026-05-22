@@ -494,6 +494,11 @@ export type PriceLocation =
   | "unknown";
 
 export type ChartRegime =
+  | "uptrend_pullback"
+  | "uptrend_consolidation"
+  | "downtrend_rebound"
+  | "resistance_test"
+  | "support_breakdown"
   | "healthy_pullback"
   | "downtrend"
   | "overextended_surge"

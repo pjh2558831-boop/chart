@@ -300,11 +300,26 @@ function deriveChartRegime(report: TradingReport): DerivedChartRegime {
     ...(report.evidence?.negative ?? []),
     ...(report.evidence?.riskFactors ?? []),
   ].join(" ");
-  const downtrendText = /하락|이탈|약세|저점|lower low|lower high|downtrend/i.test(trendText);
+  const downtrendText = /하락|급락|약세|고점.*하향|저점.*하향|lower low|lower high|downtrend|decline|구름.*아래|매물/i.test(trendText);
+  const uptrendText = /상승|우상향|상승추세|상승 추세|고점.*상향|저점.*상향|higher high|higher low|uptrend|bullish|rising/i.test(trendText);
+  const strongUptrendText = /강한 상승|뚜렷한 상승|상승추세|상승 추세|고점.*상향|저점.*상향|higher high|higher low|정배열|rising support|cloud support|구름.*지지/i.test(trendText);
+  const rangeText = /박스|횡보|range|sideways|레인지|box|상단.*하단|하단.*상단/i.test(trendText);
+  const reboundAfterDeclineText = /(하락|급락|약세|lower high|lower low|downtrend|decline|overhead|매물|구름.*아래).*(반등|회복|rebound|recover)|((반등|회복|rebound|recover).*(하락|급락|약세|downtrend|decline|매물))/i.test(trendText);
   const weakSupportBounce = (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range") && (!finite(pullbackRr) || pullbackRr < 1.5);
   const upperOrResistance = marketContext.nearResistance || marketContext.priceLocation === "upper_range" || marketContext.priceLocation === "near_resistance" || marketContext.priceLocation === "overextended";
   const poorCurrentRr = finite(currentRr) && currentRr < 1;
   const surgeText = /급등|과열|윗꼬리|거래량 증가|volume spike|spike|surge|exhaust/i.test(trendText);
+  const targetOrResistanceClose = upperOrResistance && (poorCurrentRr || failedReclaim || (finite(currentRr) && currentRr < 1.2));
+  const uptrendEvidence = strongUptrendText || (uptrendText && bullishIndicator && !downtrendText);
+  const downtrendReboundEvidence = reboundAfterDeclineText || (!marketContext.breakoutRetestConfirmed && failedReclaim && (upperOrResistance || belowPivot) && downtrendText);
+  const rangeStructureLikely =
+    rangeText ||
+    (marketContext.rangePosition != null &&
+      !uptrendEvidence &&
+      !downtrendReboundEvidence &&
+      !downtrendText &&
+      score.riskScore < 65 &&
+      score.holdScore >= 45);
   const overextendedScore = [
     marketContext.isExtendedMove,
     upperOrResistance,
@@ -313,6 +328,7 @@ function deriveChartRegime(report: TradingReport): DerivedChartRegime {
     surgeText,
     score.riskScore >= 60,
   ].filter(Boolean).length;
+  const overextendedConfirmed = surgeText && (marketContext.isExtendedMove || pullbackFarBelow || score.riskScore >= 60 || marketContext.priceLocation === "overextended");
   const downtrendScore = [
     supportBroken,
     downtrendText,
@@ -324,38 +340,68 @@ function deriveChartRegime(report: TradingReport): DerivedChartRegime {
     weakSupportBounce,
     !pullbackPlanValid,
   ].filter(Boolean).length;
+  const clearDowntrendEvidence =
+    supportBroken ||
+    downtrendText ||
+    (score.riskScore >= 70 && belowPivot && failedReclaim && weakSupportBounce && !upperOrResistance);
+  const reboundShouldTakePriority =
+    downtrendReboundEvidence &&
+    upperOrResistance &&
+    score.riskScore < 70 &&
+    downtrendScore < 6;
   const reasons: string[] = [];
 
-  if (!marketContext.breakoutRetestConfirmed && (supportBroken || downtrendScore >= 4)) {
-    if (supportBroken) reasons.push("주요 지지선 이탈 위험이 우선 확인됩니다.");
+  if (supportBroken) {
+    reasons.push("주요 지지선 이탈이 우선 확인됩니다.");
+    return chartRegimeResult("support_breakdown", score.riskScore >= 65 ? "high" : "medium", reasons);
+  }
+  if (!marketContext.breakoutRetestConfirmed && clearDowntrendEvidence && downtrendScore >= 4 && !reboundShouldTakePriority) {
     if (downtrendText || belowPivot || failedReclaim) reasons.push("피벗 회복 실패 또는 하락 흐름 근거가 남아 있습니다.");
     if (weakIndicator) reasons.push("보조지표가 반전을 강하게 확인하지 못합니다.");
     if (weakSupportBounce) reasons.push("지지권 반등 가능성은 있으나 추세 전환 확인은 부족합니다.");
     return chartRegimeResult("downtrend", supportBroken || downtrendScore >= 6 ? "high" : "medium", reasons);
   }
-  if ((marketContext.isExtendedMove || marketContext.priceLocation === "overextended" || overextendedScore >= 4) && upperOrResistance && poorCurrentRr) {
+  if (!marketContext.breakoutRetestConfirmed && downtrendReboundEvidence) {
+    reasons.push("하락 이후 반등 구간으로, 주요 저항 회복 확인이 필요합니다.");
+    if (upperOrResistance || failedReclaim) reasons.push("현재가는 저항권 또는 전환 가격 테스트 성격이 강합니다.");
+    return chartRegimeResult("downtrend_rebound", upperOrResistance ? "medium" : "low", reasons);
+  }
+  if (overextendedConfirmed && upperOrResistance && poorCurrentRr) {
     reasons.push("단기 급등 후 저항 또는 목표 구간에 가까워 현재가 손익비가 낮습니다.");
     if (pullbackFarBelow) reasons.push("가까운 지지선과의 이격이 커 눌림 확인 전 추격매수 부담이 큽니다.");
     if (surgeText) reasons.push("거래량 증가 또는 과열/윗꼬리 가능성이 보조 근거로 확인됩니다.");
     return chartRegimeResult("overextended_surge", overextendedScore >= 5 ? "high" : "medium", reasons);
   }
-  if (marketContext.breakoutRetestConfirmed && finite(breakoutRr) && breakoutRr >= 1) {
+  if (marketContext.breakoutRetestConfirmed) {
     reasons.push("핵심 전환 가격 위에서 버티는 돌파 후 재지지 구간입니다.");
     return chartRegimeResult("breakout_retest_confirmed", finite(breakoutRr) && breakoutRr >= 1.5 && bullishIndicator ? "high" : "medium", reasons);
+  }
+  if (!marketContext.breakoutRetestConfirmed && targetOrResistanceClose) {
+    reasons.push("주요 저항 또는 목표 구간을 테스트하고 있어 돌파 후 재지지 확인이 우선입니다.");
+    return chartRegimeResult("resistance_test", poorCurrentRr ? "medium" : "low", reasons);
   }
   if (marketContext.nearResistance && !marketContext.breakoutRetestConfirmed) {
     reasons.push("저항 또는 전환 가격 근처지만 돌파 후 재지지가 아직 확인되지 않았습니다.");
     return chartRegimeResult("breakout_wait", "medium", reasons);
   }
-  if (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range") {
-    reasons.push("주요 지지 또는 박스권 하단에 가까워 지지 반응 확인이 우선입니다.");
-    return chartRegimeResult("range_lower_support", pullbackPlanValid ? "medium" : "low", reasons);
+  if (!supportBroken && uptrendEvidence && (marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range" || pullbackPlanValid)) {
+    reasons.push("상승 흐름 속 지지 구간으로 눌림 반응 확인이 우선입니다.");
+    if (pullbackPlanValid) reasons.push("눌림목 진입 가격, 손절, 목표가가 비교적 분리되어 있습니다.");
+    return chartRegimeResult("uptrend_pullback", strongUptrendText ? "high" : "medium", reasons);
+  }
+  if (!supportBroken && uptrendEvidence && marketContext.priceLocation !== "overextended") {
+    reasons.push("상승 흐름 이후 조정 구간으로 지지 유지와 재상승 확인이 필요합니다.");
+    return chartRegimeResult("uptrend_consolidation", "medium", reasons);
   }
   if (marketContext.priceLocation === "upper_range" || marketContext.priceLocation === "near_resistance") {
     reasons.push("박스권 상단 또는 저항권에 가까운 구간입니다.");
-    return chartRegimeResult("range_upper_resistance", "medium", reasons);
+    return chartRegimeResult(rangeStructureLikely ? "range_upper_resistance" : "resistance_test", "medium", reasons);
   }
-  if (pullbackPlanValid && finite(pullbackRr) && pullbackRr >= 1.2 && score.riskScore < 70) {
+  if ((marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range") && rangeStructureLikely) {
+    reasons.push("주요 지지 또는 박스권 하단에 가까워 지지 반응 확인이 우선입니다.");
+    return chartRegimeResult("range_lower_support", pullbackPlanValid ? "medium" : "low", reasons);
+  }
+  if (pullbackPlanValid && finite(pullbackRr) && pullbackRr >= 1.2 && score.riskScore < 70 && uptrendEvidence) {
     reasons.push("눌림목 진입 가격, 손절, 목표가가 비교적 분리되어 있습니다.");
     return chartRegimeResult("healthy_pullback", "medium", reasons);
   }
@@ -1348,6 +1394,14 @@ function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
   let pullbackScore = 50 + balancedScoreBias(pullbackEntry.score);
   let breakoutScore = 50 + balancedScoreBias(breakoutEntry.score);
 
+  if (regime === "uptrend_pullback") {
+    currentScore += 5;
+    pullbackScore += 15;
+  }
+  if (regime === "uptrend_consolidation") {
+    pullbackScore += 10;
+    breakoutScore += 5;
+  }
   if (regime === "healthy_pullback") pullbackScore += 15;
   if (regime === "range_lower_support") {
     currentScore += 5;
@@ -1362,6 +1416,21 @@ function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
   if (regime === "overextended_surge") {
     currentScore -= 20;
     breakoutScore -= 10;
+  }
+  if (regime === "resistance_test") {
+    currentScore -= 25;
+    pullbackScore -= 5;
+    breakoutScore += 10;
+  }
+  if (regime === "downtrend_rebound") {
+    currentScore -= 20;
+    pullbackScore -= 5;
+    breakoutScore += 5;
+  }
+  if (regime === "support_breakdown") {
+    currentScore -= 25;
+    pullbackScore -= 20;
+    breakoutScore -= 15;
   }
   if (regime === "downtrend") {
     currentScore -= 20;
@@ -1423,15 +1492,27 @@ function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
 
   const breakoutReclaimConfirmed = breakoutConfirmed || (finite(currentPrice) && finite(pivotPrice) && currentPrice >= pivotPrice * 1.005);
   const breakoutTargetTooClose = finite(currentPrice) && finite(breakoutTarget) && breakoutTarget <= currentPrice * 1.003;
-  if (regime === "downtrend") {
+  if (regime === "support_breakdown") {
+    currentScore = capBalancedScore(currentScore, 30);
+    pullbackScore = capBalancedScore(pullbackScore, 35);
+    breakoutScore = capBalancedScore(breakoutScore, 40);
+  } else if (regime === "downtrend") {
     currentScore = capBalancedScore(currentScore, supportBroken ? 30 : 45);
     pullbackScore = capBalancedScore(pullbackScore, supportBroken ? 35 : 55);
     breakoutScore = capBalancedScore(breakoutScore, breakoutReclaimConfirmed ? 60 : 50);
+  } else if (regime === "downtrend_rebound") {
+    currentScore = capBalancedScore(currentScore, 45);
+    pullbackScore = capBalancedScore(pullbackScore, 60);
+    breakoutScore = capBalancedScore(breakoutScore, breakoutConfirmed ? 70 : 60);
   } else if (regime === "overextended_surge") {
     currentScore = capBalancedScore(currentScore, 40);
     breakoutScore = capBalancedScore(breakoutScore, breakoutConfirmed ? 70 : 60);
     if (!pullbackSetupClear || !riskRewardAllowsEntry(rr.pullback, 1)) pullbackScore = capBalancedScore(pullbackScore, 60);
     else if (!nearSupport || priceUnitLow) pullbackScore = capBalancedScore(pullbackScore, 75);
+  } else if (regime === "resistance_test") {
+    currentScore = capBalancedScore(currentScore, 40);
+    pullbackScore = capBalancedScore(pullbackScore, 65);
+    breakoutScore = capBalancedScore(breakoutScore, breakoutConfirmed ? 70 : 60);
   } else if (regime === "range_upper_resistance") {
     currentScore = capBalancedScore(currentScore, 60);
     if (!breakoutConfirmed) breakoutScore = capBalancedScore(breakoutScore, 65);
@@ -1442,6 +1523,17 @@ function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
     if (breakoutSetupClear) breakoutScore = floorBalancedScore(breakoutScore, riskRewardAllowsEntry(rr.breakout, 1.5) ? 75 : 65);
     if (!volumeConfirmed) breakoutScore = capBalancedScore(breakoutScore, 80);
     if (breakoutTargetTooClose) breakoutScore = capBalancedScore(breakoutScore, 60);
+  } else if (regime === "uptrend_pullback") {
+    if (pullbackSetupClear) pullbackScore = floorBalancedScore(pullbackScore, 65);
+    pullbackScore = capBalancedScore(pullbackScore, nearSupport && score.riskScore < 55 ? 85 : 75);
+    if (nearSupport && currentStopValid && !supportBroken) currentScore = floorBalancedScore(currentScore, 45);
+    currentScore = capBalancedScore(currentScore, nearSupport && currentStopValid && score.riskScore < 55 ? 70 : 65);
+    if (!breakoutConfirmed) breakoutScore = capBalancedScore(breakoutScore, 60);
+  } else if (regime === "uptrend_consolidation") {
+    if (pullbackSetupClear) pullbackScore = floorBalancedScore(pullbackScore, 60);
+    pullbackScore = capBalancedScore(pullbackScore, 75);
+    currentScore = capBalancedScore(currentScore, 65);
+    if (!breakoutConfirmed) breakoutScore = capBalancedScore(breakoutScore, 65);
   } else if (regime === "range_lower_support") {
     if (pullbackSetupClear) pullbackScore = floorBalancedScore(pullbackScore, 65);
     pullbackScore = capBalancedScore(pullbackScore, pullbackSetupClear && nearSupport && score.riskScore < 55 ? 85 : 75);
@@ -1504,6 +1596,24 @@ function normalizeEntryScoresByContext(report: TradingReport): TradingReport {
     breakoutSetupClear,
     pivotExists: finite(pivotPrice),
   });
+
+  if (regime === "support_breakdown") {
+    currentEntry.label = "진입 보류";
+    pullbackEntry.label = "지지 회복 필요";
+    breakoutEntry.label = "회복 확인 필요";
+  } else if (regime === "downtrend_rebound") {
+    currentEntry.label = "추격 주의";
+    pullbackEntry.label = "미래 눌림목 관심";
+    breakoutEntry.label = breakoutConfirmed ? "재지지 확인 필요" : "돌파 확인 필요";
+  } else if (regime === "resistance_test") {
+    currentEntry.label = "저항 근접";
+    pullbackEntry.label = "미래 눌림목 관심";
+    breakoutEntry.label = "돌파 확인 필요";
+  } else if (regime === "uptrend_pullback") {
+    pullbackEntry.label = pullbackEntry.score >= 70 ? "눌림목 후보" : "지지 확인 시 관심";
+  } else if (regime === "uptrend_consolidation") {
+    pullbackEntry.label = "눌림 대기";
+  }
 
   if (nearResistance || targetGapVerySmall) {
     currentEntry.explanation = "현재가가 저항 또는 목표 구간에 가까워 현재가 추격매수는 신중해야 합니다.";
@@ -1601,7 +1711,16 @@ function adjustEntryScoresByRegime(report: TradingReport): TradingReport {
   const pullbackRr = rr.pullback?.value ?? null;
   const breakoutRr = rr.breakout?.value ?? null;
 
-  if (regime === "downtrend") {
+  if (regime === "support_breakdown") {
+    entries.currentEntry.score = Math.min(entries.currentEntry.score, 30);
+    entries.pullbackEntry.score = Math.min(entries.pullbackEntry.score, 35);
+    entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, 40);
+    score.holdScore = Math.min(score.holdScore, 55);
+    score.riskScore = Math.max(score.riskScore, 70);
+    entries.currentEntry.explanation = "주요 지지선 이탈이 확인되어 현재가 신규 진입보다 위험 관리가 우선입니다.";
+    entries.pullbackEntry.explanation = "지지선 회복 전까지 눌림목 진입도 보수적으로 제한해야 합니다.";
+    entries.breakoutEntry.explanation = "지지 회복과 저항 돌파 후 재지지 전까지 돌파 진입은 보류합니다.";
+  } else if (regime === "downtrend") {
     entries.currentEntry.score = Math.min(entries.currentEntry.score, supportBroken ? 30 : 45);
     entries.pullbackEntry.score = Math.min(entries.pullbackEntry.score, supportBroken ? 35 : 55);
     entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, breakoutReclaimConfirmed ? 60 : 50);
@@ -1614,6 +1733,13 @@ function adjustEntryScoresByRegime(report: TradingReport): TradingReport {
     entries.breakoutEntry.explanation = breakoutReclaimConfirmed
       ? "주요 저항 회복 이후에도 재지지 확인이 필요합니다."
       : "주요 저항 회복과 돌파 후 재지지가 확인되기 전까지는 돌파 진입을 보류합니다.";
+  } else if (regime === "downtrend_rebound") {
+    entries.currentEntry.score = Math.min(entries.currentEntry.score, 45);
+    entries.pullbackEntry.score = Math.min(entries.pullbackEntry.score, 60);
+    entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, breakoutReclaimConfirmed ? 65 : 60);
+    entries.currentEntry.explanation = "하락 이후 반등 구간에서는 현재가 진입보다 저항 회복 확인이 우선입니다.";
+    entries.pullbackEntry.explanation = "눌림목은 미래 지지 확인 시 관심 구간이며 즉시 매수 우위로 보기는 어렵습니다.";
+    entries.breakoutEntry.explanation = "주요 저항 돌파 후 재지지가 확인되어야 추세 전환 후보로 볼 수 있습니다.";
   } else if (regime === "overextended_surge") {
     entries.currentEntry.score = Math.min(entries.currentEntry.score, 40);
     entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, 60);
@@ -1634,10 +1760,29 @@ function adjustEntryScoresByRegime(report: TradingReport): TradingReport {
     entries.breakoutEntry.explanation = breakoutTargetTooClose
       ? "돌파는 확인되더라도 다음 목표가가 가까워 손익비 확인이 필요합니다."
       : "핵심 전환 가격 위에서 재지지가 유지되어 돌파 진입 점수를 우선 반영합니다.";
+  } else if (regime === "resistance_test") {
+    entries.currentEntry.score = Math.min(entries.currentEntry.score, 40);
+    entries.pullbackEntry.score = Math.min(entries.pullbackEntry.score, 65);
+    entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, breakoutRetestConfirmed ? 65 : 60);
+    entries.currentEntry.explanation = "저항권 테스트 구간에서는 현재가 추격매수보다 돌파 후 재지지 확인이 우선입니다.";
+    entries.pullbackEntry.explanation = "눌림목은 향후 지지 구간까지 내려온 뒤 확인할 미래 관심 구간입니다.";
+    entries.breakoutEntry.explanation = "저항 돌파와 재지지가 확인되기 전까지는 돌파 확인 대기가 우선입니다.";
   } else if (regime === "breakout_wait") {
     entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, 60);
     entries.breakoutEntry.label = "돌파 확인 필요";
     entries.breakoutEntry.explanation = "돌파 후 재지지 확인 전까지는 돌파 진입을 대기하는 구간입니다.";
+  } else if (regime === "uptrend_pullback") {
+    if (pullbackSetupClear) entries.pullbackEntry.score = Math.max(entries.pullbackEntry.score, 65);
+    entries.pullbackEntry.score = Math.min(entries.pullbackEntry.score, score.riskScore < 55 ? 85 : 75);
+    if (marketContext.nearSupport && score.riskScore < 60) entries.currentEntry.score = Math.max(entries.currentEntry.score, 45);
+    if (!breakoutRetestConfirmed) entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, 60);
+    entries.pullbackEntry.explanation = "상승 흐름 속 눌림 구간으로, 지지 반응 확인 시 눌림목 진입 후보로 볼 수 있습니다.";
+  } else if (regime === "uptrend_consolidation") {
+    entries.currentEntry.score = Math.min(entries.currentEntry.score, 65);
+    if (pullbackSetupClear) entries.pullbackEntry.score = Math.max(entries.pullbackEntry.score, 60);
+    entries.pullbackEntry.score = Math.min(entries.pullbackEntry.score, 75);
+    if (!breakoutRetestConfirmed) entries.breakoutEntry.score = Math.min(entries.breakoutEntry.score, 65);
+    entries.pullbackEntry.explanation = "상승 흐름 이후 조정 구간으로 지지 유지와 반등 확인이 필요합니다.";
   } else if (regime === "range_lower_support") {
     if (pullbackSetupClear && (finite(pullbackRr) ? pullbackRr >= 1.2 : true)) {
       entries.pullbackEntry.score = Math.max(entries.pullbackEntry.score, 65);
@@ -1671,7 +1816,11 @@ function adjustEntryScoresByRegime(report: TradingReport): TradingReport {
   refreshEntryScoreLabel(entries.pullbackEntry, "pullbackEntry");
   refreshEntryScoreLabel(entries.breakoutEntry, "breakoutEntry");
   if (regime === "overextended_surge" && entries.pullbackEntry.score >= 50) entries.pullbackEntry.label = "눌림 대기";
+  if (regime === "downtrend_rebound" && entries.pullbackEntry.score >= 50) entries.pullbackEntry.label = "미래 눌림목 관심";
+  if (regime === "resistance_test" && entries.pullbackEntry.score >= 50) entries.pullbackEntry.label = "미래 눌림목 관심";
   if (regime === "breakout_wait" && entries.breakoutEntry.score >= 30) entries.breakoutEntry.label = "돌파 확인 필요";
+  if (regime === "uptrend_pullback" && entries.pullbackEntry.score >= 60) entries.pullbackEntry.label = "지지 확인 시 관심";
+  if (regime === "uptrend_consolidation" && entries.pullbackEntry.score >= 55) entries.pullbackEntry.label = "눌림 대기";
   if (regime === "range_lower_support" && entries.currentEntry.score < 65 && entries.currentEntry.score >= 45) entries.currentEntry.label = "지지 확인 필요";
   score.entryScores = entries;
   report.scoreSummary = score;
@@ -2100,9 +2249,9 @@ function alignScoreWithAction(report: TradingReport) {
   const chartRegime = deriveChartRegime(report);
   report.marketContext = {
     ...report.marketContext,
-    chartRegime: report.marketContext.chartRegime ?? chartRegime.regime,
-    chartRegimeConfidence: report.marketContext.chartRegimeConfidence ?? chartRegime.confidence,
-    chartRegimeReasons: report.marketContext.chartRegimeReasons ?? chartRegime.reasons,
+    chartRegime: chartRegime.regime,
+    chartRegimeConfidence: chartRegime.confidence,
+    chartRegimeReasons: chartRegime.reasons,
   };
   const regime = report.marketContext.chartRegime ?? chartRegime.regime;
   const breakoutRetestConfirmed = Boolean(report.marketContext.breakoutRetestConfirmed) || (finite(currentPrice) && finite(pivotPrice) && currentPrice >= pivotPrice * 1.005);
@@ -2134,7 +2283,9 @@ function alignScoreWithAction(report: TradingReport) {
     report.finalSummary.oneLineConclusion = conclusion;
   };
 
-  if (regime === "downtrend") {
+  if (regime === "support_breakdown") {
+    setFinalAction("SELL_RISK", "위험 관리 / 신규 진입 보류", "주요 지지선 이탈이 확인되어 신규 진입보다 손절 기준과 비중 관리가 우선입니다.");
+  } else if (regime === "downtrend") {
     if (supportArea) {
       setFinalAction("WAIT_FOR_SUPPORT_CONFIRMATION", "하락 추세 반등 대기 / 지지 확인 필요", "현재 구간은 기술적 반등 가능성은 있으나, 추세 전환 확인 전까지 신규 진입은 신중해야 합니다.");
     } else if (report.marketContext.nearResistance) {
@@ -2142,6 +2293,8 @@ function alignScoreWithAction(report: TradingReport) {
     } else {
       setFinalAction("WAIT_FOR_SUPPORT_CONFIRMATION", "하락 추세 / 신규 진입 보류", "하락 추세에서는 지지권 반등만으로 매수 후보를 강하게 보기 어렵습니다. 주요 저항 회복 또는 추세 전환 확인이 필요합니다.");
     }
+  } else if (regime === "downtrend_rebound") {
+    setFinalAction("BREAKOUT_WAIT", report.marketContext.nearResistance ? "저항권 테스트 / 추격매수 주의" : "하락추세 반등 / 돌파 확인 대기", "하락 이후 반등 구간은 추세 전환 확인 전까지 저항 돌파와 재지지 확인이 우선입니다.");
   } else if (regime === "overextended_surge") {
     if (pullbackEntryScore >= 65 && finite(rrValues.pullback?.value) && rrValues.pullback.value >= 1.2) {
       setFinalAction("WAIT_FOR_PULLBACK", "급등 후 눌림 대기 / 지지 확인 시 관심", "단기 급등 후 저항 구간에 가까워 현재가 추격매수는 불리하고, 주요 지지 구간까지 눌림과 반등 확인이 필요합니다.");
@@ -2160,6 +2313,8 @@ function alignScoreWithAction(report: TradingReport) {
     } else {
       setFinalAction("BREAKOUT_WAIT", "돌파 실패 위험 / 재이탈 주의", "핵심 전환 가격 위 재지지가 약하면 재이탈 시 돌파 실패로 볼 수 있습니다.");
     }
+  } else if (regime === "resistance_test") {
+    setFinalAction("BREAKOUT_WAIT", "저항권 테스트 / 돌파 확인 대기", "현재가는 주요 저항 또는 목표 구간에 가까워 신규 진입보다 돌파 후 재지지 확인이 우선입니다.");
   } else if (regime === "breakout_wait") {
     if (pullbackEntryScore >= 65) {
       setFinalAction("BREAKOUT_WAIT", "돌파 확인 대기 / 눌림목 지지 확인 시 관심", "핵심 전환 가격 돌파 후 재지지는 아직 확인되지 않았지만, 주요 지지 구간에서 반등이 나오면 눌림목 진입 후보로 볼 수 있습니다.");
@@ -2183,6 +2338,10 @@ function alignScoreWithAction(report: TradingReport) {
     } else {
       setFinalAction("WAIT_FOR_SUPPORT_CONFIRMATION", "지지 확인 대기", "박스권 하단 또는 주요 지지 구간에 가까워 일부 익절보다 반등 확인이 우선입니다.");
     }
+  } else if (regime === "uptrend_pullback") {
+    setFinalAction("PULLBACK_BUY_CANDIDATE", "상승추세 눌림 / 지지 확인 시 관심", "상승 흐름 속 조정 구간으로, 주요 지지에서 반등이 확인되면 눌림목 진입 후보로 볼 수 있습니다.");
+  } else if (regime === "uptrend_consolidation") {
+    setFinalAction("WAIT_FOR_PULLBACK", "상승추세 조정 / 지지 확인 필요", "상승 흐름은 유지될 수 있으나 지지 반응 또는 돌파 확인 전까지는 조건부 대기가 유리합니다.");
   } else if (regime === "healthy_pullback") {
     setFinalAction("PULLBACK_BUY_CANDIDATE", "눌림목 매수 후보", "주요 지지 구간에서 반등이 확인되면 손절 기준을 짧게 둘 수 있어 눌림목 진입 조건이 가장 유리합니다.");
   } else if (regime === "sideways") {
@@ -2456,9 +2615,9 @@ function validateReportConsistency(report: TradingReport) {
   report.marketContext = {
     ...marketContext,
     ...report.marketContext,
-    chartRegime: report.marketContext?.chartRegime ?? chartRegime.regime,
-    chartRegimeConfidence: report.marketContext?.chartRegimeConfidence ?? chartRegime.confidence,
-    chartRegimeReasons: report.marketContext?.chartRegimeReasons ?? chartRegime.reasons,
+    chartRegime: chartRegime.regime,
+    chartRegimeConfidence: chartRegime.confidence,
+    chartRegimeReasons: chartRegime.reasons,
   };
   const supportArea = report.marketContext.priceLocation === "near_support" || report.marketContext.priceLocation === "lower_range";
   const priceLocation = report.marketContext.priceLocation;
@@ -2472,7 +2631,11 @@ function validateReportConsistency(report: TradingReport) {
       !supportArea,
   );
 
-  if (!terminalRisk && regime === "downtrend") {
+  if (!terminalRisk && regime === "support_breakdown") {
+    report.finalSummary.finalAction = "SELL_RISK";
+    report.finalSummary.title = "위험 관리 / 신규 진입 보류";
+    report.finalSummary.oneLineConclusion = "주요 지지선 이탈이 확인되어 신규 진입보다 손절 기준과 비중 관리가 우선입니다.";
+  } else if (!terminalRisk && regime === "downtrend") {
     report.finalSummary.finalAction = "WAIT_FOR_SUPPORT_CONFIRMATION";
     if (supportArea) {
       report.finalSummary.title = "하락 추세 반등 대기 / 지지 확인 필요";
@@ -2484,6 +2647,10 @@ function validateReportConsistency(report: TradingReport) {
       report.finalSummary.title = "하락 추세 / 신규 진입 보류";
       report.finalSummary.oneLineConclusion = "하락 추세에서는 지지권 반등만으로 매수 후보를 강하게 보기 어렵습니다. 주요 저항 회복 또는 추세 전환 확인이 필요합니다.";
     }
+  } else if (!terminalRisk && regime === "downtrend_rebound") {
+    report.finalSummary.finalAction = "BREAKOUT_WAIT";
+    report.finalSummary.title = report.marketContext.nearResistance ? "저항권 테스트 / 추격매수 주의" : "하락추세 반등 / 돌파 확인 대기";
+    report.finalSummary.oneLineConclusion = "하락 이후 반등 구간은 추세 전환 확인 전까지 저항 돌파와 재지지 확인이 우선입니다.";
   } else if (!terminalRisk && regime === "overextended_surge") {
     if (consistentPullbackEntry.score >= 65 && finite(pullbackRr) && pullbackRr >= 1.2) {
       report.finalSummary.finalAction = "WAIT_FOR_PULLBACK";
@@ -2510,6 +2677,10 @@ function validateReportConsistency(report: TradingReport) {
       report.finalSummary.title = "돌파 실패 위험 / 재이탈 주의";
       report.finalSummary.oneLineConclusion = "핵심 전환 가격 위 재지지가 약하면 재이탈 시 돌파 실패로 볼 수 있습니다.";
     }
+  } else if (!terminalRisk && regime === "resistance_test") {
+    report.finalSummary.finalAction = "BREAKOUT_WAIT";
+    report.finalSummary.title = "저항권 테스트 / 돌파 확인 대기";
+    report.finalSummary.oneLineConclusion = "현재가는 주요 저항 또는 목표 구간에 가까워 신규 진입보다 돌파 후 재지지 확인이 우선입니다.";
   } else if (!terminalRisk && regime === "breakout_wait") {
     report.finalSummary.finalAction = "BREAKOUT_WAIT";
     if (consistentPullbackEntry.score >= 65) {
@@ -2540,6 +2711,14 @@ function validateReportConsistency(report: TradingReport) {
       report.finalSummary.title = "지지 확인 대기";
       report.finalSummary.oneLineConclusion = "박스권 하단 또는 주요 지지 구간에 가까워 일부 익절보다 반등 확인이 우선입니다.";
     }
+  } else if (!terminalRisk && regime === "uptrend_pullback") {
+    report.finalSummary.finalAction = "PULLBACK_BUY_CANDIDATE";
+    report.finalSummary.title = "상승추세 눌림 / 지지 확인 시 관심";
+    report.finalSummary.oneLineConclusion = "상승 흐름 속 조정 구간으로, 주요 지지에서 반등이 확인되면 눌림목 진입 후보로 볼 수 있습니다.";
+  } else if (!terminalRisk && regime === "uptrend_consolidation") {
+    report.finalSummary.finalAction = "WAIT_FOR_PULLBACK";
+    report.finalSummary.title = "상승추세 조정 / 지지 확인 필요";
+    report.finalSummary.oneLineConclusion = "상승 흐름은 유지될 수 있으나 지지 반응 또는 돌파 확인 전까지는 조건부 대기가 유리합니다.";
   } else if (!terminalRisk && regime === "healthy_pullback") {
     report.finalSummary.finalAction = "PULLBACK_BUY_CANDIDATE";
     report.finalSummary.title = "눌림목 매수 후보";
@@ -2736,15 +2915,15 @@ function inferTradingActionState(report: TradingReport): TradingActionState {
   const stopPrice = priceFromText(report.tradePlan.stopLossByEntry?.currentEntry?.priceZone ?? report.tradePlan.stopLoss.shortTerm?.priceZone ?? report.tradePlan.stopLoss.priceZone);
   const supportBroken = finite(currentPrice) && finite(stopPrice) && currentPrice < stopPrice * 0.995;
 
-  if (action === "NO_TRADE" || supportBroken || (score.riskScore >= 85 && current < 25 && pullback < 30)) return "AVOID";
+  if (action === "NO_TRADE" || supportBroken || regime === "support_breakdown" || (score.riskScore >= 85 && current < 25 && pullback < 30)) return "AVOID";
   if (action === "SELL_RISK" || action === "REDUCE_POSITION" || regime === "overextended_surge" || score.riskScore >= 75) return "HIGH_RISK";
   if (regime === "breakout_retest_confirmed" && breakout >= 65 && score.riskScore < 60) return "STRONG_BUY";
-  if (regime === "breakout_wait" || regime === "range_upper_resistance" || action === "BREAKOUT_WAIT" || action === "WAIT_FOR_BREAKOUT") return "BREAKOUT_WAIT";
+  if (regime === "breakout_wait" || regime === "range_upper_resistance" || regime === "resistance_test" || regime === "downtrend_rebound" || action === "BREAKOUT_WAIT" || action === "WAIT_FOR_BREAKOUT") return "BREAKOUT_WAIT";
   if (regime === "downtrend") {
     return report.marketContext?.nearResistance || breakout >= Math.max(current, pullback) ? "BREAKOUT_WAIT" : "HOLD_ONLY";
   }
   if (action === "HOLD_AND_WATCH" || action === "NO_NEW_ENTRY_HOLD_OK" || action === "HOLD") return "HOLD_ONLY";
-  if (regime === "range_lower_support" || regime === "healthy_pullback" || action === "PULLBACK_BUY_CANDIDATE" || action === "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED" || location === "near_support" || location === "lower_range") return "PULLBACK_ENTRY";
+  if (regime === "uptrend_pullback" || regime === "uptrend_consolidation" || regime === "range_lower_support" || regime === "healthy_pullback" || action === "PULLBACK_BUY_CANDIDATE" || action === "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED" || location === "near_support" || location === "lower_range") return "PULLBACK_ENTRY";
   if ((action === "CONDITIONAL_BUY" || action === "BUY_CANDIDATE" || action === "BREAKOUT_BUY_CANDIDATE") && score.totalScore >= 65 && score.riskScore < 55) return "STRONG_BUY";
   if (score.holdScore >= 60 && current < 45) return "HOLD_ONLY";
   if (pullback >= Math.max(current, breakout, 65)) return "PULLBACK_ENTRY";
@@ -2871,11 +3050,27 @@ function deriveFinalActionByRegime(report: TradingReport): NonNullable<TradingRe
   const supportArea = marketContext.priceLocation === "near_support" || marketContext.priceLocation === "lower_range";
   const holderValid = holdScore >= 60 && riskScore < 80;
 
+  if (regime === "support_breakdown") {
+    return {
+      title: "위험 관리 / 신규 진입 보류",
+      subtitle: "주요 지지선 이탈이 확인되어 반등 확인 전까지 신규 진입보다 손절 기준과 비중 관리가 우선입니다.",
+      actionType: "SUPPORT_BREAKDOWN_RISK",
+      reason,
+    };
+  }
   if (regime === "downtrend") {
     return {
       title: supportArea ? "하락 추세 반등 대기 / 지지 확인 필요" : "하락 추세 / 신규 진입 보류",
       subtitle: "기술적 반등 가능성은 있으나, 추세 전환 확인 전까지 신규 진입은 신중해야 합니다.",
       actionType: "DOWNTREND_WAIT",
+      reason,
+    };
+  }
+  if (regime === "downtrend_rebound") {
+    return {
+      title: marketContext.nearResistance ? "저항권 테스트 / 추격매수 주의" : "하락추세 반등 / 돌파 확인 대기",
+      subtitle: "하락 이후 반등은 추세 전환으로 단정하기 어렵고, 주요 저항 회복과 돌파 후 재지지 확인이 필요합니다.",
+      actionType: "DOWNTREND_REBOUND_WAIT",
       reason,
     };
   }
@@ -2892,6 +3087,14 @@ function deriveFinalActionByRegime(report: TradingReport): NonNullable<TradingRe
       title: breakoutEntry >= 60 ? "돌파 후 재지지 확인 / 돌파 매수 후보" : "돌파 후 지지 전환 후보 / 확인 필요",
       subtitle: "핵심 전환 가격 위에서 지지가 유지되면 다음 저항까지 상승 여지를 볼 수 있습니다.",
       actionType: "BREAKOUT_RETEST_CONFIRMED",
+      reason,
+    };
+  }
+  if (regime === "resistance_test") {
+    return {
+      title: "저항권 테스트 / 돌파 확인 대기",
+      subtitle: "현재가는 주요 저항 또는 목표 구간에 가까워 신규 진입보다 돌파 후 재지지 확인이 우선입니다.",
+      actionType: "RESISTANCE_TEST_WAIT",
       reason,
     };
   }
@@ -2923,6 +3126,22 @@ function deriveFinalActionByRegime(report: TradingReport): NonNullable<TradingRe
       title: "지지권 눌림목 매수 후보",
       subtitle: "주요 지지 구간에서 반등이 확인되면 손절 기준을 짧게 두고 진입 후보로 볼 수 있습니다.",
       actionType: "RANGE_LOWER_SUPPORT",
+      reason,
+    };
+  }
+  if (regime === "uptrend_pullback") {
+    return {
+      title: "상승추세 눌림 / 지지 확인 시 관심",
+      subtitle: "상승 흐름 속 조정 구간으로, 주요 지지에서 반등이 확인되면 눌림목 진입 후보로 볼 수 있습니다.",
+      actionType: "UPTREND_PULLBACK_INTEREST",
+      reason,
+    };
+  }
+  if (regime === "uptrend_consolidation") {
+    return {
+      title: "상승추세 조정 / 지지 확인 필요",
+      subtitle: "상승 흐름은 유지될 수 있으나 지지 반응 또는 돌파 확인 전까지는 조건부 대기가 유리합니다.",
+      actionType: "UPTREND_CONSOLIDATION_WAIT",
       reason,
     };
   }
@@ -2977,7 +3196,14 @@ export function validateTradingReportConsistency(report: TradingReport): string[
     report.tradePlan.stopLossByEntry?.breakoutEntry?.explanation,
   ].map((item) => safeText(item, "")).join(" ");
 
-  if ((/PULLBACK_BUY|눌림목 매수 후보/.test(actionText)) && (regime === "downtrend" || regime === "overextended_surge")) {
+  const pullbackRestrictedRegime =
+    regime === "support_breakdown" ||
+    regime === "downtrend" ||
+    regime === "downtrend_rebound" ||
+    regime === "resistance_test" ||
+    regime === "overextended_surge";
+
+  if ((/PULLBACK_BUY|눌림목 매수 후보/.test(actionText)) && pullbackRestrictedRegime) {
     warnings.push("추세/과열 상태에서 눌림목 매수 판단이 과도하지 않은지 확인 필요");
   }
   if ((/BREAKOUT.*BUY|돌파 매수 후보/.test(actionText) || report.finalSummary.finalAction === "BREAKOUT_BUY_CANDIDATE") && !breakoutConfirmed) {
@@ -3007,6 +3233,15 @@ export function validateTradingReportConsistency(report: TradingReport): string[
   if (regime === "downtrend" && (/STRONG_BUY|강한 매수|현재가.*유리/.test(actionText) || currentEntry >= 80)) {
     warnings.push("하락 추세에서 강한 매수 또는 현재가 우위로 표시됨");
   }
+  if (regime === "support_breakdown" && (/STRONG_BUY|매수 후보|현재가.*유리|눌림목 매수/.test(actionText) || currentEntry >= 50 || pullbackEntry >= 55)) {
+    warnings.push("지지선 이탈 구간에서 신규 진입 판단이 과도하게 우호적임");
+  }
+  if (regime === "downtrend_rebound" && (/건전한 눌림|눌림목 진입 우세|눌림목 매수 후보/.test(`${actionText} ${rawFinalText}`) || currentEntry >= 65 || pullbackEntry >= 75)) {
+    warnings.push("하락추세 반등 구간에서 눌림목 우위 또는 진입 점수가 과도하게 표시됨");
+  }
+  if (regime === "resistance_test" && (/눌림목 진입 우세|눌림목 매수 후보/.test(`${actionText} ${rawFinalText}`) || currentEntry >= 60 || pullbackEntry >= 75)) {
+    warnings.push("저항권 테스트 구간에서 눌림목 우위 또는 현재가 진입 점수가 과도함");
+  }
   if (regime === "overextended_surge" && (/현재가.*유리|즉시 매수|매수 우위/.test(actionText) || currentEntry > 40)) {
     warnings.push("급등 과열 구간에서 현재가 진입이 과도하게 우호적으로 표시됨");
   }
@@ -3021,6 +3256,9 @@ export function validateTradingReportConsistency(report: TradingReport): string[
   }
   if (regime === "range_lower_support" && !/지지|눌림|반등|SUPPORT|PULLBACK/i.test(actionText)) {
     warnings.push("박스권 하단 판단에 지지/눌림/반등 맥락이 부족함");
+  }
+  if ((regime === "uptrend_pullback" || regime === "uptrend_consolidation") && /박스권 하단|^대기$/.test(actionText.trim())) {
+    warnings.push("상승추세 눌림/조정 구간이 박스권 하단 또는 단순 대기로 표시됨");
   }
   if (regime === "range_upper_resistance" && /지지권 눌림목 매수 후보/.test(actionText)) {
     warnings.push("박스권 상단에서 지지권 눌림목 매수 후보로 표시됨");
@@ -3058,9 +3296,9 @@ function applyNormalizedPostProcessingFields(report: TradingReport) {
   };
   report.marketContext = {
     ...context,
-    chartRegime: context.chartRegime ?? regime.regime,
-    chartRegimeConfidence: context.chartRegimeConfidence ?? regime.confidence,
-    chartRegimeReasons: (context.chartRegimeReasons ?? regime.reasons).map((item) => safeText(item, "분석 정보 부족")),
+    chartRegime: regime.regime,
+    chartRegimeConfidence: regime.confidence,
+    chartRegimeReasons: regime.reasons.map((item) => safeText(item, "분석 정보 부족")),
   };
   report.chartRegime = {
     type: report.marketContext.chartRegime ?? "unknown",
@@ -3223,9 +3461,9 @@ function sanitizeTradingReport(report: TradingReport) {
   const chartRegime = deriveChartRegime(report);
   report.marketContext = {
     ...report.marketContext,
-    chartRegime: report.marketContext.chartRegime ?? chartRegime.regime,
-    chartRegimeConfidence: report.marketContext.chartRegimeConfidence ?? chartRegime.confidence,
-    chartRegimeReasons: report.marketContext.chartRegimeReasons ?? chartRegime.reasons,
+    chartRegime: chartRegime.regime,
+    chartRegimeConfidence: chartRegime.confidence,
+    chartRegimeReasons: chartRegime.reasons,
   };
   adjustEntryScoresByRegime(report);
   report.indicatorAnalysis = normalizeIndicatorAnalysisClean(report.indicatorAnalysis);

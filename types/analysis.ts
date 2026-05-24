@@ -502,6 +502,7 @@ export type ChartRegime =
   | "healthy_pullback"
   | "downtrend"
   | "overextended_surge"
+  | "overheated_breakout"
   | "breakout_retest_confirmed"
   | "breakout_wait"
   | "range_lower_support"

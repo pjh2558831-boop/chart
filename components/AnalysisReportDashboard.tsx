@@ -321,14 +321,31 @@ function MetricBar({ label, score, riskMode = false }: { label: string; score: n
       : score >= 70 ? "bg-emerald-500" : score >= 40 ? "bg-amber-500" : "bg-rose-500";
 
   return (
-    <div className="grid min-w-0 grid-cols-[minmax(72px,92px)_minmax(0,1fr)_minmax(64px,74px)] items-center gap-3 text-sm">
-      <span className="whitespace-nowrap font-semibold text-slate-700">{label}</span>
+    <div className="grid min-w-0 grid-cols-[minmax(88px,124px)_minmax(0,1fr)_minmax(56px,70px)] items-center gap-3 text-sm">
+      <span className="font-semibold leading-5 text-slate-700 [overflow-wrap:break-word] [word-break:keep-all]">{label}</span>
       <div className="h-2 rounded-full bg-slate-100">
         <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
       </div>
       <span className="text-right text-xs font-bold leading-5 text-slate-900 [overflow-wrap:break-word]">{score === null ? "확인 필요" : score}</span>
     </div>
   );
+}
+
+function entryMetricLabel(mode: InstitutionalReportViewModel["scorePanel"]["entryScoreMode"]) {
+  switch (mode) {
+    case "current":
+      return "현재가 진입 점수";
+    case "pullback_wait":
+      return "눌림목 대기 점수";
+    case "breakout_wait":
+      return "돌파 확인 점수";
+    case "breakout_confirmed":
+      return "재지지 확인 점수";
+    case "risk":
+      return "진입 보류";
+    default:
+      return "진입 판단";
+  }
 }
 
 function SignalScoreCard({ vm }: { vm: InstitutionalReportViewModel }) {
@@ -344,8 +361,11 @@ function SignalScoreCard({ vm }: { vm: InstitutionalReportViewModel }) {
           <MetricBar label="돌파 확률" score={vm.scorePanel.breakoutScore} />
           <MetricBar label="리스크 수준" score={vm.scorePanel.riskScore} riskMode />
           <div>
-            <MetricBar label="진입 점수" score={vm.scorePanel.entryScore} />
-            <p className="mt-1 text-right text-xs font-semibold leading-5 text-slate-500 [word-break:keep-all]">
+            <MetricBar label={entryMetricLabel(vm.scorePanel.entryScoreMode)} score={vm.scorePanel.entryScore} />
+            <p
+              className="mt-1 text-right text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]"
+              title={safeValue(vm.scorePanel.entryScoreExplanation, "")}
+            >
               {safeValue(vm.scorePanel.entryScoreLabel, "확인 필요")}
             </p>
           </div>
@@ -356,18 +376,16 @@ function SignalScoreCard({ vm }: { vm: InstitutionalReportViewModel }) {
 }
 
 function PriceLevelsCard({ vm }: { vm: InstitutionalReportViewModel }) {
-  const targetValue = vm.keyLevels.targetGapLabel === "목표 여유 낮음"
-    ? `${safeValue(vm.keyLevels.target)} · 목표가 근접`
-    : vm.keyLevels.target;
   const rows = [
     ["현재 가격", vm.keyLevels.currentPrice, "bg-slate-500"],
     ["핵심 전환 가격", vm.basisSummary.pivotPrice, "bg-blue-900"],
     ["주요 지지선", vm.keyLevels.mainSupport, "bg-emerald-500"],
     ["보조 지지선", vm.keyLevels.secondarySupport, "bg-emerald-400"],
     ["주요 저항선", vm.keyLevels.mainResistance, "bg-rose-500"],
-    ["상단 돌파 기준", vm.keyLevels.breakoutTrigger, "bg-blue-700"],
+    ["돌파 기준", vm.keyLevels.breakoutTrigger, "bg-blue-700"],
+    ["1차 목표", vm.keyLevels.target, "bg-blue-500"],
+    ["확장 목표", vm.keyLevels.upperBreakoutTarget, "bg-sky-500"],
     ["손절 기준", vm.keyLevels.stopLoss, "bg-red-500"],
-    ["목표 주가", targetValue, "bg-blue-500"],
     ["중기 무효화", vm.keyLevels.invalidation, "bg-red-700"],
   ];
 

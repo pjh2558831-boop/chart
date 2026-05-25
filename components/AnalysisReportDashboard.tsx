@@ -376,7 +376,7 @@ function getFinalActionCardText(vm: InstitutionalReportViewModel) {
 
 function HeroPanel({ children, className = "" }: CardProps) {
   return (
-    <section className={`box-border min-w-0 max-w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm [overflow-wrap:break-word] [word-break:keep-all] sm:p-5 ${className}`}>
+    <section className={`box-border flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm [overflow-wrap:break-word] [word-break:keep-all] sm:p-5 ${className}`}>
       {children}
     </section>
   );
@@ -393,7 +393,7 @@ function HeroPanelTitle({ title }: { title: string }) {
 
 function HeroInfoBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
       <p className="text-xs font-extrabold tracking-normal text-slate-500">{label}</p>
       <p className="mt-1 text-sm font-bold leading-6 text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]">{safeValue(value, "확인 필요")}</p>
     </div>
@@ -469,7 +469,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   return (
     <Card className="overflow-hidden border-slate-200 bg-white">
       <div className="space-y-4">
-        <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.35fr)_minmax(0,1fr)] lg:items-stretch xl:grid-cols-[minmax(220px,0.85fr)_minmax(360px,1.35fr)_minmax(320px,1fr)]">
+        <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_minmax(0,1.1fr)] lg:items-stretch xl:grid-cols-[minmax(220px,1fr)_minmax(360px,1.35fr)_minmax(320px,1.1fr)]">
         <HeroPanel className="order-1 md:col-span-1">
           <div className="min-w-0">
             <p className="mb-3 text-sm font-extrabold tracking-normal text-slate-950 [word-break:keep-all]">종목 요약</p>
@@ -503,7 +503,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
         </HeroPanel>
 
-        <HeroPanel className="order-3 md:col-span-2 lg:order-2 lg:col-span-1">
+        <HeroPanel className="order-2 md:col-span-1 lg:col-span-1">
           <HeroPanelTitle title="매매 전략" />
           <p className="max-w-full overflow-hidden text-[clamp(1.3rem,1.75vw,1.9rem)] font-extrabold leading-tight tracking-normal text-slate-950 [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {strategyTitle}
@@ -521,7 +521,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
         </HeroPanel>
 
-        <HeroPanel className={`order-2 md:col-span-1 lg:order-3 ${signalToneClass[finalTone]}`}>
+        <HeroPanel className={`order-3 md:col-span-2 lg:col-span-1 ${signalToneClass[finalTone]}`}>
           <div className="flex min-w-0 flex-col gap-4">
             <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-current/20 bg-white/60 text-3xl font-black leading-none">
@@ -544,7 +544,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
         </HeroPanel>
         </div>
 
-        <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,0.75fr)_minmax(0,0.8fr)] lg:items-start xl:grid-cols-[minmax(420px,1.45fr)_minmax(260px,0.75fr)_minmax(280px,0.8fr)]">
+        <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,0.9fr)_minmax(0,0.95fr)] lg:items-stretch xl:grid-cols-[minmax(420px,1.5fr)_minmax(260px,0.9fr)_minmax(280px,0.95fr)]">
         <HeroPanel className="md:col-span-2 lg:col-span-1">
           <HeroPanelTitle title="진입 시나리오" />
           <div className="space-y-3">

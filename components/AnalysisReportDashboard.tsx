@@ -261,6 +261,7 @@ function getRepresentativeTradingStrategy(vm: InstitutionalReportViewModel): Rep
     vm.finalAction.title,
     vm.finalAction.subtitle,
     vm.finalAction.reason,
+    vm.finalAction.actionType,
     vm.hero.trendLabel,
     vm.basisSummary.currentLocation,
     vm.keyLevels.targetGapLabel,
@@ -293,7 +294,13 @@ function getRepresentativeTradingStrategy(vm: InstitutionalReportViewModel): Rep
     || (typeof riskScore === "number" && riskScore >= 70)
     || hasAny(actionText, ["위험", "이탈", "붕괴", "진입 보류", "회피"]);
   const targetGapLow = hasAny(actionText, ["목표가 근접", "목표 여유 낮음", "상승 여지 제한"]);
-  const overheat = hasAny(actionText, ["과열", "급등", "추격매수"]);
+  const overheat = hasAny(actionText, ["과열", "급등", "과열권", "OVERHEATED"]);
+  const reboundOrResistanceTest = hasAny(actionText, [
+    "DOWNTREND_REBOUND",
+    "RESISTANCE_TEST",
+    "하락추세 반등",
+    "저항권 테스트",
+  ]);
   const stopMissing = isMissingLevel(stopLoss);
   const currentEntryAllowed = typeof currentScore === "number"
     && currentScore >= 45
@@ -316,6 +323,23 @@ function getRepresentativeTradingStrategy(vm: InstitutionalReportViewModel): Rep
       && (typeof currentScore !== "number" || breakoutScore >= currentScore)
       && (typeof pullbackScore !== "number" || breakoutScore >= pullbackScore - 5));
 
+  if (reboundOrResistanceTest) {
+    return {
+      title: "신규 진입 보류 / 돌파 확인 대기",
+      summary: [
+        compactStrategyLine(`현재가는 반등 과정에서 ${resistance} 부근 저항권을 테스트하고 있습니다.`),
+        compactStrategyLine(`추세 전환 확인 전까지 신규 진입은 ${breakout} 돌파 후 재지지 확인이 우선입니다.`),
+        compactStrategyLine(`${support} 지지가 무너지면 반등 시나리오는 약화됩니다.`),
+      ],
+      execution: [
+        { label: "진입", value: `${breakout} 돌파 후 재지지`, tone: "positive" },
+        { label: "손절", value: `${support} 이탈`, tone: "risk" },
+        { label: "목표", value: target, tone: "default" },
+      ],
+      badges: ["추격매수 주의", "재지지 확인"],
+    };
+  }
+
   if (currentEntryAllowed || strategySuggestsCurrent) {
     return {
       title: "현재가 분할진입 가능",
@@ -332,7 +356,23 @@ function getRepresentativeTradingStrategy(vm: InstitutionalReportViewModel): Rep
     };
   }
 
-  if (highRisk || (overheat && targetGapLow)) {
+  if (highRisk) {
+    return {
+      title: "신규 진입 보류 / 위험 관리",
+      summary: [
+        compactStrategyLine("위험 신호가 우선이므로 신규 진입보다 손절 기준과 비중 관리가 먼저입니다."),
+        compactStrategyLine(`${support} 회복 또는 ${breakout} 안착 확인 전까지 추가 진입은 신중합니다.`),
+      ],
+      execution: [
+        { label: "진입", value: "신규 대기", tone: "caution" },
+        { label: "손절", value: stopLoss, tone: "risk" },
+        { label: "목표", value: `${resistance} / ${target}`, tone: "default" },
+      ],
+      badges: ["위험 관리", "신규 대기"],
+    };
+  }
+
+  if (overheat && targetGapLow) {
     return {
       title: "일부 익절 후 관망",
       summary: [

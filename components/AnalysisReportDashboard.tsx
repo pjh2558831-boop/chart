@@ -469,12 +469,12 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   return (
     <Card className="overflow-hidden border-slate-200 bg-white">
       <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[minmax(220px,0.9fr)_minmax(360px,1.25fr)_minmax(360px,1.45fr)] xl:items-start">
+        <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.35fr)_minmax(0,1fr)] lg:items-stretch xl:grid-cols-[minmax(220px,0.85fr)_minmax(360px,1.35fr)_minmax(320px,1fr)]">
         <HeroPanel className="order-1 md:col-span-1">
           <div className="min-w-0">
-            <p className="mb-4 text-sm font-extrabold tracking-normal text-slate-950 [word-break:keep-all]">종목 요약</p>
+            <p className="mb-3 text-sm font-extrabold tracking-normal text-slate-950 [word-break:keep-all]">종목 요약</p>
             <h2
-              className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2.75rem,5.2vw,4.9rem)] font-extrabold leading-none tracking-normal text-slate-950"
+              className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2.4rem,4.8vw,4.5rem)] font-extrabold leading-none tracking-normal text-slate-950"
               title={safeValue(hero.stockName, "미확인")}
             >
               {safeValue(hero.stockName, "미확인")}
@@ -486,9 +486,9 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           >
             {safeValue(hero.ticker, "티커 확인 필요")} · {safeValue(hero.marketTag, "시장 확인 필요")}
           </p>
-          <div className="mt-6">
+          <div className="mt-5">
             <p
-              className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(3.4rem,7.2vw,5.6rem)] font-extrabold leading-none tracking-normal text-slate-950"
+              className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(3rem,5.5vw,4.75rem)] font-extrabold leading-none tracking-normal text-slate-950"
               title={safeValue(hero.currentPrice)}
             >
               {safeValue(hero.currentPrice)}
@@ -497,15 +497,15 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
               {safeValue(hero.currencyOrUnit, safeValue(vm.basisSummary.priceUnit, "가격 단위 확인 필요"))}
             </p>
           </div>
-          <div className="mt-5 grid gap-3">
+          <div className="mt-4 grid gap-2.5">
             <HeroInfoBox label="현재가 해석" value={currentInterpretation} />
             <HeroInfoBox label="우선 전략" value={primaryStrategy} />
           </div>
         </HeroPanel>
 
-        <HeroPanel className="order-3 md:col-span-2 xl:order-2 xl:col-span-1">
+        <HeroPanel className="order-3 md:col-span-2 lg:order-2 lg:col-span-1">
           <HeroPanelTitle title="매매 전략" />
-          <p className="max-w-full overflow-hidden text-[clamp(1.35rem,1.9vw,2rem)] font-extrabold leading-tight tracking-normal text-slate-950 [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          <p className="max-w-full overflow-hidden text-[clamp(1.3rem,1.75vw,1.9rem)] font-extrabold leading-tight tracking-normal text-slate-950 [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {strategyTitle}
           </p>
           <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
@@ -521,14 +521,14 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
         </HeroPanel>
 
-        <HeroPanel className={`order-2 md:col-span-1 xl:order-3 ${signalToneClass[finalTone]}`}>
+        <HeroPanel className={`order-2 md:col-span-1 lg:order-3 ${signalToneClass[finalTone]}`}>
           <div className="flex min-w-0 flex-col gap-4">
             <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-current/20 bg-white/60 text-3xl font-black leading-none">
                 !
               </div>
               <div className="min-w-0">
-                <p className="max-w-full text-[clamp(1.55rem,2.5vw,2.45rem)] font-extrabold leading-tight tracking-normal [overflow-wrap:break-word] [word-break:keep-all]">
+                <p className="max-w-full text-[clamp(1.45rem,2.15vw,2.3rem)] font-extrabold leading-tight tracking-normal [overflow-wrap:break-word] [word-break:keep-all]">
                   {finalAction.title}
                 </p>
                 <p className="mt-3 text-sm font-semibold leading-6 [overflow-wrap:break-word] [word-break:keep-all]">
@@ -544,8 +544,8 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
         </HeroPanel>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[minmax(520px,1.6fr)_minmax(260px,0.7fr)_minmax(260px,0.7fr)] xl:items-start">
-        <HeroPanel className="md:col-span-2 xl:col-span-1">
+        <div className="grid min-w-0 max-w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,0.75fr)_minmax(0,0.8fr)] lg:items-start xl:grid-cols-[minmax(420px,1.45fr)_minmax(260px,0.75fr)_minmax(280px,0.8fr)]">
+        <HeroPanel className="md:col-span-2 lg:col-span-1">
           <HeroPanelTitle title="진입 시나리오" />
           <div className="space-y-3">
             {entryItems.map(({ key, title, item, status, context }) => (

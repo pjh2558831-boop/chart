@@ -291,6 +291,17 @@ function getEntryScenarioItems(vm: InstitutionalReportViewModel) {
   ];
 }
 
+function compactHeroStatus(value: string) {
+  const text = safeValue(value, "확인 필요");
+  if (text.includes("돌파 후 재지지")) return "재지지 확인";
+  if (text.includes("미래 눌림목")) return "눌림 관심";
+  if (text.includes("추격매수")) return "추격 주의";
+  if (text.includes("현재가 소액")) return "소액 진입";
+  if (text.includes("현재가 분할")) return "분할 진입";
+  if (text.includes("소액 선진입")) return "소액 선진입";
+  return text;
+}
+
 function getSignalSummaryItems(vm: InstitutionalReportViewModel) {
   return [
     { label: "모멘텀", score: vm.scorePanel.momentumScore, riskMode: false },
@@ -457,8 +468,9 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
 
   return (
     <Card className="overflow-hidden border-slate-200 bg-white">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-12 lg:items-stretch">
-        <HeroPanel className="order-1 md:col-span-1 lg:col-span-3">
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[minmax(220px,0.9fr)_minmax(360px,1.25fr)_minmax(360px,1.45fr)] xl:items-start">
+        <HeroPanel className="order-1 md:col-span-1">
           <div className="min-w-0">
             <p className="mb-4 text-sm font-extrabold tracking-normal text-slate-950 [word-break:keep-all]">종목 요약</p>
             <h2
@@ -491,15 +503,15 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
         </HeroPanel>
 
-        <HeroPanel className="order-3 md:col-span-1 lg:order-2 lg:col-span-4">
+        <HeroPanel className="order-3 md:col-span-2 xl:order-2 xl:col-span-1">
           <HeroPanelTitle title="매매 전략" />
-          <p className="max-w-full overflow-hidden text-[clamp(1.45rem,2.2vw,2.25rem)] font-extrabold leading-tight tracking-normal text-slate-950 [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          <p className="max-w-full overflow-hidden text-[clamp(1.35rem,1.9vw,2rem)] font-extrabold leading-tight tracking-normal text-slate-950 [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {strategyTitle}
           </p>
-          <p className="mt-4 text-base font-medium leading-8 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
-            {truncateText(vm.finalAction.subtitle, primaryStrategy, 130)}
+          <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
+            {truncateText(vm.finalAction.subtitle, primaryStrategy, 118)}
           </p>
-          <div className="mt-6 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <SmallBadge className="border-rose-100 bg-rose-50 text-rose-700">
               {strategyBadges[0]}
             </SmallBadge>
@@ -509,27 +521,51 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
         </HeroPanel>
 
-        <HeroPanel className="order-4 md:col-span-2 lg:col-span-6">
+        <HeroPanel className={`order-2 md:col-span-1 xl:order-3 ${signalToneClass[finalTone]}`}>
+          <div className="flex min-w-0 flex-col gap-4">
+            <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-current/20 bg-white/60 text-3xl font-black leading-none">
+                !
+              </div>
+              <div className="min-w-0">
+                <p className="max-w-full text-[clamp(1.55rem,2.5vw,2.45rem)] font-extrabold leading-tight tracking-normal [overflow-wrap:break-word] [word-break:keep-all]">
+                  {finalAction.title}
+                </p>
+                <p className="mt-3 text-sm font-semibold leading-6 [overflow-wrap:break-word] [word-break:keep-all]">
+                  {truncateText(finalAction.explanation, "주요 가격대 확인 후 접근이 필요합니다.", 132)}
+                </p>
+              </div>
+            </div>
+            <div className="rounded-xl border border-current/20 bg-white/60 px-4 py-3">
+              <p className="shrink-0 text-sm font-extrabold">핵심 포인트</p>
+              <p className="mt-2 text-sm font-semibold leading-6 [overflow-wrap:break-word] [word-break:keep-all]">{finalAction.keyPoint}</p>
+            </div>
+          </div>
+        </HeroPanel>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[minmax(520px,1.6fr)_minmax(260px,0.7fr)_minmax(260px,0.7fr)] xl:items-start">
+        <HeroPanel className="md:col-span-2 xl:col-span-1">
           <HeroPanelTitle title="진입 시나리오" />
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="space-y-3">
             {entryItems.map(({ key, title, item, status, context }) => (
-              <article key={key} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-extrabold tracking-normal text-slate-950" title={title}>{title}</h3>
-                    <p className={`mt-3 whitespace-nowrap text-[clamp(1.6rem,3vw,2.25rem)] font-extrabold leading-none ${item.tone === "risk" ? "text-rose-600" : item.tone === "caution" ? "text-amber-600" : item.tone === "positive" ? "text-emerald-600" : "text-blue-700"}`}>
-                      {item.score === null ? "확인" : `${item.score} 점`}
-                    </p>
-                  </div>
-                  <SmallBadge className={entryToneClass[item.tone]}>{status}</SmallBadge>
+              <article key={key} className="grid min-w-0 max-w-full gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-snug lg:grid-cols-[minmax(160px,1fr)_auto_minmax(112px,auto)] lg:items-center lg:gap-4">
+                <div className="min-w-0">
+                  <h3 className="font-extrabold tracking-normal text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]">{title}</h3>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]">{context}</p>
                 </div>
-                <p className="mt-3 text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]">{context}</p>
+                <p className={`whitespace-nowrap text-lg font-extrabold leading-none lg:justify-self-center lg:text-xl ${item.tone === "risk" ? "text-rose-600" : item.tone === "caution" ? "text-amber-600" : item.tone === "positive" ? "text-emerald-600" : "text-blue-700"}`}>
+                  {scoreText(item.score)}
+                </p>
+                <SmallBadge className={`${entryToneClass[item.tone]} max-w-full justify-center whitespace-normal text-[11px] leading-4 lg:justify-self-end`}>
+                  {compactHeroStatus(status)}
+                </SmallBadge>
               </article>
             ))}
           </div>
         </HeroPanel>
 
-        <HeroPanel className="order-5 md:col-span-1 lg:col-span-3">
+        <HeroPanel>
           <HeroPanelTitle title="시그널 요약" />
           <div className="grid min-w-0 gap-4 sm:grid-cols-[120px_minmax(0,1fr)] md:grid-cols-1">
             <HeroScoreRing score={vm.scorePanel.overallScore} />
@@ -540,39 +576,17 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
             </div>
           </div>
           <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3">
-              <div className="flex min-w-0 items-center justify-between gap-3 text-xs">
-                <span className="font-extrabold text-slate-700">진입 관점</span>
-                <span className="font-extrabold text-blue-700">{vm.scorePanel.entryScore === null ? "확인 필요" : vm.scorePanel.entryScore}</span>
-              </div>
-              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]">
-                {safeValue(vm.scorePanel.entryScoreLabel, "확인 필요")}
-              </p>
+            <div className="flex min-w-0 items-center justify-between gap-3 text-xs">
+              <span className="font-extrabold text-slate-700">진입 관점</span>
+              <span className="font-extrabold text-blue-700">{vm.scorePanel.entryScore === null ? "확인 필요" : vm.scorePanel.entryScore}</span>
+            </div>
+            <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]">
+              {safeValue(vm.scorePanel.entryScoreLabel, "확인 필요")}
+            </p>
           </div>
         </HeroPanel>
 
-        <HeroPanel className={`order-2 md:col-span-2 lg:order-3 lg:col-span-5 ${signalToneClass[finalTone]}`}>
-          <div className="flex h-full min-w-0 flex-col justify-between gap-5">
-            <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:items-start">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-current/20 bg-white/60 text-4xl font-black leading-none">
-                !
-              </div>
-              <div className="min-w-0">
-                <p className="max-w-full text-[clamp(1.85rem,3.2vw,3.15rem)] font-extrabold leading-tight tracking-normal [overflow-wrap:break-word] [word-break:keep-all]">
-                  {finalAction.title}
-                </p>
-                <p className="mt-4 text-sm font-semibold leading-7 [overflow-wrap:break-word] [word-break:keep-all]">
-                  {truncateText(finalAction.explanation, "주요 가격대 확인 후 접근이 필요합니다.", 150)}
-                </p>
-              </div>
-            </div>
-            <div className="rounded-xl border border-current/20 bg-white/60 px-4 py-3 sm:flex sm:items-center sm:gap-4">
-              <p className="shrink-0 text-sm font-extrabold">핵심 포인트</p>
-              <p className="mt-2 text-sm font-semibold leading-6 [overflow-wrap:break-word] [word-break:keep-all] sm:mt-0">{finalAction.keyPoint}</p>
-            </div>
-          </div>
-        </HeroPanel>
-
-        <HeroPanel className="order-6 md:col-span-1 lg:col-span-3">
+        <HeroPanel>
           <HeroPanelTitle title="핵심 가격대" />
           <div className="rounded-lg border border-slate-200 bg-slate-50">
             {corePriceItems.map((item, index) => (
@@ -588,8 +602,9 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
             {safeValue(vm.keyLevels.targetGapLabel, "추가 목표 확인 필요")}
           </p>
         </HeroPanel>
+        </div>
 
-      <div className="order-7 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm md:col-span-2 sm:grid-cols-2 lg:col-span-12 xl:grid-cols-4">
+      <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
         {metadataItems.map((item) => (
           <div key={item.label} className="flex min-w-0 items-center gap-3">
             <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
@@ -600,7 +615,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
       </div>
 
       {vm.basisSummary.priceUnit.includes("확인 필요") || vm.basisSummary.priceUnit.includes("이미지") ? (
-        <p className="order-8 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800 [word-break:keep-all] md:col-span-2 lg:col-span-12">
+        <p className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800 [word-break:keep-all]">
           가격 단위는 이미지 축 기준 추정값일 수 있어 실제 시세 단위와 차이가 있을 수 있습니다.
         </p>
       ) : null}

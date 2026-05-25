@@ -5,6 +5,10 @@ import ResultSection from "./ResultSection";
 import StatusBadge from "./StatusBadge";
 
 const actionLabel: Record<FinalAction, string> = {
+  CURRENT_PARTIAL_ENTRY: "현재가 분할 진입 가능",
+  CURRENT_STARTER_POSITION: "현재가 소액 진입 가능",
+  MOMENTUM_CONTINUATION_ENTRY: "모멘텀 추세추종 진입",
+  PRE_BREAKOUT_AGGRESSIVE_ENTRY: "돌파 전 소액 선진입",
   CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED: "현재가 진입 불리 / 눌림목 대기 우선",
   BREAKOUT_WAIT: "돌파 확인 대기",
   WAIT_FOR_SUPPORT_CONFIRMATION: "지지 확인 대기",
@@ -27,6 +31,10 @@ const actionLabel: Record<FinalAction, string> = {
 
 const actionStateLabel: Record<TradingActionState, string> = {
   STRONG_BUY: "강한 매수 후보",
+  CURRENT_PARTIAL_ENTRY: "현재가 분할 진입 가능",
+  CURRENT_STARTER_POSITION: "현재가 소액 진입 가능",
+  MOMENTUM_CONTINUATION_ENTRY: "모멘텀 추세추종 진입",
+  PRE_BREAKOUT_AGGRESSIVE_ENTRY: "돌파 전 소액 선진입",
   PULLBACK_ENTRY: "눌림목 진입 후보",
   BREAKOUT_WAIT: "돌파 확인 대기",
   HOLD_ONLY: "보유자 관망",
@@ -36,6 +44,10 @@ const actionStateLabel: Record<TradingActionState, string> = {
 
 const actionStateTone: Record<TradingActionState, string> = {
   STRONG_BUY: "border-emerald-500 bg-emerald-50 text-emerald-950",
+  CURRENT_PARTIAL_ENTRY: "border-emerald-300 bg-emerald-50 text-emerald-950",
+  CURRENT_STARTER_POSITION: "border-blue-300 bg-blue-50 text-blue-950",
+  MOMENTUM_CONTINUATION_ENTRY: "border-emerald-400 bg-emerald-50 text-emerald-950",
+  PRE_BREAKOUT_AGGRESSIVE_ENTRY: "border-amber-400 bg-amber-50 text-amber-950",
   PULLBACK_ENTRY: "border-emerald-300 bg-emerald-50 text-emerald-950",
   BREAKOUT_WAIT: "border-blue-300 bg-blue-50 text-blue-950",
   HOLD_ONLY: "border-slate-300 bg-slate-50 text-slate-950",
@@ -45,6 +57,10 @@ const actionStateTone: Record<TradingActionState, string> = {
 
 const actionStateBadgeTone: Record<TradingActionState, "success" | "warning" | "danger" | "neutral" | "info"> = {
   STRONG_BUY: "success",
+  CURRENT_PARTIAL_ENTRY: "success",
+  CURRENT_STARTER_POSITION: "info",
+  MOMENTUM_CONTINUATION_ENTRY: "success",
+  PRE_BREAKOUT_AGGRESSIVE_ENTRY: "warning",
   PULLBACK_ENTRY: "success",
   BREAKOUT_WAIT: "info",
   HOLD_ONLY: "neutral",
@@ -58,6 +74,30 @@ const actionStateGuidance: Record<TradingActionState, { answer: string; entry: s
     entry: "현재가 진입은 지지 유지와 거래량 확인을 전제로 소액 조건부 접근이 적절합니다.",
     holder: "보유자는 핵심 지지선이 유지되는 동안 보유 관망을 우선할 수 있습니다.",
     risk: "강한 매수 후보라도 지지선 이탈 시 관점 전환이 필요합니다.",
+  },
+  CURRENT_PARTIAL_ENTRY: {
+    answer: "현재가는 전량 진입보다 소액 분할 진입으로 접근할 수 있는 조건부 구간입니다.",
+    entry: "손절 기준을 짧게 두고 일부만 진입하며, 추가 비중은 지지 확인 후 검토합니다.",
+    holder: "보유자는 지지선이 유지되는 동안 관망하되, 추가 매수는 분할로 제한하는 편이 좋습니다.",
+    risk: "분할 진입도 지지선 이탈 시 빠르게 축소해야 하며 추격 비중 확대는 피해야 합니다.",
+  },
+  CURRENT_STARTER_POSITION: {
+    answer: "추세가 유지되어 현재가 소액 진입은 가능하지만 확인 조건은 남아 있습니다.",
+    entry: "소액 진입만 검토하고 손절 기준 이탈 시 빠르게 관점을 낮춥니다.",
+    holder: "보유자는 주요 지지선 유지 여부를 확인하며 추가 매수는 확인 이후로 미룹니다.",
+    risk: "확인 전 진입이므로 비중을 작게 제한하고 목표 여유를 계속 점검해야 합니다.",
+  },
+  MOMENTUM_CONTINUATION_ENTRY: {
+    answer: "추세와 모멘텀이 유지되어 일부 추세추종 진입을 검토할 수 있습니다.",
+    entry: "모멘텀을 따라가더라도 손절 기준을 짧게 두고 목표 여유가 줄면 비중을 낮춥니다.",
+    holder: "보유자는 추세 유지 구간에서 관망 가능하지만 과열 신호가 강해지면 일부 대응이 필요합니다.",
+    risk: "모멘텀 진입은 실패 시 되돌림이 빠를 수 있어 지지선 이탈 여부를 엄격히 봐야 합니다.",
+  },
+  PRE_BREAKOUT_AGGRESSIVE_ENTRY: {
+    answer: "돌파 전 소액 선진입은 가능하지만 실패 위험이 큰 공격형 조건부 전략입니다.",
+    entry: "저항 돌파 실패 시 빠르게 손절할 수 있을 때만 소액으로 접근합니다.",
+    holder: "보유자는 돌파 성공 여부를 확인하며 무리한 추가 매수는 피하는 편이 좋습니다.",
+    risk: "돌파 전 선진입은 손절 기준이 흐려지면 추격매수와 같아지므로 비중 제한이 필수입니다.",
   },
   PULLBACK_ENTRY: {
     answer: "현재가 추격보다 주요 지지 구간에서 눌림목 확인 후 대응하는 쪽이 더 자연스럽습니다.",
@@ -107,6 +147,7 @@ function resolveActionState(report: TradingReport): TradingActionState {
   const state = report.finalSummary.actionState;
   if (state && state in actionStateLabel) return state;
   const action = report.finalSummary.finalAction;
+  if (action === "CURRENT_PARTIAL_ENTRY" || action === "CURRENT_STARTER_POSITION" || action === "MOMENTUM_CONTINUATION_ENTRY" || action === "PRE_BREAKOUT_AGGRESSIVE_ENTRY") return action;
   if (action === "BREAKOUT_BUY_CANDIDATE" || action === "BUY_CANDIDATE" || action === "CONDITIONAL_BUY") return "STRONG_BUY";
   if (action === "PULLBACK_BUY_CANDIDATE" || action === "CURRENT_ENTRY_UNFAVORABLE_PULLBACK_PREFERRED" || action === "WAIT_FOR_PULLBACK") return "PULLBACK_ENTRY";
   if (action === "BREAKOUT_WAIT" || action === "WAIT_FOR_BREAKOUT" || action === "WAIT_FOR_SUPPORT_CONFIRMATION" || action === "WAIT") return "BREAKOUT_WAIT";

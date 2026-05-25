@@ -171,10 +171,16 @@ function getSpecificActionTitle(vm: InstitutionalReportViewModel) {
     vm.scorePanel.entryScoreLabel,
   ].map((item) => safeValue(item, "")).join(" ");
 
+  if (hasAny(actionText, ["현재가 분할 진입", "분할 진입 가능"])) return "현재가 분할 진입 가능 / 손절 짧게";
+  if (hasAny(actionText, ["현재가 소액 진입", "소액 진입 가능"])) return "현재가 소액 진입 가능 / 확인 병행";
+  if (hasAny(actionText, ["모멘텀 추세추종", "모멘텀 진입", "추세추종"])) return "모멘텀 추세추종 / 분할 접근";
+  if (hasAny(actionText, ["돌파 전 소액 선진입", "선진입"])) return "돌파 전 소액 선진입 / 고위험";
   if (hasAny(actionText, ["위험", "이탈", "붕괴", "손절 위험"]) || vm.hero.signalTone === "risk") return "위험 관리";
   if (hasAny(actionText, ["진입 보류", "매매 부적합", "회피"])) return "진입 회피";
   if (hasAny(actionText, ["급등", "과열"])) return "급등 후 과열 / 눌림 대기";
-  if (hasAny(actionText, ["목표가 근접", "목표 여유 낮음", "추격매수", "저항권", "저항 근접"])) return "추격매수 주의 / 재지지 확인";
+  if (hasAny(actionText, ["목표가 근접", "목표 여유 낮음"])) return "추격매수 주의 / 목표 여유 낮음";
+  if (hasAny(actionText, ["소액만 가능"])) return "저항권 테스트 / 소액만 가능";
+  if (hasAny(actionText, ["추격매수", "저항권", "저항 근접"])) return "추격매수 주의 / 재지지 확인";
   if (hasAny(actionText, ["보유 관망", "보유자", "보유 가능"])) return "보유 우세, 신규는 대기";
   if (hasAny(actionText, ["돌파 후 재지지", "재지지 확인", "돌파 매수 후보"])) return "돌파 후 재지지 확인 대기";
   if (hasAny(actionText, ["저항권 테스트", "돌파 확인 대기", "돌파 대기"])) return "저항권 테스트 / 돌파 확인 대기";
@@ -191,6 +197,9 @@ function getCurrentPriceInterpretation(vm: InstitutionalReportViewModel) {
     vm.hero.trendLabel,
   ].map((item) => safeValue(item, "")).join(" ");
 
+  if (hasAny(text, ["현재가 분할", "현재가 소액"])) return "짧은 손절 전제 / 소액 접근";
+  if (hasAny(text, ["모멘텀", "추세추종"])) return "추세 지속 / 손절 기준 확인";
+  if (hasAny(text, ["선진입"])) return "돌파 전 고위험 소액 구간";
   if (hasAny(text, ["과열", "급등"])) return "단기 과열권 / 추격매수 주의";
   if (hasAny(text, ["목표가 근접", "목표 여유 낮음", "저항"])) return "저항권 근접 / 추격매수 주의";
   if (hasAny(text, ["지지권", "박스권 하단", "상승추세 눌림"])) return "지지 반응 확인 구간";
@@ -204,11 +213,28 @@ function getPrimaryStrategyText(vm: InstitutionalReportViewModel) {
   if (preferred && preferred !== "주요 지지/저항 확인 필요") return truncateText(preferred, "주요 지지/저항 확인 필요", 70);
 
   const action = getSpecificActionTitle(vm);
+  if (action.includes("분할")) return "손절 기준을 짧게 두고 소액 분할 접근";
+  if (action.includes("선진입")) return "돌파 실패 시 빠른 손절 전제의 소액 전략";
+  if (action.includes("소액")) return "현재가 소액 진입 후 지지 확인 시 추가 검토";
+  if (action.includes("모멘텀")) return "추세 유지 시 일부 추세추종, 이탈 시 빠른 축소";
   if (action.includes("추격매수")) return "현재가 추격보다 재지지 또는 눌림목 확인 후 접근";
   if (action.includes("눌림")) return `${safeValue(vm.keyLevels.mainSupport, "주요 지지선")} 지지 확인 후 관심`;
   if (action.includes("돌파")) return `${safeValue(vm.keyLevels.breakoutTrigger, "핵심 전환 가격")} 돌파 후 재지지 확인`;
   if (action.includes("위험")) return "신규 진입보다 손절 기준과 위험 관리 우선";
   return "주요 지지/저항 확인 필요";
+}
+
+function getStrategyBadges(strategyTitle: string) {
+  if (strategyTitle.includes("분할 진입")) return ["소액 진입", "분할 전략"];
+  if (strategyTitle.includes("소액 진입")) return ["소액 가능", "손절 엄수"];
+  if (strategyTitle.includes("모멘텀")) return ["모멘텀 우세", "분할 진입"];
+  if (strategyTitle.includes("선진입")) return ["고위험", "소액만"];
+  if (strategyTitle.includes("소액만 가능")) return ["소액만", "돌파 확인"];
+  if (strategyTitle.includes("위험") || strategyTitle.includes("회피")) return ["위험 관리 우선", "신규 진입 보류"];
+  if (strategyTitle.includes("보유")) return ["보유 관망", "신규는 대기"];
+  if (strategyTitle.includes("눌림")) return ["지지 확인", "분할 대기"];
+  if (strategyTitle.includes("돌파") || strategyTitle.includes("재지지")) return ["재지지 확인", "조건부 접근"];
+  return ["신규 진입 신중", "재지지 확인"];
 }
 
 function entryScenarioStatus(mode: "current" | "pullback" | "breakout", item: EntryModeCard) {
@@ -218,6 +244,10 @@ function entryScenarioStatus(mode: "current" | "pullback" | "breakout", item: En
   const joined = `${label} ${explanation}`;
 
   if (mode === "current") {
+    if (hasAny(joined, ["분할 진입"])) return "분할 진입";
+    if (hasAny(joined, ["소액 진입"])) return "소액 진입";
+    if (hasAny(joined, ["모멘텀"])) return "모멘텀 진입";
+    if (hasAny(joined, ["선진입"])) return "소액 선진입";
     if (hasAny(joined, ["추격", "저항", "목표"]) || (score !== null && score <= 39)) return score !== null && score <= 19 ? "부적합" : "추격매수 주의";
     if (score !== null && score >= 55) return "조건부 진입";
     return safeValue(label, "확인 필요");
@@ -278,24 +308,43 @@ function getHeroMetadataItems(vm: InstitutionalReportViewModel) {
   ];
 }
 
+function getCorePriceItems(vm: InstitutionalReportViewModel) {
+  const stopOrInvalidation = safeValue(vm.keyLevels.stopLoss, "") || safeValue(vm.keyLevels.invalidation, "");
+
+  return [
+    { label: "현재가", value: safeValue(vm.keyLevels.currentPrice, safeValue(vm.hero.currentPrice, "확인 필요")), tone: "text-slate-950" },
+    { label: "주요 지지", value: safeValue(vm.keyLevels.mainSupport, "확인 필요"), tone: "text-emerald-700" },
+    { label: "주요 저항", value: safeValue(vm.keyLevels.mainResistance, "확인 필요"), tone: "text-rose-600" },
+    { label: "손절 / 무효화", value: safeValue(stopOrInvalidation, "확인 필요"), tone: "text-slate-950" },
+  ];
+}
+
 function getFinalActionCardText(vm: InstitutionalReportViewModel) {
   const strategyTitle = getSpecificActionTitle(vm);
   const actionText = `${strategyTitle} ${vm.finalAction.title} ${vm.finalAction.subtitle}`;
   const title = strategyTitle.includes("추격매수") || strategyTitle.includes("과열")
     ? "추격매수 주의"
-    : strategyTitle.includes("재지지")
-      ? "돌파 후 재지지 확인"
-      : strategyTitle.includes("눌림")
-        ? "눌림목 확인 대기"
-        : strategyTitle.includes("보유")
-          ? "보유자 관망"
-          : strategyTitle.includes("위험")
-            ? "위험 관리"
-            : strategyTitle.includes("회피") || strategyTitle.includes("보류")
-              ? "진입 보류"
-              : strategyTitle.includes("지지")
-                ? "지지 확인"
-                : "재지지 확인 우선";
+    : strategyTitle.includes("분할 진입")
+      ? "분할 진입 가능"
+    : strategyTitle.includes("선진입")
+      ? "소액 선진입"
+        : strategyTitle.includes("소액 진입") || strategyTitle.includes("소액만")
+          ? "소액 진입 가능"
+          : strategyTitle.includes("모멘텀")
+            ? "추세추종 진입"
+            : strategyTitle.includes("재지지")
+              ? "돌파 후 재지지 확인"
+              : strategyTitle.includes("눌림")
+                ? "눌림목 확인 대기"
+                : strategyTitle.includes("보유")
+                  ? "보유자 관망"
+                  : strategyTitle.includes("위험")
+                    ? "위험 관리"
+                    : strategyTitle.includes("회피") || strategyTitle.includes("보류")
+                      ? "진입 보류"
+                      : strategyTitle.includes("지지")
+                        ? "지지 확인"
+                        : "재지지 확인 우선";
 
   const explanation = safeValue(
     vm.finalAction.subtitle,
@@ -303,11 +352,13 @@ function getFinalActionCardText(vm: InstitutionalReportViewModel) {
   );
   const keyPoint = hasAny(actionText, ["추격", "저항", "목표"])
     ? "현재가 추격보다 재지지 확인"
-    : hasAny(actionText, ["눌림", "지지"])
-      ? "주요 지지 반응 확인"
-      : hasAny(actionText, ["위험", "이탈"])
-        ? "손절 기준과 비중 관리"
-        : "돌파 후 안착 여부 확인";
+    : hasAny(actionText, ["분할", "소액", "모멘텀", "선진입"])
+      ? "짧은 손절과 비중 제한"
+      : hasAny(actionText, ["눌림", "지지"])
+        ? "주요 지지 반응 확인"
+        : hasAny(actionText, ["위험", "이탈"])
+          ? "손절 기준과 비중 관리"
+          : "돌파 후 안착 여부 확인";
 
   return { title, explanation, keyPoint };
 }
@@ -395,7 +446,9 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   const entryItems = getEntryScenarioItems(vm);
   const signalItems = getSignalSummaryItems(vm);
   const metadataItems = getHeroMetadataItems(vm);
+  const corePriceItems = getCorePriceItems(vm);
   const finalAction = getFinalActionCardText(vm);
+  const strategyBadges = getStrategyBadges(strategyTitle);
   const finalTone = strategyTitle.includes("위험") || strategyTitle.includes("회피") || strategyTitle.includes("보류")
     ? "risk"
     : strategyTitle.includes("추격") || strategyTitle.includes("과열") || strategyTitle.includes("저항")
@@ -404,59 +457,68 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
 
   return (
     <Card className="overflow-hidden border-slate-200 bg-white">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)] xl:items-stretch">
-        <HeroPanel className="order-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 className="max-w-full text-[clamp(2.35rem,6vw,4.5rem)] font-extrabold leading-none tracking-normal text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-12 lg:items-stretch">
+        <HeroPanel className="order-1 md:col-span-1 lg:col-span-3">
+          <div className="min-w-0">
+            <p className="mb-4 text-sm font-extrabold tracking-normal text-slate-950 [word-break:keep-all]">종목 요약</p>
+            <h2
+              className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2.75rem,5.2vw,4.9rem)] font-extrabold leading-none tracking-normal text-slate-950"
+              title={safeValue(hero.stockName, "미확인")}
+            >
               {safeValue(hero.stockName, "미확인")}
             </h2>
-            {hero.marketTag !== "-" ? <SmallBadge className="border-blue-100 bg-blue-50 text-blue-700">{hero.marketTag}</SmallBadge> : null}
           </div>
-          <p className="mt-3 max-w-full text-base font-semibold leading-6 text-slate-500 [overflow-wrap:break-word]">
+          <p
+            className="mt-3 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold leading-6 text-slate-600"
+            title={`${safeValue(hero.ticker, "티커 확인 필요")} · ${safeValue(hero.marketTag, "시장 확인 필요")}`}
+          >
             {safeValue(hero.ticker, "티커 확인 필요")} · {safeValue(hero.marketTag, "시장 확인 필요")}
           </p>
-          <div className="mt-7">
-            <p className="max-w-full text-[clamp(3.25rem,9vw,5.75rem)] font-extrabold leading-none tracking-normal text-slate-950 [overflow-wrap:break-word]">
+          <div className="mt-6">
+            <p
+              className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(3.4rem,7.2vw,5.6rem)] font-extrabold leading-none tracking-normal text-slate-950"
+              title={safeValue(hero.currentPrice)}
+            >
               {safeValue(hero.currentPrice)}
             </p>
             <p className="mt-2 text-base font-semibold leading-6 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
               {safeValue(hero.currencyOrUnit, safeValue(vm.basisSummary.priceUnit, "가격 단위 확인 필요"))}
             </p>
           </div>
-          <div className="mt-7 grid gap-3">
+          <div className="mt-5 grid gap-3">
             <HeroInfoBox label="현재가 해석" value={currentInterpretation} />
             <HeroInfoBox label="우선 전략" value={primaryStrategy} />
           </div>
         </HeroPanel>
 
-        <HeroPanel className="order-3 xl:order-2">
+        <HeroPanel className="order-3 md:col-span-1 lg:order-2 lg:col-span-4">
           <HeroPanelTitle title="매매 전략" />
-          <p className="text-[clamp(1.55rem,2.2vw,2.35rem)] font-extrabold leading-tight tracking-normal text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]">
+          <p className="max-w-full overflow-hidden text-[clamp(1.45rem,2.2vw,2.25rem)] font-extrabold leading-tight tracking-normal text-slate-950 [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {strategyTitle}
           </p>
-          <p className="mt-5 text-base font-medium leading-8 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
-            {truncateText(vm.finalAction.subtitle, primaryStrategy, 110)}
+          <p className="mt-4 text-base font-medium leading-8 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
+            {truncateText(vm.finalAction.subtitle, primaryStrategy, 130)}
           </p>
-          <div className="mt-7 flex flex-wrap gap-2">
+          <div className="mt-6 flex flex-wrap gap-2">
             <SmallBadge className="border-rose-100 bg-rose-50 text-rose-700">
-              {strategyTitle.includes("위험") || strategyTitle.includes("회피") ? "위험 관리 우선" : "신규 진입 신중"}
+              {strategyBadges[0]}
             </SmallBadge>
             <SmallBadge className="border-emerald-100 bg-emerald-50 text-emerald-700">
-              {strategyTitle.includes("보유") ? "보유 관망" : strategyTitle.includes("눌림") ? "지지 확인" : "재지지 확인"}
+              {strategyBadges[1]}
             </SmallBadge>
           </div>
         </HeroPanel>
 
-        <HeroPanel className="order-4 xl:order-3">
+        <HeroPanel className="order-4 md:col-span-2 lg:col-span-6">
           <HeroPanelTitle title="진입 시나리오" />
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             {entryItems.map(({ key, title, item, status, context }) => (
-              <article key={key} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+              <article key={key} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 className="text-sm font-extrabold tracking-normal text-slate-950">{title}</h3>
-                    <p className={`mt-2 text-2xl font-extrabold leading-none ${item.tone === "risk" ? "text-rose-600" : item.tone === "caution" ? "text-amber-600" : item.tone === "positive" ? "text-emerald-600" : "text-blue-700"}`}>
-                      {scoreText(item.score)}
+                    <h3 className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-extrabold tracking-normal text-slate-950" title={title}>{title}</h3>
+                    <p className={`mt-3 whitespace-nowrap text-[clamp(1.6rem,3vw,2.25rem)] font-extrabold leading-none ${item.tone === "risk" ? "text-rose-600" : item.tone === "caution" ? "text-amber-600" : item.tone === "positive" ? "text-emerald-600" : "text-blue-700"}`}>
+                      {item.score === null ? "확인" : `${item.score} 점`}
                     </p>
                   </div>
                   <SmallBadge className={entryToneClass[item.tone]}>{status}</SmallBadge>
@@ -467,14 +529,17 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
         </HeroPanel>
 
-        <HeroPanel className="order-5 xl:order-4">
+        <HeroPanel className="order-5 md:col-span-1 lg:col-span-3">
           <HeroPanelTitle title="시그널 요약" />
-          <HeroScoreRing score={vm.scorePanel.overallScore} />
-          <div className="mt-5 space-y-3">
-            {signalItems.map((item) => (
-              <HeroMetricBar key={item.label} label={item.label} score={item.score} riskMode={item.riskMode} />
-            ))}
-            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-3">
+          <div className="grid min-w-0 gap-4 sm:grid-cols-[120px_minmax(0,1fr)] md:grid-cols-1">
+            <HeroScoreRing score={vm.scorePanel.overallScore} />
+            <div className="space-y-3">
+              {signalItems.map((item) => (
+                <HeroMetricBar key={item.label} label={item.label} score={item.score} riskMode={item.riskMode} />
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3">
               <div className="flex min-w-0 items-center justify-between gap-3 text-xs">
                 <span className="font-extrabold text-slate-700">진입 관점</span>
                 <span className="font-extrabold text-blue-700">{vm.scorePanel.entryScore === null ? "확인 필요" : vm.scorePanel.entryScore}</span>
@@ -482,32 +547,49 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
               <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]">
                 {safeValue(vm.scorePanel.entryScoreLabel, "확인 필요")}
               </p>
-            </div>
           </div>
         </HeroPanel>
 
-        <HeroPanel className={`order-2 xl:order-5 ${signalToneClass[finalTone]}`}>
-          <div className="flex h-full min-w-0 flex-col justify-between gap-6">
-            <div>
-              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-current/20 bg-white/60 text-4xl font-black leading-none">
+        <HeroPanel className={`order-2 md:col-span-2 lg:order-3 lg:col-span-5 ${signalToneClass[finalTone]}`}>
+          <div className="flex h-full min-w-0 flex-col justify-between gap-5">
+            <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:items-start">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-current/20 bg-white/60 text-4xl font-black leading-none">
                 !
               </div>
-              <p className="max-w-full text-[clamp(1.9rem,3.4vw,3.35rem)] font-extrabold leading-tight tracking-normal [overflow-wrap:break-word] [word-break:keep-all]">
-                {finalAction.title}
-              </p>
-              <p className="mt-5 text-sm font-semibold leading-7 [overflow-wrap:break-word] [word-break:keep-all]">
-                {truncateText(finalAction.explanation, "주요 가격대 확인 후 접근이 필요합니다.", 118)}
-              </p>
+              <div className="min-w-0">
+                <p className="max-w-full text-[clamp(1.85rem,3.2vw,3.15rem)] font-extrabold leading-tight tracking-normal [overflow-wrap:break-word] [word-break:keep-all]">
+                  {finalAction.title}
+                </p>
+                <p className="mt-4 text-sm font-semibold leading-7 [overflow-wrap:break-word] [word-break:keep-all]">
+                  {truncateText(finalAction.explanation, "주요 가격대 확인 후 접근이 필요합니다.", 150)}
+                </p>
+              </div>
             </div>
-            <div className="rounded-xl border border-current/20 bg-white/60 px-4 py-4">
-              <p className="text-sm font-extrabold">핵심 포인트</p>
-              <p className="mt-2 text-sm font-semibold leading-6 [overflow-wrap:break-word] [word-break:keep-all]">{finalAction.keyPoint}</p>
+            <div className="rounded-xl border border-current/20 bg-white/60 px-4 py-3 sm:flex sm:items-center sm:gap-4">
+              <p className="shrink-0 text-sm font-extrabold">핵심 포인트</p>
+              <p className="mt-2 text-sm font-semibold leading-6 [overflow-wrap:break-word] [word-break:keep-all] sm:mt-0">{finalAction.keyPoint}</p>
             </div>
           </div>
         </HeroPanel>
-      </div>
 
-      <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+        <HeroPanel className="order-6 md:col-span-1 lg:col-span-3">
+          <HeroPanelTitle title="핵심 가격대" />
+          <div className="rounded-lg border border-slate-200 bg-slate-50">
+            {corePriceItems.map((item, index) => (
+              <div key={item.label} className={`grid min-w-0 grid-cols-[86px_minmax(0,1fr)] gap-3 px-4 py-3 text-sm ${index === 0 ? "" : "border-t border-slate-200"}`}>
+                <span className="whitespace-nowrap font-bold text-slate-600">{item.label}</span>
+                <span className={`min-w-0 text-right font-extrabold leading-6 [overflow-wrap:break-word] [word-break:keep-all] ${item.tone}`}>
+                  {item.value}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]">
+            {safeValue(vm.keyLevels.targetGapLabel, "추가 목표 확인 필요")}
+          </p>
+        </HeroPanel>
+
+      <div className="order-7 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm md:col-span-2 sm:grid-cols-2 lg:col-span-12 xl:grid-cols-4">
         {metadataItems.map((item) => (
           <div key={item.label} className="flex min-w-0 items-center gap-3">
             <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
@@ -518,10 +600,11 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
       </div>
 
       {vm.basisSummary.priceUnit.includes("확인 필요") || vm.basisSummary.priceUnit.includes("이미지") ? (
-        <p className="mt-5 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800 [word-break:keep-all]">
+        <p className="order-8 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800 [word-break:keep-all] md:col-span-2 lg:col-span-12">
           가격 단위는 이미지 축 기준 추정값일 수 있어 실제 시세 단위와 차이가 있을 수 있습니다.
         </p>
       ) : null}
+      </div>
     </Card>
   );
 }

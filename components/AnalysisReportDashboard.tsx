@@ -24,6 +24,14 @@ type CardProps = {
   className?: string;
 };
 
+type StrategyActionTone = "default" | "positive" | "caution" | "risk";
+
+type StrategyActionItem = {
+  label: string;
+  text: string;
+  tone?: StrategyActionTone;
+};
+
 function safeValue(value: string | number | null | undefined, fallback = "-") {
   if (typeof value === "number") return Number.isFinite(value) ? String(value) : fallback;
   if (typeof value !== "string") return fallback;
@@ -98,6 +106,13 @@ const scenarioToneClass: Record<ScenarioTone, string> = {
 const indicatorToneClass: Record<IndicatorTone, string> = {
   positive: "border-emerald-200 bg-emerald-50 text-emerald-700",
   neutral: "border-slate-200 bg-slate-50 text-slate-700",
+  caution: "border-amber-200 bg-amber-50 text-amber-700",
+  risk: "border-rose-200 bg-rose-50 text-rose-700",
+};
+
+const strategyActionToneClass: Record<StrategyActionTone, string> = {
+  default: "border-slate-200 bg-slate-50 text-slate-700",
+  positive: "border-emerald-200 bg-emerald-50 text-emerald-700",
   caution: "border-amber-200 bg-amber-50 text-amber-700",
   risk: "border-rose-200 bg-rose-50 text-rose-700",
 };
@@ -235,6 +250,116 @@ function getStrategyBadges(strategyTitle: string) {
   if (strategyTitle.includes("눌림")) return ["지지 확인", "분할 대기"];
   if (strategyTitle.includes("돌파") || strategyTitle.includes("재지지")) return ["재지지 확인", "조건부 접근"];
   return ["신규 진입 신중", "재지지 확인"];
+}
+
+function isMissingLevel(value: string) {
+  return !safeValue(value, "") || hasAny(value, ["확인 필요", "미확인", "분석 불가", "[object Object]"]);
+}
+
+function compactActionText(value: string) {
+  return truncateText(value, "확인 필요", 92);
+}
+
+function getTradingStrategyActions(vm: InstitutionalReportViewModel): StrategyActionItem[] {
+  const strategyTitle = getSpecificActionTitle(vm);
+  const actionText = [
+    strategyTitle,
+    vm.finalAction.title,
+    vm.finalAction.subtitle,
+    vm.finalAction.reason,
+    vm.hero.trendLabel,
+    vm.basisSummary.currentLocation,
+    vm.keyLevels.targetGapLabel,
+    vm.keyLevels.targetGapExplanation,
+    vm.scorePanel.entryScoreLabel,
+  ].map((item) => safeValue(item, "")).join(" ");
+
+  const current = safeValue(vm.keyLevels.currentPrice, safeValue(vm.hero.currentPrice, "현재가 확인 필요"));
+  const support = safeValue(vm.keyLevels.mainSupport, "주요 지지 확인 필요");
+  const secondarySupport = safeValue(
+    vm.keyLevels.secondarySupport,
+    safeValue(vm.keyLevels.invalidation, "보조 지지 확인 필요"),
+  );
+  const breakout = safeValue(
+    vm.keyLevels.breakoutTrigger,
+    safeValue(vm.basisSummary.pivotPrice, "돌파 기준 확인 필요"),
+  );
+  const resistance = safeValue(vm.keyLevels.mainResistance, "주요 저항 확인 필요");
+  const stopLoss = safeValue(
+    vm.keyLevels.stopLoss,
+    safeValue(vm.entryMode.currentEntry.stopLoss, safeValue(vm.entryMode.pullbackEntry.stopLoss, "손절 기준 확인 필요")),
+  );
+  const invalidation = safeValue(vm.keyLevels.invalidation, secondarySupport);
+  const target = safeValue(vm.keyLevels.target, safeValue(vm.keyLevels.upperBreakoutTarget, "추가 목표 확인 필요"));
+  const extensionTarget = safeValue(vm.keyLevels.upperBreakoutTarget, target);
+  const currentScore = vm.entryMode.currentEntry.score;
+  const riskScore = vm.scorePanel.riskScore;
+  const highRisk = vm.hero.signalTone === "risk"
+    || (typeof riskScore === "number" && riskScore >= 70)
+    || hasAny(actionText, ["위험", "이탈", "붕괴", "진입 보류", "회피"]);
+  const targetGapLow = hasAny(actionText, ["목표가 근접", "목표 여유 낮음", "상승 여지 제한"]);
+  const overheat = hasAny(actionText, ["과열", "급등", "추격매수"]);
+  const stopMissing = isMissingLevel(stopLoss);
+  const currentEntryAllowed = typeof currentScore === "number"
+    && currentScore >= 45
+    && currentScore <= 70
+    && !targetGapLow
+    && !highRisk
+    && !stopMissing;
+  const strategySuggestsCurrent = hasAny(strategyTitle, ["현재가 소액", "현재가 분할", "모멘텀"])
+    && !targetGapLow
+    && !highRisk
+    && !stopMissing;
+  const pullbackFocused = hasAny(actionText, ["눌림", "지지 확인", "미래 눌림목", "지지 반응"]);
+  const breakoutFocused = hasAny(actionText, ["돌파", "재지지", "안착"]);
+
+  if (highRisk) {
+    return [
+      { label: "현재가 대응", text: compactActionText(`${current} 부근 신규 진입은 보류하고 위험 관리가 우선입니다.`), tone: "risk" },
+      { label: "추가매수", text: compactActionText(`${support} 지지 회복 또는 ${breakout} 안착 확인 전까지 추가매수는 신중합니다.`), tone: "caution" },
+      { label: "손절", text: compactActionText(`${stopLoss} 이탈 시 단기 손절, ${invalidation} 이탈 시 관점 무효화.`), tone: "risk" },
+      { label: "보유/익절", text: compactActionText(`${resistance} 부근 반등 시 일부 분할매도 후 재진입 조건을 확인합니다.`), tone: "caution" },
+      { label: "돌파/목표", text: compactActionText(`${breakout} 회복 후 재지지 확인 시 ${target} 목표를 다시 점검합니다.`), tone: "default" },
+    ];
+  }
+
+  if (targetGapLow || overheat) {
+    return [
+      { label: "현재가 대응", text: compactActionText(`${current} 부근 추격매수는 신중합니다. 신규 진입은 ${support} 지지 확인 또는 ${breakout} 안착 후가 유리합니다.`), tone: "caution" },
+      { label: "추가매수", text: compactActionText(`${support} 부근에서 반등이 확인되면 1차 분할 진입을 검토합니다.`), tone: "positive" },
+      { label: "손절", text: compactActionText(`${support} 이탈 시 단기 손절, ${secondarySupport} 이탈 시 관점 약화.`), tone: "risk" },
+      { label: "보유/익절", text: compactActionText(`${resistance} 또는 ${target} 부근에서는 일부 분할매도 후 재지지 여부를 확인합니다.`), tone: "caution" },
+      { label: "돌파/목표", text: compactActionText(`${breakout} 위 안착 시 ${extensionTarget} 부근까지 다음 목표를 확인합니다.`), tone: "default" },
+    ];
+  }
+
+  if (currentEntryAllowed || strategySuggestsCurrent) {
+    return [
+      { label: "현재가 대응", text: compactActionText(`${current} 부근 소액 분할 진입 가능. 단, ${stopLoss} 이탈 시 빠르게 손절합니다.`), tone: "positive" },
+      { label: "추가매수", text: compactActionText(`${support} 재지지 또는 ${breakout} 안착 확인 시 추가매수를 검토합니다.`), tone: "positive" },
+      { label: "손절", text: compactActionText(`${stopLoss} 이탈 시 단기 손절, ${invalidation} 이탈 시 관점 무효화.`), tone: "risk" },
+      { label: "보유/익절", text: compactActionText(`보유자는 ${target} 부근까지 관망하되 저항 반응이 강하면 일부 분할매도합니다.`), tone: "caution" },
+      { label: "돌파/목표", text: compactActionText(`${breakout} 안착 성공 시 ${extensionTarget} 부근까지 확장 목표를 확인합니다.`), tone: "default" },
+    ];
+  }
+
+  if (pullbackFocused && !breakoutFocused) {
+    return [
+      { label: "현재가 대응", text: compactActionText(`현재가 추격보다 ${support} 부근 눌림 확인 후 접근이 유리합니다.`), tone: "caution" },
+      { label: "추가매수", text: compactActionText(`${support}에서 하락이 멈추고 반등이 나오면 1차 매수, ${secondarySupport} 이탈 시 축소합니다.`), tone: "positive" },
+      { label: "손절", text: compactActionText(`${secondarySupport} 이탈 시 눌림목 실패로 판단합니다.`), tone: "risk" },
+      { label: "보유/익절", text: compactActionText(`보유자는 ${resistance} 반응을 보며 일부 익절 또는 관망을 선택합니다.`), tone: "caution" },
+      { label: "돌파/목표", text: compactActionText(`${breakout} 돌파 후 재지지 시 ${target} 부근을 1차 목표로 봅니다.`), tone: "default" },
+    ];
+  }
+
+  return [
+    { label: "현재가 대응", text: compactActionText(`${breakout} 돌파 전까지 무리한 진입은 신중합니다.`), tone: "caution" },
+    { label: "돌파 진입", text: compactActionText(`${breakout} 돌파 후 위에서 재지지 확인 시 진입 후보입니다.`), tone: "positive" },
+    { label: "손절", text: compactActionText(`돌파 진입 후 ${breakout} 재이탈 시 돌파 실패로 봅니다.`), tone: "risk" },
+    { label: "보유/익절", text: compactActionText(`보유자는 ${resistance} 근처에서 일부 익절 후 안착 여부를 확인합니다.`), tone: "caution" },
+    { label: "목표", text: compactActionText(`안착 성공 시 ${target} 부근을 1차 목표로 봅니다.`), tone: "default" },
+  ];
 }
 
 function entryScenarioStatus(mode: "current" | "pullback" | "breakout", item: EntryModeCard) {
@@ -460,6 +585,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   const corePriceItems = getCorePriceItems(vm);
   const finalAction = getFinalActionCardText(vm);
   const strategyBadges = getStrategyBadges(strategyTitle);
+  const strategyActions = getTradingStrategyActions(vm);
   const finalTone = strategyTitle.includes("위험") || strategyTitle.includes("회피") || strategyTitle.includes("보류")
     ? "risk"
     : strategyTitle.includes("추격") || strategyTitle.includes("과열") || strategyTitle.includes("저항")
@@ -508,10 +634,25 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           <p className="max-w-full overflow-hidden text-[clamp(1.3rem,1.75vw,1.9rem)] font-extrabold leading-tight tracking-normal text-slate-950 [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {strategyTitle}
           </p>
-          <p className="mt-3 text-sm font-semibold leading-6 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
-            {truncateText(vm.finalAction.subtitle, primaryStrategy, 118)}
+          <div className="mt-4 grid gap-2">
+            {strategyActions.map((action) => (
+              <div
+                key={action.label}
+                className="grid min-w-0 grid-cols-[76px_minmax(0,1fr)] gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5"
+              >
+                <span className={`inline-flex max-w-full items-center justify-center rounded-md border px-2 py-1 text-center font-extrabold leading-4 ${strategyActionToneClass[action.tone ?? "default"]}`}>
+                  {action.label}
+                </span>
+                <p className="min-w-0 self-center font-semibold text-slate-700 [overflow-wrap:break-word] [word-break:keep-all]">
+                  {safeValue(action.text, "확인 필요")}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]">
+            {truncateText(vm.finalAction.subtitle, primaryStrategy, 86)}
           </p>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <SmallBadge className="border-rose-100 bg-rose-50 text-rose-700">
               {strategyBadges[0]}
             </SmallBadge>

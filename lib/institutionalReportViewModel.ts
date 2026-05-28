@@ -121,8 +121,12 @@ export interface InstitutionalReportViewModel {
     stockName: string;
     ticker: string;
     marketTag: string;
+    displayTitle: string;
+    companyLine: string;
+    displayMarket: string;
     currentPrice: string;
     currencyOrUnit: string;
+    displayCurrencyUnit: string;
     priceChange: string;
     confidenceScore: number | null;
     confidenceLabel: string;
@@ -311,6 +315,118 @@ function firstText(values: unknown[], fallback = "-") {
   return fallback;
 }
 
+function isPlaceholderText(value: unknown) {
+  const text = safeText(value, "").trim();
+  return !text || text === "-" || /^(미확인|확인 필요|추정 불가|이미지 기준 추정 불가|시장 확인 필요|티커 확인 필요|종목 정보 확인 필요)$/i.test(text);
+}
+
+function cleanDisplayText(value: unknown) {
+  const text = safeText(value, "").trim();
+  return isPlaceholderText(text) ? "" : text;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isKoreanStockCode(value: string) {
+  return /^\d{5,6}$/.test(value.trim());
+}
+
+function isUsTicker(value: string) {
+  const text = value.trim().toUpperCase();
+  if (!text || /^(US|KR|NYSE|NASDAQ|AMEX|KOSPI|KOSDAQ|ETF)$/.test(text)) return false;
+  return /^[A-Z]{1,5}(?:[.-][A-Z])?$/.test(text);
+}
+
+function extractDisplaySymbol(value: unknown) {
+  const text = cleanDisplayText(value);
+  if (!text) return "";
+  const numeric = text.match(/\b\d{5,6}\b/);
+  if (numeric) return numeric[0];
+  const exact = text.trim().toUpperCase();
+  if (isUsTicker(exact)) return exact;
+  const match = text.toUpperCase().match(/\b[A-Z]{1,5}(?:[.-][A-Z])?\b/);
+  return match && isUsTicker(match[0]) ? match[0] : "";
+}
+
+function compactCompanyName(value: unknown, ticker: string) {
+  let text = cleanDisplayText(value);
+  if (!text) return "";
+  if (ticker) {
+    text = text
+      .replace(new RegExp(`\\b${escapeRegExp(ticker)}\\b`, "gi"), "")
+      .replace(/[()|·•-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  if (!text || isPlaceholderText(text) || text.toUpperCase() === ticker.toUpperCase()) return "";
+  return text.length > 28 ? `${text.slice(0, 28).trim()}...` : text;
+}
+
+function getDisplayTicker(rawReport: AnalysisResponse, report: TradingReport) {
+  const candidates = [
+    rawReport.aiAnalysis?.symbolDetection?.detectedTicker,
+    report.analysisMeta?.symbol,
+    rawReport.aiAnalysis?.symbolDetection?.detectedName,
+  ];
+  for (const candidate of candidates) {
+    const symbol = extractDisplaySymbol(candidate);
+    if (symbol) return symbol;
+  }
+  const companyFallback = cleanDisplayText(rawReport.aiAnalysis?.symbolDetection?.detectedName) || cleanDisplayText(report.analysisMeta?.symbol);
+  return companyFallback ? companyFallback.slice(0, 12).trim() : "확인 필요";
+}
+
+function normalizeDisplayMarket(value: unknown) {
+  const text = cleanDisplayText(value).toUpperCase();
+  if (!text) return "";
+  if (/^(US|USA|NASDAQ|NYSE|AMEX|NYSEARCA|ARCA)$/.test(text)) return "US";
+  if (/^(KR|KOREA|KOSPI|KOSDAQ|KRX)$/.test(text)) return "KR";
+  return text.length <= 8 ? text : "";
+}
+
+function getDisplayMarket(rawReport: AnalysisResponse, ticker: string) {
+  if (isKoreanStockCode(ticker)) return "KR";
+  if (isUsTicker(ticker)) return "US";
+  return normalizeDisplayMarket(rawReport.aiAnalysis?.symbolDetection?.detectedMarket)
+    || normalizeDisplayMarket(rawReport.aiAnalysis?.symbolDetection?.detectedExchange);
+}
+
+function getDisplayCompanyLine(rawReport: AnalysisResponse, report: TradingReport, ticker: string, market: string) {
+  const company = compactCompanyName(rawReport.aiAnalysis?.symbolDetection?.detectedName, ticker)
+    || compactCompanyName(report.analysisMeta?.symbol, ticker);
+  const identity = company || (ticker !== "확인 필요" ? ticker : "");
+  const parts = [identity, cleanDisplayText(market)].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "종목 정보 확인 필요";
+}
+
+function getDisplayCurrencyUnit(
+  rawReport: AnalysisResponse,
+  report: TradingReport,
+  ticker: string,
+  market: string,
+  currentPrice: number | null,
+) {
+  const existingUnit = cleanDisplayText(report.analysisMeta?.priceUnit);
+  const rawCurrency = cleanDisplayText(rawReport.aiAnalysis?.symbolDetection?.currency);
+  const rawTradingReport = (rawReport as AnalysisResponse & { tradingReport?: TradingReport; analysisMeta?: TradingReport["analysisMeta"] }).tradingReport;
+  const rawAnalysisMeta = rawTradingReport?.analysisMeta
+    || (rawReport as AnalysisResponse & { analysisMeta?: TradingReport["analysisMeta"] }).analysisMeta;
+  const confidence = rawAnalysisMeta?.priceUnitConfidence || report.analysisMeta?.priceUnitConfidence;
+  const reliableSymbolMarket = isUsTicker(ticker) || isKoreanStockCode(ticker) || market === "US" || market === "KR";
+  const lowConfidence = confidence === "low" || (!reliableSymbolMarket && /확인 필요|이미지|축 기준|추정 불가/.test(existingUnit));
+
+  if (lowConfidence) return "이미지 축 기준 추정";
+  if ((market === "US" || isUsTicker(ticker)) && currentPrice !== null && currentPrice <= 10000) {
+    return /달러|USD/i.test(existingUnit || rawCurrency) ? (existingUnit || rawCurrency) : "달러 기준 추정";
+  }
+  if (market === "KR" || isKoreanStockCode(ticker)) {
+    return /원|KRW/i.test(existingUnit || rawCurrency) ? (existingUnit || rawCurrency) : "원 기준 추정";
+  }
+  return existingUnit || rawCurrency || "이미지 축 기준 추정";
+}
+
 function joinZones(values: unknown[], fallback = FALLBACK.unknown) {
   const zones = values.map((value) => safeText(value, "")).filter(Boolean);
   return zones.length ? zones.slice(0, 3).join(" / ") : fallback;
@@ -447,7 +563,7 @@ function validatePriceRoleSeparation(
     targetText: firstForwardTarget?.text ?? fallbackTarget,
     target: firstForwardTarget?.value ?? null,
     extensionTargetText: extensionTarget?.text ?? "다음 저항 확인 필요",
-    targetStatus: firstForwardTarget ? "상단 목표 확인" : fallbackTarget,
+    targetStatus: firstForwardTarget?.text ?? fallbackTarget,
     roleCollapsed,
     currentNearResistance,
   };
@@ -1470,7 +1586,9 @@ function alignSignalAndEntryLabel(
       label: context.chartRegime === "range_upper_resistance" || context.chartRegime === "resistance_test"
         ? "저항권 진입 주의"
         : "돌파 확인 우선",
-      explanation: "최종 판단이 주의/대기 성격이므로 즉시 진입 우세 라벨을 표시하지 않습니다.",
+      explanation: context.chartRegime === "range_upper_resistance" || context.chartRegime === "resistance_test"
+        ? "현재가는 저항권에 가까워 즉시 진입보다 돌파 후 재지지 확인이 우선입니다."
+        : "신규 진입은 지지 반응과 돌파 확인이 나온 뒤 접근하는 것이 안전합니다.",
     };
   }
 
@@ -1525,7 +1643,7 @@ function deriveDisplayedEntrySignal(
       score: Math.max(Math.min(currentScore, 45), Math.min(pullbackScore, 60), breakoutScore),
       label: context.chartRegime === "downtrend_rebound" ? "저항 돌파 확인 우선" : "반등 확인 대기",
       mode: "breakout_wait",
-      explanation: "하락 흐름 이후에는 저항 회복과 돌파 후 재지지 확인 전까지 눌림목 우세로 표시하지 않습니다.",
+      explanation: "하락 흐름 이후에는 저항 회복과 돌파 후 재지지 확인 전까지 신규 진입은 신중해야 합니다.",
     };
   } else if (actionState === "CURRENT_PARTIAL_ENTRY") {
     signal = {
@@ -1823,9 +1941,10 @@ function decisionEntryMode(mode: DisplayedEntryMode): ReportDecisionEntryMode {
 
 function displayPrice(text: string, value: number | null, status?: string): DisplayPrice {
   const safe = safeText(text, FALLBACK.needsCheck);
+  const parsedValue = value !== null && Number.isFinite(value) ? value : parsePriceFromText(safe);
   return {
     text: safe,
-    value: value !== null && Number.isFinite(value) ? value : null,
+    value: parsedValue,
     ...(status ? { status: safeText(status, FALLBACK.needsCheck) } : {}),
   };
 }
@@ -1929,7 +2048,9 @@ function normalizeDecisionEntrySignal(
       mode: context.chartRegime === "resistance_test" || context.chartRegime === "downtrend_rebound" ? "breakout" : "wait",
       label: context.targetGapLabel === "목표 여유 낮음" ? "재지지 확인" : "돌파 확인 우선",
       score: displayedEntry.score,
-      explanation: "최종 판단이 주의 또는 대기 성격이므로 즉시 진입 우세가 아닌 확인 우선 신호로 표시합니다.",
+      explanation: context.targetGapLabel === "목표 여유 낮음"
+        ? "목표 여유가 크지 않아 즉시 진입보다 재지지 확인이 우선입니다."
+        : "신규 진입은 돌파와 지지 확인이 나온 뒤 접근하는 것이 안전합니다.",
     };
   }
 
@@ -2149,7 +2270,7 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
   const targetText = safeText(decision.priceRoles.target?.text, "");
   const targetStatus = safeText(decision.priceRoles.targetStatus, "");
   const targetMissing = !targetText || /확인 필요|미확인|추가 목표|상단 목표 미확인/.test(targetText);
-  const targetLooksNormal = Boolean(targetText && !/확인 필요|미확인|목표가 근접|목표 여유 낮음|추가 목표|상단 목표/.test(targetText));
+  const targetLooksNormal = Boolean(targetText && !/확인 필요|미확인|목표가 근접|목표 여유 낮음|상승 여지 제한|추가 목표|상단 저항|저항 재확인/.test(targetText));
   const currentValue = decision.priceRoles.currentPrice.value;
   const resistanceValue = decision.priceRoles.mainResistance.value;
   const targetValue = decision.priceRoles.target?.value ?? null;
@@ -2236,7 +2357,7 @@ export function buildReportDecision(
     context.targetGapLabel === "목표 여유 낮음";
   const targetStatus = targetCollapsed
     ? safeText(context.targetStatus || context.targetGapLabel, "목표 여유 낮음")
-    : safeText(context.targetStatus || context.targetGapLabel, "상단 목표 확인");
+    : safeText(context.targetStatus || context.targetGapLabel, safeText(context.targetText, "추가 목표 확인 필요"));
   const primaryStrategy = buildDecisionPrimaryStrategy(report, context, finalAction, entryStrategies, normalizedDisplayedEntry, tone);
   const decision: ReportDecision = {
     chartRegime: context.chartRegime,
@@ -2289,10 +2410,11 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
   const totalScore = safeScore(normalizedReport.scoreSummary?.totalScore);
   const reportDecision = buildReportDecision(normalizedReport, context, finalAction, dataset, displayedEntry, signal, totalScore);
   warnReportDecisionInDevelopment(reportDecision);
-  const priceUnit = firstText(
-    [normalizedReport.analysisMeta?.priceUnit, rawReport.aiAnalysis?.symbolDetection?.currency],
-    FALLBACK.noUnit,
-  );
+  const displayTitle = getDisplayTicker(rawReport, normalizedReport);
+  const displayMarket = getDisplayMarket(rawReport, displayTitle);
+  const companyLine = getDisplayCompanyLine(rawReport, normalizedReport, displayTitle, displayMarket);
+  const displayCurrencyUnit = getDisplayCurrencyUnit(rawReport, normalizedReport, displayTitle, displayMarket, context.current);
+  const priceUnit = displayCurrencyUnit;
   const trendLabel = chartRegimeLabels[context.chartRegime] ?? chartRegimeLabels.unknown;
   const trendDescription = firstText(
     [normalizedReport.chartRegime?.reasons?.[0], rawReport.aiAnalysis?.visualTrend, normalizedReport.finalSummary.reason],
@@ -2311,11 +2433,15 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
 
   return {
     hero: {
-      stockName: firstText([normalizedReport.analysisMeta?.symbol, rawReport.aiAnalysis?.symbolDetection?.detectedName], FALLBACK.unknown),
-      ticker: safeText(rawReport.aiAnalysis?.symbolDetection?.detectedTicker, "-"),
-      marketTag: firstText([rawReport.aiAnalysis?.symbolDetection?.detectedMarket, rawReport.aiAnalysis?.symbolDetection?.detectedExchange], "-"),
+      stockName: displayTitle,
+      ticker: displayTitle,
+      marketTag: displayMarket || "시장 확인 필요",
+      displayTitle,
+      companyLine,
+      displayMarket: displayMarket || "시장 확인 필요",
       currentPrice: context.heroPrice,
-      currencyOrUnit: priceUnit,
+      currencyOrUnit: displayCurrencyUnit,
+      displayCurrencyUnit,
       priceChange: "-",
       confidenceScore: totalScore,
       confidenceLabel: confidenceLabel(normalizedReport.finalSummary.confidence, totalScore),

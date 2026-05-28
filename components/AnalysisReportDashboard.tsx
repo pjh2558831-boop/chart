@@ -154,12 +154,36 @@ function scoreText(score: number | null | undefined) {
   return typeof score === "number" && Number.isFinite(score) ? `${score} / 100` : "확인 필요";
 }
 
+function regimePositionLabel(regime: string) {
+  const labels: Record<string, string> = {
+    uptrend_pullback: "상승추세 눌림 구간",
+    uptrend_consolidation: "상승추세 조정 구간",
+    downtrend_rebound: "하락추세 반등 구간",
+    resistance_test: "저항권 테스트",
+    support_breakdown: "지지 이탈 위험",
+    overextended_surge: "단기 과열 구간",
+    overheated_breakout: "과열권 돌파 구간",
+    breakout_retest_confirmed: "돌파 후 재지지 구간",
+    breakout_wait: "돌파 확인 구간",
+    range_lower_support: "박스권 하단",
+    range_upper_resistance: "박스권 상단",
+    healthy_pullback: "건전한 눌림 구간",
+    sideways: "박스권 중단",
+  };
+  return labels[regime] ?? "확인 필요";
+}
+
 function formatCurrentPriceStatus(decision: ReportDecision, vm: InstitutionalReportViewModel) {
-  return safeValue(decision.priceRoles.currentPrice.status, safeValue(vm.basisSummary.currentLocation, "가격 위치 확인 필요"));
+  const text = safeValue(
+    decision.priceRoles.currentPrice.status,
+    safeValue(vm.basisSummary.currentLocation, regimePositionLabel(decision.chartRegime)),
+  );
+  return truncateText(text, regimePositionLabel(decision.chartRegime), 28);
 }
 
 function formatPrimaryStrategySummary(decision: ReportDecision) {
-  return truncateText(decision.primaryStrategy.summary, "주요 지지/저항 확인 필요", 70);
+  const action = safeValue(decision.displayedEntrySignal.label, safeValue(decision.primaryStrategy.entry, "주요 지지 반응 확인"));
+  return truncateText(action, "주요 지지 반응 확인", 28);
 }
 
 function compactStrategyLine(value: string, maxLength = 74) {
@@ -258,7 +282,7 @@ function getHeroMetadataItems(vm: InstitutionalReportViewModel) {
 
 function formatDecisionCorePriceItems(decision: ReportDecision, vm: InstitutionalReportViewModel) {
   const levels = decision.priceRoles;
-  const target = safeValue(levels.target?.text, safeValue(levels.targetStatus, "추가 목표 확인 필요"));
+  const target = formatHeroTargetText(decision);
 
   return [
     { label: "현재가", value: safeValue(levels.currentPrice.text, safeValue(vm.keyLevels.currentPrice, safeValue(vm.hero.currentPrice, "확인 필요"))), tone: "text-slate-950" },
@@ -270,10 +294,52 @@ function formatDecisionCorePriceItems(decision: ReportDecision, vm: Institutiona
   ];
 }
 
+function formatHeroTargetText(decision: ReportDecision) {
+  const status = safeValue(decision.priceRoles.targetStatus, "");
+  const target = safeValue(decision.priceRoles.target?.text, "");
+  const warningStatus = /목표 여유 낮음|추가 목표|상승 여지 제한|목표가 근접|상단 저항|다음 저항|확인 필요/.test(status);
+  if (warningStatus) return status;
+  if (target && !isVagueTargetText(target)) return target;
+  if (status && !isVagueTargetText(status)) return status;
+  return "추가 목표 확인 필요";
+}
+
+function isVagueTargetText(value: string) {
+  return value.includes("상단 목표 " + "확인") || value === "목표 확인";
+}
+
+function hasInternalFinalSignalText(value: string) {
+  return [
+    "최종 판단이 " + "주의",
+    "주의/대기 " + "성격",
+    "즉시 진입 우선 " + "레이블",
+    "표시하지 " + "않습니다",
+    "즉시 진입 우세가 " + "아닌",
+  ].some((pattern) => value.includes(pattern));
+}
+
+function userFacingFinalSignalExplanation(decision: ReportDecision, fallback: string) {
+  const raw = safeValue(decision.displayedEntrySignal.explanation, "");
+  if (raw && !hasInternalFinalSignalText(raw)) return raw;
+  if (decision.finalActionTone === "risk" || decision.chartRegime === "support_breakdown") {
+    return "지지 이탈 가능성이 있어 신규 진입보다 손절 기준과 비중 관리가 우선입니다.";
+  }
+  if (/현재가|분할|소액/.test(decision.finalActionLabel)) {
+    return "손절 기준이 비교적 명확할 때 소액 분할 진입은 검토 가능하지만, 이탈 시 빠른 대응이 필요합니다.";
+  }
+  if (decision.chartRegime === "uptrend_pullback" || decision.chartRegime === "healthy_pullback") {
+    return "주요 지지에서 반등이 확인되면 눌림목 진입 후보로 볼 수 있습니다.";
+  }
+  if (decision.finalActionTone === "caution" || decision.finalActionTone === "watch") {
+    return "현재가는 저항권에 가까워 즉시 진입보다 돌파 후 재지지 확인이 우선입니다.";
+  }
+  return safeValue(fallback, "주요 가격대 확인 후 조건부로 접근하는 것이 좋습니다.");
+}
+
 function formatDecisionFinalSignal(decision: ReportDecision, vm: InstitutionalReportViewModel) {
   return {
     title: truncateText(decision.finalActionLabel, "재지지 확인 우선", 36),
-    explanation: safeValue(decision.displayedEntrySignal.explanation, vm.finalAction.subtitle),
+    explanation: userFacingFinalSignalExplanation(decision, vm.finalAction.subtitle),
     keyPoint: safeValue(decision.displayedEntrySignal.label, "주요 가격대 확인"),
   };
 }
@@ -374,27 +440,27 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           <div className="min-w-0">
             <p className="mb-3 text-sm font-extrabold tracking-normal text-slate-950 [word-break:keep-all]">종목 요약</p>
             <h2
-              className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2.4rem,4.8vw,4.5rem)] font-extrabold leading-none tracking-normal text-slate-950"
-              title={safeValue(hero.stockName, "미확인")}
+              className="max-w-full whitespace-nowrap text-[clamp(2.2rem,4.4vw,4.25rem)] font-extrabold leading-none tracking-normal text-slate-950"
+              title={safeValue(hero.displayTitle, safeValue(hero.stockName, "미확인"))}
             >
-              {safeValue(hero.stockName, "미확인")}
+              {safeValue(hero.displayTitle, safeValue(hero.stockName, "미확인"))}
             </h2>
           </div>
           <p
             className="mt-3 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold leading-6 text-slate-600"
-            title={`${safeValue(hero.ticker, "티커 확인 필요")} · ${safeValue(hero.marketTag, "시장 확인 필요")}`}
+            title={safeValue(hero.companyLine, safeValue(hero.ticker, "티커 확인 필요"))}
           >
-            {safeValue(hero.ticker, "티커 확인 필요")} · {safeValue(hero.marketTag, "시장 확인 필요")}
+            {safeValue(hero.companyLine, safeValue(hero.ticker, "티커 확인 필요"))}
           </p>
           <div className="mt-5">
             <p
-              className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(3rem,5.5vw,4.75rem)] font-extrabold leading-none tracking-normal text-slate-950"
+              className="max-w-full whitespace-nowrap text-[clamp(2.625rem,5vw,4.5rem)] font-extrabold leading-none tracking-[-0.02em] text-slate-950"
               title={safeValue(hero.currentPrice)}
             >
               {safeValue(hero.currentPrice)}
             </p>
             <p className="mt-2 text-base font-semibold leading-6 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
-              {safeValue(hero.currencyOrUnit, safeValue(vm.basisSummary.priceUnit, "가격 단위 확인 필요"))}
+              {safeValue(hero.displayCurrencyUnit, safeValue(hero.currencyOrUnit, safeValue(vm.basisSummary.priceUnit, "가격 단위 확인 필요")))}
             </p>
           </div>
           <div className="mt-4 grid gap-2.5">

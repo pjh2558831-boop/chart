@@ -9,6 +9,7 @@ import {
   type IndicatorRow,
   type IndicatorTone,
   type InstitutionalReportViewModel,
+  type ReportDecision,
   type ScenarioCard,
   type ScenarioTone,
   type SignalTone,
@@ -32,7 +33,7 @@ type StrategyExecutionItem = {
   tone?: StrategyActionTone;
 };
 
-type RepresentativeStrategy = {
+type HeroStrategyDisplay = {
   title: string;
   summary: string[];
   execution: StrategyExecutionItem[];
@@ -46,29 +47,6 @@ function safeValue(value: string | number | null | undefined, fallback = "-") {
   if (!text || /^(undefined|null|nan|infinity|\[object object\])$/i.test(text)) return fallback;
   if (/\b(undefined|null|NaN|Infinity)\b/.test(text) || text.includes("[object Object]")) return fallback;
   return text;
-}
-
-function compactSignalLabel(label: string | number | null | undefined) {
-  const text = safeValue(label, "관망");
-  const compactLabels = ["돌파 대기", "눌림 대기", "지지 확인", "저항 확인", "관망", "주의", "위험 관리", "진입 보류", "매수 후보"];
-  if (compactLabels.includes(text)) return text;
-  if (text.includes("매수 후보")) return "매수 후보";
-  if (text.includes("돌파") && (text.includes("대기") || text.includes("확인"))) return "돌파 대기";
-  if (text.includes("눌림")) return "눌림 대기";
-  if (text.includes("지지") && text.includes("확인")) return "지지 확인";
-  if (text.includes("저항") && text.includes("확인")) return "저항 확인";
-  if (text.includes("위험")) return "위험 관리";
-  if (text.includes("주의")) return "주의";
-  if (text.includes("보유") || text.includes("관망")) return "관망";
-  if (text.includes("진입 보류")) return "진입 보류";
-  if (text.includes("보류")) return "진입 보류";
-  if (text.includes("대기")) {
-    if (text.includes("돌파")) return "돌파 대기";
-    if (text.includes("눌림")) return "눌림 대기";
-    if (text.includes("지지")) return "지지 확인";
-    return "관망";
-  }
-  return text.length > 5 ? "관망" : text;
 }
 
 function cardClass(extra = "") {
@@ -167,10 +145,6 @@ function MiniLevelChart({ data }: { data?: Array<{ label: string; value: string 
   );
 }
 
-function hasAny(text: string, keywords: string[]) {
-  return keywords.some((keyword) => text.includes(keyword));
-}
-
 function truncateText(value: string | number | null | undefined, fallback = "확인 필요", maxLength = 58) {
   const text = safeValue(value, fallback);
   return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
@@ -180,311 +154,75 @@ function scoreText(score: number | null | undefined) {
   return typeof score === "number" && Number.isFinite(score) ? `${score} / 100` : "확인 필요";
 }
 
-function getSpecificActionTitle(vm: InstitutionalReportViewModel) {
-  const actionText = [
-    vm.finalAction.title,
-    vm.finalAction.subtitle,
-    vm.finalAction.reason,
-    vm.hero.signalLabel,
-    vm.hero.trendLabel,
-    vm.basisSummary.currentLocation,
-    vm.basisSummary.preferredStrategy,
-    vm.keyLevels.targetGapLabel,
-    vm.scorePanel.entryScoreLabel,
-  ].map((item) => safeValue(item, "")).join(" ");
-
-  if (hasAny(actionText, ["현재가 분할 진입", "분할 진입 가능"])) return "현재가 분할 진입 가능 / 손절 짧게";
-  if (hasAny(actionText, ["현재가 소액 진입", "소액 진입 가능"])) return "현재가 소액 진입 가능 / 확인 병행";
-  if (hasAny(actionText, ["모멘텀 추세추종", "모멘텀 진입", "추세추종"])) return "모멘텀 추세추종 / 분할 접근";
-  if (hasAny(actionText, ["돌파 전 소액 선진입", "선진입"])) return "돌파 전 소액 선진입 / 고위험";
-  if (hasAny(actionText, ["위험", "이탈", "붕괴", "손절 위험"]) || vm.hero.signalTone === "risk") return "위험 관리";
-  if (hasAny(actionText, ["진입 보류", "매매 부적합", "회피"])) return "진입 회피";
-  if (hasAny(actionText, ["급등", "과열"])) return "급등 후 과열 / 눌림 대기";
-  if (hasAny(actionText, ["목표가 근접", "목표 여유 낮음"])) return "추격매수 주의 / 목표 여유 낮음";
-  if (hasAny(actionText, ["소액만 가능"])) return "저항권 테스트 / 소액만 가능";
-  if (hasAny(actionText, ["추격매수", "저항권", "저항 근접"])) return "추격매수 주의 / 재지지 확인";
-  if (hasAny(actionText, ["보유 관망", "보유자", "보유 가능"])) return "보유 우세, 신규는 대기";
-  if (hasAny(actionText, ["돌파 후 재지지", "재지지 확인", "돌파 매수 후보"])) return "돌파 후 재지지 확인 대기";
-  if (hasAny(actionText, ["저항권 테스트", "돌파 확인 대기", "돌파 대기"])) return "저항권 테스트 / 돌파 확인 대기";
-  if (hasAny(actionText, ["상승추세 눌림"])) return "상승추세 눌림 / 지지 확인";
-  if (hasAny(actionText, ["눌림목", "눌림", "지지 확인"])) return "눌림목 진입 후보";
-  return "돌파 후 재지지 확인 대기";
+function formatCurrentPriceStatus(decision: ReportDecision, vm: InstitutionalReportViewModel) {
+  return safeValue(decision.priceRoles.currentPrice.status, safeValue(vm.basisSummary.currentLocation, "가격 위치 확인 필요"));
 }
 
-function getCurrentPriceInterpretation(vm: InstitutionalReportViewModel) {
-  const text = [
-    vm.basisSummary.currentLocation,
-    vm.keyLevels.targetGapLabel,
-    vm.finalAction.title,
-    vm.hero.trendLabel,
-  ].map((item) => safeValue(item, "")).join(" ");
-
-  if (hasAny(text, ["현재가 분할", "현재가 소액"])) return "짧은 손절 전제 / 소액 접근";
-  if (hasAny(text, ["모멘텀", "추세추종"])) return "추세 지속 / 손절 기준 확인";
-  if (hasAny(text, ["선진입"])) return "돌파 전 고위험 소액 구간";
-  if (hasAny(text, ["과열", "급등"])) return "단기 과열권 / 추격매수 주의";
-  if (hasAny(text, ["목표가 근접", "목표 여유 낮음", "저항"])) return "저항권 근접 / 추격매수 주의";
-  if (hasAny(text, ["지지권", "박스권 하단", "상승추세 눌림"])) return "지지 반응 확인 구간";
-  if (hasAny(text, ["돌파", "재지지"])) return "돌파 후 재지지 확인 구간";
-  if (hasAny(text, ["하락", "위험", "이탈"])) return "위험 관리 우선 구간";
-  return safeValue(vm.basisSummary.currentLocation, "가격 위치 확인 필요");
-}
-
-function getPrimaryStrategyText(vm: InstitutionalReportViewModel) {
-  const preferred = safeValue(vm.basisSummary.preferredStrategy, "");
-  if (preferred && preferred !== "주요 지지/저항 확인 필요") return truncateText(preferred, "주요 지지/저항 확인 필요", 70);
-
-  const action = getSpecificActionTitle(vm);
-  if (action.includes("분할")) return "손절 기준을 짧게 두고 소액 분할 접근";
-  if (action.includes("선진입")) return "돌파 실패 시 빠른 손절 전제의 소액 전략";
-  if (action.includes("소액")) return "현재가 소액 진입 후 지지 확인 시 추가 검토";
-  if (action.includes("모멘텀")) return "추세 유지 시 일부 추세추종, 이탈 시 빠른 축소";
-  if (action.includes("추격매수")) return "현재가 추격보다 재지지 또는 눌림목 확인 후 접근";
-  if (action.includes("눌림")) return `${safeValue(vm.keyLevels.mainSupport, "주요 지지선")} 지지 확인 후 관심`;
-  if (action.includes("돌파")) return `${safeValue(vm.keyLevels.breakoutTrigger, "핵심 전환 가격")} 돌파 후 재지지 확인`;
-  if (action.includes("위험")) return "신규 진입보다 손절 기준과 위험 관리 우선";
-  return "주요 지지/저항 확인 필요";
-}
-
-function isMissingLevel(value: string) {
-  return !safeValue(value, "") || hasAny(value, ["확인 필요", "미확인", "분석 불가", "[object Object]"]);
+function formatPrimaryStrategySummary(decision: ReportDecision) {
+  return truncateText(decision.primaryStrategy.summary, "주요 지지/저항 확인 필요", 70);
 }
 
 function compactStrategyLine(value: string, maxLength = 74) {
   return truncateText(value, "확인 필요", maxLength);
 }
 
-function getRepresentativeTradingStrategy(vm: InstitutionalReportViewModel): RepresentativeStrategy {
-  const strategyTitle = getSpecificActionTitle(vm);
-  const actionText = [
-    strategyTitle,
-    vm.finalAction.title,
-    vm.finalAction.subtitle,
-    vm.finalAction.reason,
-    vm.finalAction.actionType,
-    vm.hero.trendLabel,
-    vm.basisSummary.currentLocation,
-    vm.keyLevels.targetGapLabel,
-    vm.keyLevels.targetGapExplanation,
-    vm.scorePanel.entryScoreLabel,
-  ].map((item) => safeValue(item, "")).join(" ");
-
-  const current = safeValue(vm.keyLevels.currentPrice, safeValue(vm.hero.currentPrice, "현재가 확인 필요"));
-  const support = safeValue(vm.keyLevels.mainSupport, "주요 지지 확인 필요");
-  const secondarySupport = safeValue(
-    vm.keyLevels.secondarySupport,
-    safeValue(vm.keyLevels.invalidation, "보조 지지 확인 필요"),
-  );
-  const breakout = safeValue(
-    vm.keyLevels.breakoutTrigger,
-    safeValue(vm.basisSummary.pivotPrice, "돌파 기준 확인 필요"),
-  );
-  const resistance = safeValue(vm.keyLevels.mainResistance, "주요 저항 확인 필요");
-  const stopLoss = safeValue(
-    vm.keyLevels.stopLoss,
-    safeValue(vm.entryMode.currentEntry.stopLoss, safeValue(vm.entryMode.pullbackEntry.stopLoss, "손절 기준 확인 필요")),
-  );
-  const target = safeValue(vm.keyLevels.target, safeValue(vm.keyLevels.upperBreakoutTarget, "추가 목표 확인 필요"));
-  const extensionTarget = safeValue(vm.keyLevels.upperBreakoutTarget, target);
-  const currentScore = vm.entryMode.currentEntry.score;
-  const pullbackScore = vm.entryMode.pullbackEntry.score;
-  const breakoutScore = vm.entryMode.breakoutEntry.score;
-  const riskScore = vm.scorePanel.riskScore;
-  const highRisk = vm.hero.signalTone === "risk"
-    || (typeof riskScore === "number" && riskScore >= 70)
-    || hasAny(actionText, ["위험", "이탈", "붕괴", "진입 보류", "회피"]);
-  const targetGapLow = hasAny(actionText, ["목표가 근접", "목표 여유 낮음", "상승 여지 제한"]);
-  const overheat = hasAny(actionText, ["과열", "급등", "과열권", "OVERHEATED"]);
-  const reboundOrResistanceTest = hasAny(actionText, [
-    "DOWNTREND_REBOUND",
-    "RESISTANCE_TEST",
-    "하락추세 반등",
-    "저항권 테스트",
-  ]);
-  const stopMissing = isMissingLevel(stopLoss);
-  const currentEntryAllowed = typeof currentScore === "number"
-    && currentScore >= 45
-    && currentScore <= 70
-    && !targetGapLow
-    && !highRisk
-    && !stopMissing;
-  const strategySuggestsCurrent = hasAny(strategyTitle, ["현재가 소액", "현재가 분할", "모멘텀"])
-    && !targetGapLow
-    && !highRisk
-    && !stopMissing;
-  const pullbackFocused = hasAny(actionText, ["눌림", "지지 확인", "미래 눌림목", "지지 반응"]);
-  const breakoutFocused = hasAny(actionText, ["돌파", "재지지", "안착"]);
-  const currentWeak = typeof currentScore === "number" && currentScore < 45;
-  const pullbackLeads = typeof pullbackScore === "number"
-    && (typeof currentScore !== "number" || pullbackScore >= currentScore + 10)
-    && (typeof breakoutScore !== "number" || pullbackScore >= breakoutScore - 5);
-  const breakoutLeads = breakoutFocused
-    || (typeof breakoutScore === "number"
-      && (typeof currentScore !== "number" || breakoutScore >= currentScore)
-      && (typeof pullbackScore !== "number" || breakoutScore >= pullbackScore - 5));
-
-  if (reboundOrResistanceTest) {
-    return {
-      title: "신규 진입 보류 / 돌파 확인 대기",
-      summary: [
-        compactStrategyLine(`현재가는 반등 과정에서 ${resistance} 부근 저항권을 테스트하고 있습니다.`),
-        compactStrategyLine(`추세 전환 확인 전까지 신규 진입은 ${breakout} 돌파 후 재지지 확인이 우선입니다.`),
-        compactStrategyLine(`${support} 지지가 무너지면 반등 시나리오는 약화됩니다.`),
-      ],
-      execution: [
-        { label: "진입", value: `${breakout} 돌파 후 재지지`, tone: "positive" },
-        { label: "손절", value: `${support} 이탈`, tone: "risk" },
-        { label: "목표", value: target, tone: "default" },
-      ],
-      badges: ["추격매수 주의", "재지지 확인"],
-    };
-  }
-
-  if (currentEntryAllowed || strategySuggestsCurrent) {
-    return {
-      title: "현재가 분할진입 가능",
-      summary: [
-        compactStrategyLine(`현재가는 주요 지지와 손절 기준이 비교적 명확해 소액 분할 진입이 가능합니다.`),
-        compactStrategyLine(`다만 ${stopLoss} 이탈 시 빠르게 손절하는 조건이 필요합니다.`),
-      ],
-      execution: [
-        { label: "진입", value: `${current} 부근 분할`, tone: "positive" },
-        { label: "손절", value: stopLoss, tone: "risk" },
-        { label: "목표", value: target, tone: "default" },
-      ],
-      badges: ["소액 가능", "손절 엄수"],
-    };
-  }
-
-  if (highRisk) {
-    return {
-      title: "신규 진입 보류 / 위험 관리",
-      summary: [
-        compactStrategyLine("위험 신호가 우선이므로 신규 진입보다 손절 기준과 비중 관리가 먼저입니다."),
-        compactStrategyLine(`${support} 회복 또는 ${breakout} 안착 확인 전까지 추가 진입은 신중합니다.`),
-      ],
-      execution: [
-        { label: "진입", value: "신규 대기", tone: "caution" },
-        { label: "손절", value: stopLoss, tone: "risk" },
-        { label: "목표", value: `${resistance} / ${target}`, tone: "default" },
-      ],
-      badges: ["위험 관리", "신규 대기"],
-    };
-  }
-
-  if (overheat && targetGapLow) {
-    return {
-      title: "일부 익절 후 관망",
-      summary: [
-        compactStrategyLine("현재가는 단기 과열 또는 저항 근접 구간으로 보유자는 일부 이익 실현이 유리합니다."),
-        compactStrategyLine("신규 진입은 보류하고 재지지 또는 눌림 확인 이후 다시 접근합니다."),
-      ],
-      execution: [
-        { label: "진입", value: "신규 대기", tone: "caution" },
-        { label: "손절", value: stopLoss, tone: "risk" },
-        { label: "목표", value: `${resistance} / ${target}`, tone: "default" },
-      ],
-      badges: ["일부 익절 고려", "신규 대기"],
-    };
-  }
-
-  if ((currentWeak && pullbackLeads) || (pullbackFocused && !breakoutLeads)) {
-    return {
-      title: "추격매수 주의 / 눌림목 확인 우선",
-      summary: [
-        compactStrategyLine("현재가에서 무리한 신규 진입보다 주요 지지 구간 반등 확인 후 접근이 유리합니다."),
-        compactStrategyLine(`${support} 부근에서 하락이 멈추고 반등이 확인되면 분할 진입을 검토합니다.`),
-      ],
-      execution: [
-        { label: "진입", value: `${support} 반등 확인 후`, tone: "positive" },
-        { label: "손절", value: `${secondarySupport} 이탈`, tone: "risk" },
-        { label: "목표", value: `${resistance} 또는 ${target}`, tone: "default" },
-      ],
-      badges: ["신규 진입 신중", "눌림 대기"],
-    };
-  }
-
-  if (hasAny(actionText, ["보유", "관망"]) || targetGapLow) {
-    return {
-      title: "보유 우세 / 신규 대기",
-      summary: [
-        compactStrategyLine("신규 진입보다 기존 보유자 관점 대응이 더 유리합니다."),
-        compactStrategyLine(`보유자는 ${resistance} 부근 반응을 보며 일부 익절 또는 관망 전략이 적절합니다.`),
-      ],
-      execution: [
-        { label: "진입", value: "신규는 대기", tone: "caution" },
-        { label: "손절", value: stopLoss, tone: "risk" },
-        { label: "목표", value: `${resistance} / ${target}`, tone: "default" },
-      ],
-      badges: ["보유 가능", "신규는 대기"],
-    };
-  }
-
+function formatDecisionPrimaryStrategy(decision: ReportDecision): HeroStrategyDisplay {
+  const entryTone: StrategyActionTone = decision.finalActionTone === "risk"
+    ? "caution"
+    : decision.finalActionTone === "caution"
+      ? "caution"
+      : "positive";
   return {
-    title: "돌파 확인 대기 / 재지지 우선",
-    summary: [
-      compactStrategyLine(`현재 위치에서는 추격매수보다 ${breakout} 돌파 후 재지지 여부 확인이 우선입니다.`),
-      compactStrategyLine(`돌파 후 해당 가격 위에서 안착하면 ${extensionTarget} 구간까지 열어둘 수 있습니다.`),
-    ],
+    title: safeValue(decision.primaryStrategy.title, "매매 전략 확인 필요"),
+    summary: [compactStrategyLine(decision.primaryStrategy.summary, 112)],
     execution: [
-      { label: "진입", value: `${breakout} 돌파 후 재지지`, tone: "positive" },
-      { label: "손절", value: `${breakout} 재이탈 또는 ${support} 이탈`, tone: "risk" },
-      { label: "목표", value: target, tone: "default" },
+      { label: "진입", value: decision.primaryStrategy.entry, tone: entryTone },
+      { label: "손절", value: decision.primaryStrategy.stop, tone: "risk" },
+      { label: "목표", value: decision.primaryStrategy.target, tone: "default" },
     ],
-    badges: ["돌파 대기", "안착 확인"],
+    badges: decision.primaryStrategy.badges.length ? decision.primaryStrategy.badges : [decision.displayedEntrySignal.label],
   };
 }
 
-function entryScenarioStatus(mode: "current" | "pullback" | "breakout", item: EntryModeCard) {
-  const label = safeValue(item.label, "");
-  const explanation = safeValue(item.explanation, "");
-  const score = item.score ?? null;
-  const joined = `${label} ${explanation}`;
-
-  if (mode === "current") {
-    if (hasAny(joined, ["분할 진입"])) return "분할 진입";
-    if (hasAny(joined, ["소액 진입"])) return "소액 진입";
-    if (hasAny(joined, ["모멘텀"])) return "모멘텀 진입";
-    if (hasAny(joined, ["선진입"])) return "소액 선진입";
-    if (hasAny(joined, ["추격", "저항", "목표"]) || (score !== null && score <= 39)) return score !== null && score <= 19 ? "부적합" : "추격매수 주의";
-    if (score !== null && score >= 55) return "조건부 진입";
-    return safeValue(label, "확인 필요");
-  }
-  if (mode === "pullback") {
-    if (hasAny(joined, ["미래"])) return "미래 눌림목 관심";
-    if (hasAny(joined, ["지지"])) return "지지 확인";
-    if (score !== null && score >= 55) return "조건부 관심";
-    return safeValue(label, "눌림목 관심");
-  }
-  if (hasAny(joined, ["재지지"])) return "돌파 후 재지지 확인";
-  if (hasAny(joined, ["돌파"])) return "돌파 대기";
-  return safeValue(label, "확인 필요");
+function formatEntryCard(item: ReportDecision["entryStrategies"]["current"]): EntryModeCard {
+  return {
+    score: item.score,
+    label: item.label,
+    condition: item.condition,
+    stopLoss: item.stop,
+    target: item.target,
+    riskReward: item.riskReward,
+    explanation: item.explanation,
+    tone: item.tone,
+  };
 }
 
-function getEntryScenarioItems(vm: InstitutionalReportViewModel) {
+function formatDecisionEntryScenarios(decision: ReportDecision) {
+  const current = formatEntryCard(decision.entryStrategies.current);
+  const pullback = formatEntryCard(decision.entryStrategies.pullback);
+  const breakout = formatEntryCard(decision.entryStrategies.breakout);
+
   return [
     {
       key: "current",
       title: "현재가 진입",
-      item: vm.entryMode.currentEntry,
-      status: entryScenarioStatus("current", vm.entryMode.currentEntry),
-      context: hasAny(`${vm.entryMode.currentEntry.label} ${vm.entryMode.currentEntry.explanation}`, ["추격", "저항", "목표"])
-        ? "추격매수 부담"
-        : truncateText(vm.entryMode.currentEntry.condition, "조건 확인 필요", 34),
+      item: current,
+      status: current.label,
+      context: truncateText(current.condition, "조건 확인 필요", 34),
     },
     {
       key: "pullback",
       title: "눌림목 진입",
-      item: vm.entryMode.pullbackEntry,
-      status: entryScenarioStatus("pullback", vm.entryMode.pullbackEntry),
-      context: truncateText(vm.entryMode.pullbackEntry.condition, "지지 확인 필요", 34),
+      item: pullback,
+      status: pullback.label,
+      context: truncateText(pullback.condition, "지지 확인 필요", 34),
     },
     {
       key: "breakout",
       title: "돌파/재지지 진입",
-      item: vm.entryMode.breakoutEntry,
-      status: entryScenarioStatus("breakout", vm.entryMode.breakoutEntry),
-      context: truncateText(vm.entryMode.breakoutEntry.condition, "안착 확인 필요", 34),
+      item: breakout,
+      status: breakout.label,
+      context: truncateText(breakout.condition, "안착 확인 필요", 34),
     },
   ];
 }
@@ -500,11 +238,12 @@ function compactHeroStatus(value: string) {
   return text;
 }
 
-function getSignalSummaryItems(vm: InstitutionalReportViewModel) {
+function formatSignalSummaryItems(decision: ReportDecision) {
+  const summary = decision.signalSummary;
   return [
-    { label: "모멘텀", score: vm.scorePanel.momentumScore, riskMode: false },
-    { label: "돌파 확률", score: vm.scorePanel.breakoutScore, riskMode: false },
-    { label: "리스크 수준", score: vm.scorePanel.riskScore, riskMode: true },
+    { label: "모멘텀", score: summary.momentumScore, riskMode: false },
+    { label: "돌파 확률", score: summary.breakoutScore, riskMode: false },
+    { label: "리스크 수준", score: summary.riskScore, riskMode: true },
   ];
 }
 
@@ -517,59 +256,26 @@ function getHeroMetadataItems(vm: InstitutionalReportViewModel) {
   ];
 }
 
-function getCorePriceItems(vm: InstitutionalReportViewModel) {
-  const stopOrInvalidation = safeValue(vm.keyLevels.stopLoss, "") || safeValue(vm.keyLevels.invalidation, "");
+function formatDecisionCorePriceItems(decision: ReportDecision, vm: InstitutionalReportViewModel) {
+  const levels = decision.priceRoles;
+  const target = safeValue(levels.target?.text, safeValue(levels.targetStatus, "추가 목표 확인 필요"));
 
   return [
-    { label: "현재가", value: safeValue(vm.keyLevels.currentPrice, safeValue(vm.hero.currentPrice, "확인 필요")), tone: "text-slate-950" },
-    { label: "주요 지지", value: safeValue(vm.keyLevels.mainSupport, "확인 필요"), tone: "text-emerald-700" },
-    { label: "주요 저항", value: safeValue(vm.keyLevels.mainResistance, "확인 필요"), tone: "text-rose-600" },
-    { label: "손절 / 무효화", value: safeValue(stopOrInvalidation, "확인 필요"), tone: "text-slate-950" },
+    { label: "현재가", value: safeValue(levels.currentPrice.text, safeValue(vm.keyLevels.currentPrice, safeValue(vm.hero.currentPrice, "확인 필요"))), tone: "text-slate-950" },
+    { label: "주요 지지", value: safeValue(levels.mainSupport.text, safeValue(vm.keyLevels.mainSupport, "확인 필요")), tone: "text-emerald-700" },
+    { label: "주요 저항", value: safeValue(levels.mainResistance.text, safeValue(vm.keyLevels.mainResistance, "확인 필요")), tone: "text-rose-600" },
+    { label: "돌파 기준", value: safeValue(levels.breakoutLevel?.text, safeValue(vm.keyLevels.breakoutTrigger, "확인 필요")), tone: "text-blue-700" },
+    { label: "손절", value: safeValue(levels.stopLoss?.text, safeValue(vm.keyLevels.stopLoss, "손절 기준 확인 필요")), tone: "text-red-600" },
+    { label: "목표", value: target, tone: "text-blue-700" },
   ];
 }
 
-function getFinalActionCardText(vm: InstitutionalReportViewModel) {
-  const strategyTitle = getSpecificActionTitle(vm);
-  const actionText = `${strategyTitle} ${vm.finalAction.title} ${vm.finalAction.subtitle}`;
-  const title = strategyTitle.includes("추격매수") || strategyTitle.includes("과열")
-    ? "추격매수 주의"
-    : strategyTitle.includes("분할 진입")
-      ? "분할 진입 가능"
-    : strategyTitle.includes("선진입")
-      ? "소액 선진입"
-        : strategyTitle.includes("소액 진입") || strategyTitle.includes("소액만")
-          ? "소액 진입 가능"
-          : strategyTitle.includes("모멘텀")
-            ? "추세추종 진입"
-            : strategyTitle.includes("재지지")
-              ? "돌파 후 재지지 확인"
-              : strategyTitle.includes("눌림")
-                ? "눌림목 확인 대기"
-                : strategyTitle.includes("보유")
-                  ? "보유자 관망"
-                  : strategyTitle.includes("위험")
-                    ? "위험 관리"
-                    : strategyTitle.includes("회피") || strategyTitle.includes("보류")
-                      ? "진입 보류"
-                      : strategyTitle.includes("지지")
-                        ? "지지 확인"
-                        : "재지지 확인 우선";
-
-  const explanation = safeValue(
-    vm.finalAction.subtitle,
-    "신규 진입은 주요 가격대의 지지 또는 돌파 후 재지지 확인 뒤 접근하는 편이 유리합니다.",
-  );
-  const keyPoint = hasAny(actionText, ["추격", "저항", "목표"])
-    ? "현재가 추격보다 재지지 확인"
-    : hasAny(actionText, ["분할", "소액", "모멘텀", "선진입"])
-      ? "짧은 손절과 비중 제한"
-      : hasAny(actionText, ["눌림", "지지"])
-        ? "주요 지지 반응 확인"
-        : hasAny(actionText, ["위험", "이탈"])
-          ? "손절 기준과 비중 관리"
-          : "돌파 후 안착 여부 확인";
-
-  return { title, explanation, keyPoint };
+function formatDecisionFinalSignal(decision: ReportDecision, vm: InstitutionalReportViewModel) {
+  return {
+    title: truncateText(decision.finalActionLabel, "재지지 확인 우선", 36),
+    explanation: safeValue(decision.displayedEntrySignal.explanation, vm.finalAction.subtitle),
+    keyPoint: safeValue(decision.displayedEntrySignal.label, "주요 가격대 확인"),
+  };
 }
 
 function HeroPanel({ children, className = "" }: CardProps) {
@@ -649,20 +355,16 @@ function HeroMetricBar({ label, score, riskMode = false }: { label: string; scor
 
 function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   const hero = vm.hero;
-  const strategyTitle = getSpecificActionTitle(vm);
-  const currentInterpretation = getCurrentPriceInterpretation(vm);
-  const primaryStrategy = getPrimaryStrategyText(vm);
-  const entryItems = getEntryScenarioItems(vm);
-  const signalItems = getSignalSummaryItems(vm);
+  const decision = vm.reportDecision;
+  const currentInterpretation = formatCurrentPriceStatus(decision, vm);
+  const primaryStrategy = formatPrimaryStrategySummary(decision);
+  const entryItems = formatDecisionEntryScenarios(decision);
+  const signalItems = formatSignalSummaryItems(decision);
   const metadataItems = getHeroMetadataItems(vm);
-  const corePriceItems = getCorePriceItems(vm);
-  const finalAction = getFinalActionCardText(vm);
-  const representativeStrategy = getRepresentativeTradingStrategy(vm);
-  const finalTone = strategyTitle.includes("위험") || strategyTitle.includes("회피") || strategyTitle.includes("보류")
-    ? "risk"
-    : strategyTitle.includes("추격") || strategyTitle.includes("과열") || strategyTitle.includes("저항")
-      ? "caution"
-      : hero.signalTone;
+  const corePriceItems = formatDecisionCorePriceItems(decision, vm);
+  const finalAction = formatDecisionFinalSignal(decision, vm);
+  const primaryStrategyDisplay = formatDecisionPrimaryStrategy(decision);
+  const finalTone = decision.finalActionTone;
 
   return (
     <Card className="overflow-hidden border-slate-200 bg-white">
@@ -704,15 +406,15 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
         <HeroPanel className="order-3 md:order-2">
           <HeroPanelTitle title="매매 전략" />
           <p className="max-w-full overflow-hidden text-[clamp(1.3rem,1.75vw,1.9rem)] font-extrabold leading-tight tracking-normal text-slate-950 [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-            {representativeStrategy.title}
+            {primaryStrategyDisplay.title}
           </p>
           <div className="mt-3 space-y-1.5 text-sm font-semibold leading-6 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
-            {representativeStrategy.summary.map((line, index) => (
+            {primaryStrategyDisplay.summary.map((line, index) => (
               <p key={`${index}-${line}`}>{line}</p>
             ))}
           </div>
           <div className="mt-4 grid gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-            {representativeStrategy.execution.map((item) => (
+            {primaryStrategyDisplay.execution.map((item) => (
               <div
                 key={item.label}
                 className="grid min-w-0 grid-cols-[42px_minmax(0,1fr)] items-center gap-3 text-xs leading-5"
@@ -727,7 +429,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
             ))}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            {representativeStrategy.badges.slice(0, 2).map((badge, index) => (
+            {primaryStrategyDisplay.badges.slice(0, 2).map((badge, index) => (
               <SmallBadge
                 key={badge}
                 className={index === 0 ? "border-rose-100 bg-rose-50 text-rose-700" : "border-emerald-100 bg-emerald-50 text-emerald-700"}
@@ -785,7 +487,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
         <HeroPanel>
           <HeroPanelTitle title="시그널 요약" />
           <div className="grid min-w-0 gap-4 sm:grid-cols-[120px_minmax(0,1fr)] md:grid-cols-1">
-            <HeroScoreRing score={vm.scorePanel.overallScore} />
+            <HeroScoreRing score={decision.signalSummary.overallScore} />
             <div className="space-y-3">
               {signalItems.map((item) => (
                 <HeroMetricBar key={item.label} label={item.label} score={item.score} riskMode={item.riskMode} />
@@ -795,10 +497,10 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3">
             <div className="flex min-w-0 items-center justify-between gap-3 text-xs">
               <span className="font-extrabold text-slate-700">진입 관점</span>
-              <span className="font-extrabold text-blue-700">{vm.scorePanel.entryScore === null ? "확인 필요" : vm.scorePanel.entryScore}</span>
+              <span className="font-extrabold text-blue-700">{decision.displayedEntrySignal.score === null ? "확인 필요" : decision.displayedEntrySignal.score}</span>
             </div>
             <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]">
-              {safeValue(vm.scorePanel.entryScoreLabel, "확인 필요")}
+              {safeValue(decision.signalSummary.entryPerspective, "확인 필요")}
             </p>
           </div>
         </HeroPanel>
@@ -816,7 +518,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
             ))}
           </div>
           <p className="mt-3 text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]">
-            {safeValue(vm.keyLevels.targetGapLabel, "추가 목표 확인 필요")}
+            {safeValue(decision.priceRoles.targetStatus, "추가 목표 확인 필요")}
           </p>
         </HeroPanel>
         </div>
@@ -870,13 +572,18 @@ function EntryModeItem({ title, item }: { title: string; item: EntryModeCard }) 
 }
 
 function EntryModesCard({ vm }: { vm: InstitutionalReportViewModel }) {
+  const decision = vm.reportDecision.entryStrategies;
+  const currentEntry = formatEntryCard(decision.current);
+  const pullbackEntry = formatEntryCard(decision.pullback);
+  const breakoutEntry = formatEntryCard(decision.breakout);
+
   return (
     <Card>
       <SectionTitle title="진입 방식별 판단" description="현재가, 눌림목, 돌파 진입을 조건과 손절 기준별로 분리합니다." />
       <div className="grid gap-4 xl:grid-cols-3">
-        <EntryModeItem title="현재가 진입" item={vm.entryMode.currentEntry} />
-        <EntryModeItem title="눌림목 진입" item={vm.entryMode.pullbackEntry} />
-        <EntryModeItem title="돌파 진입" item={vm.entryMode.breakoutEntry} />
+        <EntryModeItem title="현재가 진입" item={currentEntry} />
+        <EntryModeItem title="눌림목 진입" item={pullbackEntry} />
+        <EntryModeItem title="돌파 진입" item={breakoutEntry} />
       </div>
     </Card>
   );
@@ -884,8 +591,8 @@ function EntryModesCard({ vm }: { vm: InstitutionalReportViewModel }) {
 
 function MarketSummaryCard({ vm }: { vm: InstitutionalReportViewModel }) {
   const rows = [
-    ["시장 관점", vm.marketSummary.observation, "bg-blue-500"],
-    ["핵심 해석", vm.marketSummary.coreInterpretation, "bg-emerald-500"],
+    ["시장 관점", vm.reportDecision.finalActionLabel, "bg-blue-500"],
+    ["핵심 해석", vm.reportDecision.primaryStrategy.summary, "bg-emerald-500"],
     ["지지·저항 해석", vm.marketSummary.supportResistanceInterpretation, "bg-slate-400"],
     ["리스크 요인", vm.marketSummary.riskPoint, "bg-amber-500"],
   ];
@@ -959,42 +666,45 @@ function MetricBar({ label, score, riskMode = false }: { label: string; score: n
   );
 }
 
-function entryMetricLabel(mode: InstitutionalReportViewModel["scorePanel"]["entryScoreMode"]) {
+function entryMetricLabel(mode: InstitutionalReportViewModel["reportDecision"]["displayedEntrySignal"]["mode"]) {
   switch (mode) {
     case "current":
       return "현재가 진입 점수";
-    case "pullback_wait":
+    case "pullback":
       return "눌림목 대기 점수";
-    case "breakout_wait":
+    case "breakout":
       return "돌파 확인 점수";
-    case "breakout_confirmed":
-      return "재지지 확인 점수";
     case "risk":
       return "진입 보류";
+    case "wait":
+      return "진입 판단";
     default:
       return "진입 판단";
   }
 }
 
 function SignalScoreCard({ vm }: { vm: InstitutionalReportViewModel }) {
+  const summary = vm.reportDecision.signalSummary;
+  const displayedEntry = vm.reportDecision.displayedEntrySignal;
+
   return (
     <Card>
       <SectionTitle title="AI 시그널 점수" />
       <div className="grid min-w-0 gap-6 lg:grid-cols-[170px_minmax(0,1fr)] lg:items-center">
         <div className="flex justify-center">
-          <ScoreCircle score={vm.scorePanel.overallScore} />
+          <ScoreCircle score={summary.overallScore} />
         </div>
         <div className="space-y-4">
-          <MetricBar label="모멘텀" score={vm.scorePanel.momentumScore} />
-          <MetricBar label="돌파 확률" score={vm.scorePanel.breakoutScore} />
-          <MetricBar label="리스크 수준" score={vm.scorePanel.riskScore} riskMode />
+          <MetricBar label="모멘텀" score={summary.momentumScore} />
+          <MetricBar label="돌파 확률" score={summary.breakoutScore} />
+          <MetricBar label="리스크 수준" score={summary.riskScore} riskMode />
           <div>
-            <MetricBar label={entryMetricLabel(vm.scorePanel.entryScoreMode)} score={vm.scorePanel.entryScore} />
+            <MetricBar label={entryMetricLabel(displayedEntry.mode)} score={displayedEntry.score} />
             <p
               className="mt-1 text-right text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]"
-              title={safeValue(vm.scorePanel.entryScoreExplanation, "")}
+              title={safeValue(displayedEntry.explanation, "")}
             >
-              {safeValue(vm.scorePanel.entryScoreLabel, "확인 필요")}
+              {safeValue(summary.entryPerspective, "확인 필요")}
             </p>
           </div>
         </div>
@@ -1004,17 +714,18 @@ function SignalScoreCard({ vm }: { vm: InstitutionalReportViewModel }) {
 }
 
 function PriceLevelsCard({ vm }: { vm: InstitutionalReportViewModel }) {
+  const decision = vm.reportDecision.priceRoles;
   const rows = [
-    ["현재 가격", vm.keyLevels.currentPrice, "bg-slate-500"],
-    ["핵심 전환 가격", vm.basisSummary.pivotPrice, "bg-blue-900"],
-    ["주요 지지선", vm.keyLevels.mainSupport, "bg-emerald-500"],
-    ["보조 지지선", vm.keyLevels.secondarySupport, "bg-emerald-400"],
-    ["주요 저항선", vm.keyLevels.mainResistance, "bg-rose-500"],
-    ["돌파 기준", vm.keyLevels.breakoutTrigger, "bg-blue-700"],
-    ["1차 목표", vm.keyLevels.target, "bg-blue-500"],
+    ["현재 가격", decision.currentPrice.text, "bg-slate-500"],
+    ["핵심 전환 가격", decision.breakoutLevel?.text ?? vm.basisSummary.pivotPrice, "bg-blue-900"],
+    ["주요 지지선", decision.mainSupport.text, "bg-emerald-500"],
+    ["보조 지지선", decision.secondarySupport?.text ?? vm.keyLevels.secondarySupport, "bg-emerald-400"],
+    ["주요 저항선", decision.mainResistance.text, "bg-rose-500"],
+    ["돌파 기준", decision.breakoutLevel?.text ?? vm.keyLevels.breakoutTrigger, "bg-blue-700"],
+    ["1차 목표", decision.target?.text ?? vm.keyLevels.target, "bg-blue-500"],
     ["확장 목표", vm.keyLevels.upperBreakoutTarget, "bg-sky-500"],
-    ["손절 기준", vm.keyLevels.stopLoss, "bg-red-500"],
-    ["중기 무효화", vm.keyLevels.invalidation, "bg-red-700"],
+    ["손절 기준", decision.stopLoss?.text ?? vm.keyLevels.stopLoss, "bg-red-500"],
+    ["중기 무효화", decision.invalidation?.text ?? vm.keyLevels.invalidation, "bg-red-700"],
   ];
 
   return (
@@ -1038,7 +749,7 @@ function PriceLevelsCard({ vm }: { vm: InstitutionalReportViewModel }) {
         </table>
       </div>
       <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
-        <span className="font-bold text-slate-900">{vm.keyLevels.targetGapLabel}</span>
+        <span className="font-bold text-slate-900">{safeValue(decision.targetStatus, vm.keyLevels.targetGapLabel)}</span>
         <span className="mx-2 text-slate-300">|</span>
         {vm.keyLevels.targetGapExplanation}
       </p>

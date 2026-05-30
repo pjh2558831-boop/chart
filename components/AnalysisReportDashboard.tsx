@@ -181,11 +181,6 @@ function formatCurrentPriceStatus(decision: ReportDecision, vm: InstitutionalRep
   return truncateText(text, regimePositionLabel(decision.chartRegime), 28);
 }
 
-function formatPrimaryStrategySummary(decision: ReportDecision) {
-  const action = safeValue(decision.displayedEntrySignal.label, safeValue(decision.primaryStrategy.entry, "주요 지지 반응 확인"));
-  return truncateText(action, "주요 지지 반응 확인", 28);
-}
-
 function compactStrategyLine(value: string, maxLength = 74) {
   return truncateText(value, "확인 필요", maxLength);
 }
@@ -283,13 +278,14 @@ function getHeroMetadataItems(vm: InstitutionalReportViewModel) {
 function formatDecisionCorePriceItems(decision: ReportDecision, vm: InstitutionalReportViewModel) {
   const levels = decision.priceRoles;
   const target = formatHeroTargetText(decision);
+  const stopLoss = compactStopLossText(safeValue(levels.stopLoss?.text, safeValue(vm.keyLevels.stopLoss, "손절 기준 확인 필요")));
 
   return [
     { label: "현재가", value: safeValue(levels.currentPrice.text, safeValue(vm.keyLevels.currentPrice, safeValue(vm.hero.currentPrice, "확인 필요"))), tone: "text-slate-950" },
     { label: "주요 지지", value: safeValue(levels.mainSupport.text, safeValue(vm.keyLevels.mainSupport, "확인 필요")), tone: "text-emerald-700" },
     { label: "주요 저항", value: safeValue(levels.mainResistance.text, safeValue(vm.keyLevels.mainResistance, "확인 필요")), tone: "text-rose-600" },
     { label: "돌파 기준", value: safeValue(levels.breakoutLevel?.text, safeValue(vm.keyLevels.breakoutTrigger, "확인 필요")), tone: "text-blue-700" },
-    { label: "손절", value: safeValue(levels.stopLoss?.text, safeValue(vm.keyLevels.stopLoss, "손절 기준 확인 필요")), tone: "text-red-600" },
+    { label: "손절", value: stopLoss, tone: "text-red-600" },
     { label: "목표", value: target, tone: "text-blue-700" },
   ];
 }
@@ -306,6 +302,35 @@ function formatHeroTargetText(decision: ReportDecision) {
 
 function isVagueTargetText(value: string) {
   return value.includes("상단 목표 " + "확인") || value === "목표 확인";
+}
+
+function compactStopLossText(value: string) {
+  const text = safeValue(value, "손절 기준 확인 필요");
+  if (/손절 기준 확인 필요|확인 필요/.test(text)) return "손절 기준 확인 필요";
+
+  const priceMatch = text.match(/[\d,.]+(?:\s*부근)?/);
+  const condition = text.includes("재이탈")
+    ? "재이탈"
+    : text.includes("이탈")
+      ? "이탈"
+      : text.includes("붕괴")
+        ? "붕괴"
+        : text.includes("하회")
+          ? "하회"
+          : "";
+
+  if (priceMatch && condition) return `${priceMatch[0].trim()} ${condition}`;
+  if (priceMatch) return priceMatch[0].trim();
+
+  const cleaned = text
+    .replace(/현재가\s*진입\s*시\s*/g, "")
+    .replace(/신규\s*진입\s*시\s*/g, "")
+    .replace(/단기\s*손절/g, "")
+    .replace(/손절/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return truncateText(cleaned, "손절 기준 확인 필요", 26);
 }
 
 function hasInternalFinalSignalText(value: string) {
@@ -421,9 +446,9 @@ function HeroMetricBar({ label, score, riskMode = false }: { label: string; scor
 
 function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   const hero = vm.hero;
+  const displayIdentity = hero.displayIdentity;
   const decision = vm.reportDecision;
   const currentInterpretation = formatCurrentPriceStatus(decision, vm);
-  const primaryStrategy = formatPrimaryStrategySummary(decision);
   const entryItems = formatDecisionEntryScenarios(decision);
   const signalItems = formatSignalSummaryItems(decision);
   const metadataItems = getHeroMetadataItems(vm);
@@ -441,31 +466,30 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
             <p className="mb-3 text-sm font-extrabold tracking-normal text-slate-950 [word-break:keep-all]">종목 요약</p>
             <h2
               className="max-w-full whitespace-nowrap text-[clamp(2.2rem,4.4vw,4.25rem)] font-extrabold leading-none tracking-normal text-slate-950"
-              title={safeValue(hero.displayTitle, safeValue(hero.stockName, "미확인"))}
+              title={safeValue(displayIdentity.ticker, "종목 확인")}
             >
-              {safeValue(hero.displayTitle, safeValue(hero.stockName, "미확인"))}
+              {safeValue(displayIdentity.ticker, "종목 확인")}
             </h2>
           </div>
           <p
             className="mt-3 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold leading-6 text-slate-600"
-            title={safeValue(hero.companyLine, safeValue(hero.ticker, "티커 확인 필요"))}
+            title={safeValue(displayIdentity.companyLine, "시장 확인 필요")}
           >
-            {safeValue(hero.companyLine, safeValue(hero.ticker, "티커 확인 필요"))}
+            {safeValue(displayIdentity.companyLine, "시장 확인 필요")}
           </p>
           <div className="mt-5">
             <p
-              className="max-w-full whitespace-nowrap text-[clamp(2.625rem,5vw,4.5rem)] font-extrabold leading-none tracking-[-0.02em] text-slate-950"
-              title={safeValue(hero.currentPrice)}
+              className="max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(2.5rem,5vw,4.5rem)] font-extrabold leading-none tracking-[-0.02em] text-slate-950 [text-overflow:clip]"
+              title={safeValue(displayIdentity.priceText, "가격 확인 필요")}
             >
-              {safeValue(hero.currentPrice)}
+              {safeValue(displayIdentity.priceText, "가격 확인 필요")}
             </p>
             <p className="mt-2 text-base font-semibold leading-6 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
-              {safeValue(hero.displayCurrencyUnit, safeValue(hero.currencyOrUnit, safeValue(vm.basisSummary.priceUnit, "가격 단위 확인 필요")))}
+              {safeValue(displayIdentity.priceUnitNote, "이미지 축 기준 추정")}
             </p>
           </div>
           <div className="mt-4 grid gap-2.5">
             <HeroInfoBox label="현재가 해석" value={currentInterpretation} />
-            <HeroInfoBox label="우선 전략" value={primaryStrategy} />
           </div>
         </HeroPanel>
 
@@ -583,9 +607,6 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs font-semibold leading-5 text-slate-500 [overflow-wrap:break-word] [word-break:keep-all]">
-            {safeValue(decision.priceRoles.targetStatus, "추가 목표 확인 필요")}
-          </p>
         </HeroPanel>
         </div>
 

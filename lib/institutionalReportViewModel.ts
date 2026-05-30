@@ -336,6 +336,9 @@ type DisplayIdentityAlias = {
   aliases: string[];
 };
 
+const DISPLAY_IDENTITY_TITLE_FALLBACK = "확인 필요";
+const DISPLAY_IDENTITY_MARKET_FALLBACK = "시장 확인 필요";
+
 const DISPLAY_IDENTITY_ALIASES: DisplayIdentityAlias[] = [
   { ticker: "AAPL", companyName: "Apple", marketLabel: "US", aliases: ["애플", "Apple", "Apple Inc"] },
   { ticker: "MSFT", companyName: "Microsoft", marketLabel: "US", aliases: ["마이크로소프트", "Microsoft"] },
@@ -351,7 +354,7 @@ const DISPLAY_IDENTITY_ALIASES: DisplayIdentityAlias[] = [
 
 function isPlaceholderText(value: unknown) {
   const text = safeText(value, "").trim();
-  return !text || text === "-" || /^(미확인|확인 필요|추정 불가|이미지 기준 추정 불가|시장 확인 필요|티커 확인 필요|종목 정보 확인 필요|unknown|n\/a|na)$/i.test(text);
+  return !text || text === "-" || /^(미확인|확인 필요|추정 불가|이미지 기준 추정 불가|시장 확인 필요|티커 확인 필요|종목 확인|종목 정보 확인 필요|unknown|n\/a|na)$/i.test(text);
 }
 
 function cleanDisplayText(value: unknown) {
@@ -373,21 +376,45 @@ function isUsTicker(value: string) {
   return /^[A-Z]{1,6}(?:[.-][A-Z])?$/.test(text);
 }
 
+function isValidDisplayTicker(value: string) {
+  const text = value.trim();
+  return isKoreanStockCode(text) || (text === text.toUpperCase() && isUsTicker(text));
+}
+
+function normalizeDisplayTicker(value: string, allowLowercaseUsTicker = false) {
+  const text = value.trim();
+  if (isKoreanStockCode(text)) return text;
+  const upper = text.toUpperCase();
+  if (!allowLowercaseUsTicker && !isValidDisplayTicker(text)) return "";
+  return isUsTicker(upper) ? upper : "";
+}
+
 function extractDisplaySymbol(value: unknown) {
   const text = cleanDisplayText(value);
   if (!text) return "";
-  const numeric = text.match(/\b\d{6}\b/);
-  if (numeric) return numeric[0];
-  const exact = text.trim().toUpperCase();
-  if (isUsTicker(exact)) return exact;
-  const match = text.toUpperCase().match(/\b[A-Z]{1,6}(?:[.-][A-Z])?\b/);
-  return match && isUsTicker(match[0]) ? match[0] : "";
+  const trimmed = text.trim();
+  const direct = normalizeDisplayTicker(trimmed);
+  if (direct) return direct;
+
+  const koreanCodeWithSuffix = trimmed.match(/^(\d{6})(?:\.(?:KS|KQ))?$/i);
+  if (koreanCodeWithSuffix) return koreanCodeWithSuffix[1];
+
+  const exchangePrefixed = trimmed.match(/^(?:NASDAQ|NYSE|AMEX|ARCA|NYSEARCA|KOSPI|KOSDAQ|KRX)\s*[:：]\s*([A-Z]{1,6}(?:[.-][A-Z])?|\d{6})(?:\.(?:KS|KQ))?$/i);
+  if (exchangePrefixed) return normalizeDisplayTicker(exchangePrefixed[1], true);
+
+  const parenthesized = trimmed.match(/\(([A-Z]{1,6}(?:[.-][A-Z])?|\d{6})(?:\.(?:KS|KQ))?\)\s*$/i);
+  if (parenthesized) return normalizeDisplayTicker(parenthesized[1], true);
+
+  const slashPrefixed = trimmed.match(/^([A-Z]{1,6}(?:[.-][A-Z])?|\d{6})(?:\.(?:KS|KQ))?\s*[\/|·•-]\s*.+$/i);
+  if (slashPrefixed) return normalizeDisplayTicker(slashPrefixed[1]);
+
+  return "";
 }
 
 function compactCompanyName(value: unknown, ticker: string) {
   let text = cleanDisplayText(value);
   if (!text) return "";
-  if (ticker && ticker !== "종목 확인") {
+  if (ticker && ticker !== DISPLAY_IDENTITY_TITLE_FALLBACK) {
     text = text
       .replace(new RegExp(`\\b${escapeRegExp(ticker)}\\b`, "gi"), "")
       .replace(/[()|·•-]+/g, " ")
@@ -420,7 +447,7 @@ function getRawIdentityCandidates(rawReport: AnalysisResponse, report: TradingRe
   const rawAny = rawReport as AnalysisResponse & Record<string, unknown>;
   const symbolDetection = rawReport.aiAnalysis?.symbolDetection as Record<string, unknown> | undefined;
   const rawTradingReport = rawAny.tradingReport as Record<string, unknown> | undefined;
-  const rawAnalysisMeta = rawTradingReport?.analysisMeta as Record<string, unknown> | undefined;
+  const rawAnalysisMeta = (rawTradingReport?.analysisMeta || rawAny.analysisMeta) as Record<string, unknown> | undefined;
   return [
     symbolDetection?.detectedTicker,
     symbolDetection?.ticker,
@@ -440,7 +467,7 @@ function getRawCompanyCandidates(rawReport: AnalysisResponse, report: TradingRep
   const rawAny = rawReport as AnalysisResponse & Record<string, unknown>;
   const symbolDetection = rawReport.aiAnalysis?.symbolDetection as Record<string, unknown> | undefined;
   const rawTradingReport = rawAny.tradingReport as Record<string, unknown> | undefined;
-  const rawAnalysisMeta = rawTradingReport?.analysisMeta as Record<string, unknown> | undefined;
+  const rawAnalysisMeta = (rawTradingReport?.analysisMeta || rawAny.analysisMeta) as Record<string, unknown> | undefined;
   return [
     symbolDetection?.detectedName,
     symbolDetection?.companyName,
@@ -513,20 +540,23 @@ function buildDisplayIdentity(rawReport: AnalysisResponse, report: TradingReport
   const companyCandidates = getRawCompanyCandidates(rawReport, report);
   const symbol = identityCandidates.map(extractDisplaySymbol).find(Boolean) || "";
   const alias = findDisplayIdentityAlias([...identityCandidates, ...companyCandidates]);
-  const ticker = symbol || alias?.ticker || "종목 확인";
+  const ticker = symbol || alias?.ticker || DISPLAY_IDENTITY_TITLE_FALLBACK;
+  const hasResolvedTicker = ticker !== DISPLAY_IDENTITY_TITLE_FALLBACK;
   const marketLabel = isKoreanStockCode(ticker)
     ? "KR"
     : isUsTicker(ticker)
       ? "US"
-      : alias?.marketLabel || getDetectedMarket(rawReport) || "시장 확인 필요";
+      : alias?.marketLabel || getDetectedMarket(rawReport) || DISPLAY_IDENTITY_MARKET_FALLBACK;
   const companyName = compactCompanyName(alias?.companyName, ticker)
     || companyCandidates.map((value) => compactCompanyName(value, ticker)).find(Boolean)
-    || (ticker !== "종목 확인" ? ticker : "");
-  const companyLine = companyName
+    || (hasResolvedTicker ? ticker : "");
+  const companyLine = !hasResolvedTicker && !alias && marketLabel === DISPLAY_IDENTITY_MARKET_FALLBACK
+    ? DISPLAY_IDENTITY_MARKET_FALLBACK
+    : companyName
     ? `${companyName} · ${marketLabel}`
-    : ticker !== "종목 확인"
+    : hasResolvedTicker
       ? `${ticker} · ${marketLabel}`
-      : "시장 확인 필요";
+      : DISPLAY_IDENTITY_MARKET_FALLBACK;
   const rawEstimate = safeNumber(rawReport.aiAnalysis?.priceAxisObservations?.currentPriceEstimate?.value);
   const priceText = formatDisplayPrice(rawEstimate ?? context.current ?? context.heroPrice ?? context.currentText);
   const currencyUnitLabel = getDisplayCurrencyUnit(rawReport, report, ticker, marketLabel, context.current);
@@ -534,7 +564,7 @@ function buildDisplayIdentity(rawReport: AnalysisResponse, report: TradingReport
 
   return {
     ticker,
-    companyName: companyName || "종목 확인",
+    companyName: companyName || DISPLAY_IDENTITY_TITLE_FALLBACK,
     marketLabel,
     companyLine,
     currencyUnitLabel,

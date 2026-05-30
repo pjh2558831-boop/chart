@@ -116,11 +116,25 @@ export type IndicatorRow = {
   tone: IndicatorTone;
 };
 
+export type DisplayIdentityConfidence = "high" | "medium" | "low";
+
+export type DisplayIdentity = {
+  ticker: string;
+  companyName: string;
+  marketLabel: string;
+  companyLine: string;
+  currencyUnitLabel: string;
+  priceText: string;
+  priceUnitNote: string;
+  identityConfidence: DisplayIdentityConfidence;
+};
+
 export interface InstitutionalReportViewModel {
   hero: {
     stockName: string;
     ticker: string;
     marketTag: string;
+    displayIdentity: DisplayIdentity;
     displayTitle: string;
     companyLine: string;
     displayMarket: string;
@@ -315,9 +329,29 @@ function firstText(values: unknown[], fallback = "-") {
   return fallback;
 }
 
+type DisplayIdentityAlias = {
+  ticker: string;
+  companyName: string;
+  marketLabel: "US" | "KR";
+  aliases: string[];
+};
+
+const DISPLAY_IDENTITY_ALIASES: DisplayIdentityAlias[] = [
+  { ticker: "AAPL", companyName: "Apple", marketLabel: "US", aliases: ["애플", "Apple", "Apple Inc"] },
+  { ticker: "MSFT", companyName: "Microsoft", marketLabel: "US", aliases: ["마이크로소프트", "Microsoft"] },
+  { ticker: "NVDA", companyName: "NVIDIA", marketLabel: "US", aliases: ["엔비디아", "Nvidia", "NVIDIA"] },
+  { ticker: "AVGO", companyName: "Broadcom", marketLabel: "US", aliases: ["브로드컴", "Broadcom"] },
+  { ticker: "PLTR", companyName: "Palantir", marketLabel: "US", aliases: ["팔란티어", "Palantir"] },
+  { ticker: "LITE", companyName: "Lumentum", marketLabel: "US", aliases: ["루멘텀", "Lumentum"] },
+  { ticker: "CRDO", companyName: "Credo Technology", marketLabel: "US", aliases: ["크레도", "Credo", "Credo Technology"] },
+  { ticker: "SPY", companyName: "SPY", marketLabel: "US", aliases: ["SPY"] },
+  { ticker: "QQQ", companyName: "QQQ", marketLabel: "US", aliases: ["QQQ"] },
+  { ticker: "SOXL", companyName: "SOXL", marketLabel: "US", aliases: ["SOXL"] },
+];
+
 function isPlaceholderText(value: unknown) {
   const text = safeText(value, "").trim();
-  return !text || text === "-" || /^(미확인|확인 필요|추정 불가|이미지 기준 추정 불가|시장 확인 필요|티커 확인 필요|종목 정보 확인 필요)$/i.test(text);
+  return !text || text === "-" || /^(미확인|확인 필요|추정 불가|이미지 기준 추정 불가|시장 확인 필요|티커 확인 필요|종목 정보 확인 필요|unknown|n\/a|na)$/i.test(text);
 }
 
 function cleanDisplayText(value: unknown) {
@@ -330,30 +364,30 @@ function escapeRegExp(value: string) {
 }
 
 function isKoreanStockCode(value: string) {
-  return /^\d{5,6}$/.test(value.trim());
+  return /^\d{6}$/.test(value.trim());
 }
 
 function isUsTicker(value: string) {
   const text = value.trim().toUpperCase();
   if (!text || /^(US|KR|NYSE|NASDAQ|AMEX|KOSPI|KOSDAQ|ETF)$/.test(text)) return false;
-  return /^[A-Z]{1,5}(?:[.-][A-Z])?$/.test(text);
+  return /^[A-Z]{1,6}(?:[.-][A-Z])?$/.test(text);
 }
 
 function extractDisplaySymbol(value: unknown) {
   const text = cleanDisplayText(value);
   if (!text) return "";
-  const numeric = text.match(/\b\d{5,6}\b/);
+  const numeric = text.match(/\b\d{6}\b/);
   if (numeric) return numeric[0];
   const exact = text.trim().toUpperCase();
   if (isUsTicker(exact)) return exact;
-  const match = text.toUpperCase().match(/\b[A-Z]{1,5}(?:[.-][A-Z])?\b/);
+  const match = text.toUpperCase().match(/\b[A-Z]{1,6}(?:[.-][A-Z])?\b/);
   return match && isUsTicker(match[0]) ? match[0] : "";
 }
 
 function compactCompanyName(value: unknown, ticker: string) {
   let text = cleanDisplayText(value);
   if (!text) return "";
-  if (ticker) {
+  if (ticker && ticker !== "종목 확인") {
     text = text
       .replace(new RegExp(`\\b${escapeRegExp(ticker)}\\b`, "gi"), "")
       .replace(/[()|·•-]+/g, " ")
@@ -361,44 +395,91 @@ function compactCompanyName(value: unknown, ticker: string) {
       .trim();
   }
   if (!text || isPlaceholderText(text) || text.toUpperCase() === ticker.toUpperCase()) return "";
-  return text.length > 28 ? `${text.slice(0, 28).trim()}...` : text;
+  return text.length > 36 ? text.slice(0, 36).trim() : text;
 }
 
-function getDisplayTicker(rawReport: AnalysisResponse, report: TradingReport) {
-  const candidates = [
-    rawReport.aiAnalysis?.symbolDetection?.detectedTicker,
-    report.analysisMeta?.symbol,
-    rawReport.aiAnalysis?.symbolDetection?.detectedName,
-  ];
-  for (const candidate of candidates) {
-    const symbol = extractDisplaySymbol(candidate);
-    if (symbol) return symbol;
+function normalizeAliasText(value: unknown) {
+  return cleanDisplayText(value).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function findDisplayIdentityAlias(values: unknown[]) {
+  const normalizedValues = values.map(normalizeAliasText).filter(Boolean);
+  for (const alias of DISPLAY_IDENTITY_ALIASES) {
+    for (const rawAlias of alias.aliases) {
+      const normalizedAlias = normalizeAliasText(rawAlias);
+      if (!normalizedAlias) continue;
+      if (normalizedValues.some((value) => value === normalizedAlias || (normalizedAlias.length >= 3 && value.includes(normalizedAlias)))) {
+        return alias;
+      }
+    }
   }
-  const companyFallback = cleanDisplayText(rawReport.aiAnalysis?.symbolDetection?.detectedName) || cleanDisplayText(report.analysisMeta?.symbol);
-  return companyFallback ? companyFallback.slice(0, 12).trim() : "확인 필요";
+  return null;
+}
+
+function getRawIdentityCandidates(rawReport: AnalysisResponse, report: TradingReport) {
+  const rawAny = rawReport as AnalysisResponse & Record<string, unknown>;
+  const symbolDetection = rawReport.aiAnalysis?.symbolDetection as Record<string, unknown> | undefined;
+  const rawTradingReport = rawAny.tradingReport as Record<string, unknown> | undefined;
+  const rawAnalysisMeta = rawTradingReport?.analysisMeta as Record<string, unknown> | undefined;
+  return [
+    symbolDetection?.detectedTicker,
+    symbolDetection?.ticker,
+    symbolDetection?.symbol,
+    symbolDetection?.stockSymbol,
+    symbolDetection?.code,
+    report.analysisMeta?.symbol,
+    rawAnalysisMeta?.symbol,
+    rawAny.symbol,
+    rawAny.ticker,
+    rawAny.stockSymbol,
+    rawAny.code,
+  ];
+}
+
+function getRawCompanyCandidates(rawReport: AnalysisResponse, report: TradingReport) {
+  const rawAny = rawReport as AnalysisResponse & Record<string, unknown>;
+  const symbolDetection = rawReport.aiAnalysis?.symbolDetection as Record<string, unknown> | undefined;
+  const rawTradingReport = rawAny.tradingReport as Record<string, unknown> | undefined;
+  const rawAnalysisMeta = rawTradingReport?.analysisMeta as Record<string, unknown> | undefined;
+  return [
+    symbolDetection?.detectedName,
+    symbolDetection?.companyName,
+    symbolDetection?.stockName,
+    rawAnalysisMeta?.companyName,
+    rawAnalysisMeta?.stockName,
+    report.analysisMeta?.symbol,
+  ];
 }
 
 function normalizeDisplayMarket(value: unknown) {
-  const text = cleanDisplayText(value).toUpperCase();
-  if (!text) return "";
+  const rawText = cleanDisplayText(value);
+  const lowerText = rawText.toLowerCase();
+  if (!rawText || /^(unknown|n\/a|na)$/.test(lowerText)) return "";
+  const text = rawText.toUpperCase();
   if (/^(US|USA|NASDAQ|NYSE|AMEX|NYSEARCA|ARCA)$/.test(text)) return "US";
   if (/^(KR|KOREA|KOSPI|KOSDAQ|KRX)$/.test(text)) return "KR";
-  return text.length <= 8 ? text : "";
+  return "";
 }
 
-function getDisplayMarket(rawReport: AnalysisResponse, ticker: string) {
-  if (isKoreanStockCode(ticker)) return "KR";
-  if (isUsTicker(ticker)) return "US";
+function getDetectedMarket(rawReport: AnalysisResponse) {
   return normalizeDisplayMarket(rawReport.aiAnalysis?.symbolDetection?.detectedMarket)
     || normalizeDisplayMarket(rawReport.aiAnalysis?.symbolDetection?.detectedExchange);
 }
 
-function getDisplayCompanyLine(rawReport: AnalysisResponse, report: TradingReport, ticker: string, market: string) {
-  const company = compactCompanyName(rawReport.aiAnalysis?.symbolDetection?.detectedName, ticker)
-    || compactCompanyName(report.analysisMeta?.symbol, ticker);
-  const identity = company || (ticker !== "확인 필요" ? ticker : "");
-  const parts = [identity, cleanDisplayText(market)].filter(Boolean);
-  return parts.length ? parts.join(" · ") : "종목 정보 확인 필요";
+function formatDisplayPrice(value: unknown, fallback = "가격 확인 필요") {
+  if (typeof value === "number" && Number.isFinite(value)) return formatPrice(value);
+  const text = cleanDisplayText(value);
+  if (!text) return fallback;
+  const match = text.match(/-?\d[\d,]*(?:\.\d+)?/);
+  if (!match) return fallback;
+  const rawNumber = match[0];
+  const numeric = Number(rawNumber.replace(/,/g, ""));
+  if (!Number.isFinite(numeric)) return fallback;
+  const decimals = rawNumber.includes(".") ? Math.min(rawNumber.split(".")[1]?.length ?? 0, 2) : 0;
+  return numeric.toLocaleString("ko-KR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals || (Math.abs(numeric) >= 100 ? 0 : 2),
+  });
 }
 
 function getDisplayCurrencyUnit(
@@ -418,13 +499,49 @@ function getDisplayCurrencyUnit(
   const lowConfidence = confidence === "low" || (!reliableSymbolMarket && /확인 필요|이미지|축 기준|추정 불가/.test(existingUnit));
 
   if (lowConfidence) return "이미지 축 기준 추정";
-  if ((market === "US" || isUsTicker(ticker)) && currentPrice !== null && currentPrice <= 10000) {
+  if (market === "US" || isUsTicker(ticker)) {
     return /달러|USD/i.test(existingUnit || rawCurrency) ? (existingUnit || rawCurrency) : "달러 기준 추정";
   }
   if (market === "KR" || isKoreanStockCode(ticker)) {
     return /원|KRW/i.test(existingUnit || rawCurrency) ? (existingUnit || rawCurrency) : "원 기준 추정";
   }
-  return existingUnit || rawCurrency || "이미지 축 기준 추정";
+  return "이미지 축 기준 추정";
+}
+
+function buildDisplayIdentity(rawReport: AnalysisResponse, report: TradingReport, context: PriceContext): DisplayIdentity {
+  const identityCandidates = getRawIdentityCandidates(rawReport, report);
+  const companyCandidates = getRawCompanyCandidates(rawReport, report);
+  const symbol = identityCandidates.map(extractDisplaySymbol).find(Boolean) || "";
+  const alias = findDisplayIdentityAlias([...identityCandidates, ...companyCandidates]);
+  const ticker = symbol || alias?.ticker || "종목 확인";
+  const marketLabel = isKoreanStockCode(ticker)
+    ? "KR"
+    : isUsTicker(ticker)
+      ? "US"
+      : alias?.marketLabel || getDetectedMarket(rawReport) || "시장 확인 필요";
+  const companyName = compactCompanyName(alias?.companyName, ticker)
+    || companyCandidates.map((value) => compactCompanyName(value, ticker)).find(Boolean)
+    || (ticker !== "종목 확인" ? ticker : "");
+  const companyLine = companyName
+    ? `${companyName} · ${marketLabel}`
+    : ticker !== "종목 확인"
+      ? `${ticker} · ${marketLabel}`
+      : "시장 확인 필요";
+  const rawEstimate = safeNumber(rawReport.aiAnalysis?.priceAxisObservations?.currentPriceEstimate?.value);
+  const priceText = formatDisplayPrice(rawEstimate ?? context.current ?? context.heroPrice ?? context.currentText);
+  const currencyUnitLabel = getDisplayCurrencyUnit(rawReport, report, ticker, marketLabel, context.current);
+  const identityConfidence: DisplayIdentityConfidence = symbol ? "high" : alias ? "medium" : "low";
+
+  return {
+    ticker,
+    companyName: companyName || "종목 확인",
+    marketLabel,
+    companyLine,
+    currencyUnitLabel,
+    priceText,
+    priceUnitNote: currencyUnitLabel,
+    identityConfidence,
+  };
 }
 
 function joinZones(values: unknown[], fallback = FALLBACK.unknown) {
@@ -2410,11 +2527,8 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
   const totalScore = safeScore(normalizedReport.scoreSummary?.totalScore);
   const reportDecision = buildReportDecision(normalizedReport, context, finalAction, dataset, displayedEntry, signal, totalScore);
   warnReportDecisionInDevelopment(reportDecision);
-  const displayTitle = getDisplayTicker(rawReport, normalizedReport);
-  const displayMarket = getDisplayMarket(rawReport, displayTitle);
-  const companyLine = getDisplayCompanyLine(rawReport, normalizedReport, displayTitle, displayMarket);
-  const displayCurrencyUnit = getDisplayCurrencyUnit(rawReport, normalizedReport, displayTitle, displayMarket, context.current);
-  const priceUnit = displayCurrencyUnit;
+  const displayIdentity = buildDisplayIdentity(rawReport, normalizedReport, context);
+  const priceUnit = displayIdentity.priceUnitNote;
   const trendLabel = chartRegimeLabels[context.chartRegime] ?? chartRegimeLabels.unknown;
   const trendDescription = firstText(
     [normalizedReport.chartRegime?.reasons?.[0], rawReport.aiAnalysis?.visualTrend, normalizedReport.finalSummary.reason],
@@ -2433,15 +2547,16 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
 
   return {
     hero: {
-      stockName: displayTitle,
-      ticker: displayTitle,
-      marketTag: displayMarket || "시장 확인 필요",
-      displayTitle,
-      companyLine,
-      displayMarket: displayMarket || "시장 확인 필요",
-      currentPrice: context.heroPrice,
-      currencyOrUnit: displayCurrencyUnit,
-      displayCurrencyUnit,
+      stockName: displayIdentity.ticker,
+      ticker: displayIdentity.ticker,
+      marketTag: displayIdentity.marketLabel,
+      displayIdentity,
+      displayTitle: displayIdentity.ticker,
+      companyLine: displayIdentity.companyLine,
+      displayMarket: displayIdentity.marketLabel,
+      currentPrice: displayIdentity.priceText,
+      currencyOrUnit: displayIdentity.currencyUnitLabel,
+      displayCurrencyUnit: displayIdentity.priceUnitNote,
       priceChange: "-",
       confidenceScore: totalScore,
       confidenceLabel: confidenceLabel(normalizedReport.finalSummary.confidence, totalScore),

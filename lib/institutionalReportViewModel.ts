@@ -16,6 +16,18 @@ export type PatternDisplayCategory = "continuation" | "reversal" | "range" | "br
 type DisplayedEntryMode = "current" | "pullback_wait" | "breakout_wait" | "breakout_confirmed" | "risk" | "none";
 export type ReportDecisionTone = "buy" | "watch" | "caution" | "risk" | "neutral";
 export type ReportDecisionEntryMode = "current" | "pullback" | "breakout" | "wait" | "risk";
+export type ReportDecisionBreakoutState =
+  | "none"
+  | "breakout_wait"
+  | "breakout_attempt"
+  | "breakout_confirmed"
+  | "breakout_retest_confirmed"
+  | "failed_breakout";
+export type ReportDecisionTrendOpportunity =
+  | "none"
+  | "bullish_breakout_attempt"
+  | "uptrend_continuation"
+  | "controlled_uptrend_entry";
 
 type DisplayedEntrySignal = {
   score: number | null;
@@ -56,6 +68,8 @@ export type EntryStrategyDecision = {
 
 export interface ReportDecision {
   chartRegime: string;
+  breakoutState: ReportDecisionBreakoutState;
+  trendOpportunity?: ReportDecisionTrendOpportunity;
   finalActionState: string;
   finalActionLabel: string;
   finalActionTone: ReportDecisionTone;
@@ -225,6 +239,8 @@ type PriceContext = {
   current: number | null;
   pivotText: string;
   pivot: number | null;
+  breakoutLevelText: string;
+  breakoutLevel: number | null;
   supportText: string;
   support: number | null;
   secondarySupportText: string;
@@ -327,6 +343,17 @@ function firstText(values: unknown[], fallback = "-") {
     if (text) return text;
   }
   return fallback;
+}
+
+function firstForwardPriceText(values: unknown[], current: number | null, fallback = "-") {
+  if (current !== null) {
+    for (const value of values) {
+      const text = safeText(value, "");
+      const price = parsePriceFromText(text);
+      if (text && price !== null && price > current * (1 + BREAKOUT_PRICE_TOLERANCE)) return text;
+    }
+  }
+  return firstText(values, fallback);
 }
 
 type DisplayIdentityAlias = {
@@ -897,8 +924,8 @@ function buildPriceContext(rawReport: AnalysisResponse, report: TradingReport): 
     [report.analysisMeta?.keyPivotPrice, report.priceRoles?.pivot?.priceZone, report.tradePlan.entry.breakoutEntry?.priceZone],
     FALLBACK.unknown,
   );
-  const breakoutTriggerText = firstText([report.tradePlan.entry.breakoutEntry?.priceZone, pivotText], FALLBACK.unknown);
-  const rawTargetText = firstText(
+  const breakoutTriggerText = firstText([pivotText, report.tradePlan.entry.breakoutEntry?.priceZone, resistanceText], FALLBACK.unknown);
+  const rawTargetText = firstForwardPriceText(
     [
       report.tradePlan.targets.pullbackTargets?.firstTarget?.priceZone,
       report.tradePlan.targets.breakoutTargets?.firstTarget?.priceZone,
@@ -906,6 +933,7 @@ function buildPriceContext(rawReport: AnalysisResponse, report: TradingReport): 
       report.priceRoles?.targets?.pullbackTargets?.[0],
       report.priceRoles?.targets?.breakoutTargets?.[0],
     ],
+    current.numeric,
     FALLBACK.unknown,
   );
   const validatedTarget = validatePriceRoleSeparation(report, rawReport, {
@@ -923,6 +951,8 @@ function buildPriceContext(rawReport: AnalysisResponse, report: TradingReport): 
     current: current.numeric,
     pivotText,
     pivot: parsePriceFromText(pivotText),
+    breakoutLevelText: breakoutTriggerText,
+    breakoutLevel: parsePriceFromText(breakoutTriggerText),
     supportText,
     support: parsePriceFromText(supportText),
     secondarySupportText,
@@ -2096,15 +2126,169 @@ function displayPrice(text: string, value: number | null, status?: string): Disp
   };
 }
 
+const BREAKOUT_PRICE_TOLERANCE = 0.005;
+
+function priceDiffRatio(a: number | null, b: number | null) {
+  if (a === null || b === null || !Number.isFinite(a) || !Number.isFinite(b) || b === 0) return null;
+  return (a - b) / Math.abs(b);
+}
+
+function priceAboveByTolerance(current: number | null, level: number | null, tolerance = BREAKOUT_PRICE_TOLERANCE) {
+  const ratio = priceDiffRatio(current, level);
+  return ratio !== null && ratio > tolerance;
+}
+
+function priceBelowByTolerance(current: number | null, level: number | null, tolerance = BREAKOUT_PRICE_TOLERANCE) {
+  const ratio = priceDiffRatio(current, level);
+  return ratio !== null && ratio < -tolerance;
+}
+
+function priceWithinTolerance(current: number | null, level: number | null, tolerance = BREAKOUT_PRICE_TOLERANCE) {
+  const ratio = priceDiffRatio(current, level);
+  return ratio !== null && Math.abs(ratio) <= tolerance;
+}
+
+function breakoutLevelValue(context: PriceContext) {
+  return context.breakoutLevel ?? context.pivot ?? context.resistance;
+}
+
+function reportEvidenceText(report: TradingReport) {
+  const confirmedIndicators = report.indicatorAnalysis?.confirmed ?? [];
+  const unavailableIndicators = report.indicatorAnalysis?.unavailable ?? [];
+  const parts: unknown[] = [
+    report.finalSummary?.title,
+    report.finalSummary?.oneLineConclusion,
+    report.finalSummary?.reason,
+    report.scoreSummary?.explanation,
+    ...(report.marketContext?.chartRegimeReasons ?? []),
+    ...(report.evidence?.positive ?? []),
+    ...(report.evidence?.negative ?? []),
+    ...(report.evidence?.riskFactors ?? []),
+    report.scoreSummary?.entryScores?.currentEntry?.explanation,
+    report.scoreSummary?.entryScores?.pullbackEntry?.explanation,
+    report.scoreSummary?.entryScores?.breakoutEntry?.explanation,
+    ...confirmedIndicators.map((item) => `${safeText(item.name, "")} ${safeText(item.explanation, "")} ${safeText(item.signal, "")}`),
+    ...unavailableIndicators.map((item) => `${safeText(item.name, "")} ${safeText(item.reason, "")}`),
+  ];
+  return parts.map((item) => safeText(item, "")).filter(Boolean).join(" ");
+}
+
+function deriveBreakoutState(report: TradingReport, context: PriceContext): ReportDecisionBreakoutState {
+  const current = context.current;
+  const breakoutLevel = breakoutLevelValue(context);
+  if (current === null || breakoutLevel === null) return "none";
+
+  const evidence = reportEvidenceText(report);
+  const failedBreakoutEvidence = /돌파\s*(실패|무효|재이탈|이탈)|재이탈|failed breakout|breakout failed|lost breakout|failed reclaim|reclaim failed/i.test(evidence);
+  const retestEvidence = /재지지|안착|지지 전환|돌파.*유지|위에서\s*(버티|유지)|retest confirmed|hold above|held above|above pivot/i.test(evidence);
+  const supportActsAsBreakoutLevel =
+    context.support !== null &&
+    Math.abs((context.support - breakoutLevel) / Math.max(Math.abs(breakoutLevel), 1)) <= 0.012 &&
+    current >= context.support;
+
+  if (context.breakoutRetestConfirmed) return "breakout_retest_confirmed";
+  if (failedBreakoutEvidence && priceBelowByTolerance(current, breakoutLevel)) return "failed_breakout";
+  if (priceAboveByTolerance(current, breakoutLevel)) {
+    return retestEvidence || supportActsAsBreakoutLevel ? "breakout_retest_confirmed" : "breakout_confirmed";
+  }
+  if (priceWithinTolerance(current, breakoutLevel)) return "breakout_attempt";
+  if (priceBelowByTolerance(current, breakoutLevel)) return "breakout_wait";
+  return "none";
+}
+
+function hasUsableDecisionStop(report: TradingReport, context: PriceContext) {
+  const stopText = firstText(
+    [
+      report.tradePlan.stopLossByEntry?.currentEntry?.priceZone,
+      report.tradePlan.stopLossByEntry?.currentEntry?.condition,
+      report.tradePlan.stopLossByEntry?.breakoutEntry?.priceZone,
+      report.tradePlan.stopLossByEntry?.breakoutEntry?.condition,
+      report.tradePlan.stopLoss.shortTerm?.priceZone,
+      report.tradePlan.stopLoss.priceZone,
+      context.supportText,
+    ],
+    "",
+  );
+  return Boolean(stopText && stopText !== FALLBACK.unknown && !/확인 필요|미확인|추정 불가/.test(stopText));
+}
+
+function hasValidForwardTarget(context: PriceContext) {
+  return Boolean(
+    context.target !== null &&
+    !context.targetRoleCollapsed &&
+    context.targetGapLabel !== "목표 여유 낮음" &&
+    !samePriceZone(context.target, context.current) &&
+    !samePriceZone(context.target, context.resistance),
+  );
+}
+
+function extractRsiValue(report: TradingReport, indicators: IndicatorRow[] = []) {
+  const fromIndicators = indicators.find((row) => /rsi/i.test(row.name));
+  const parsedFromIndicator = parsePriceFromText(fromIndicators?.value);
+  if (parsedFromIndicator !== null) return parsedFromIndicator;
+  const text = reportEvidenceText(report);
+  const match = text.match(/\bRSI\b[^\d]{0,16}((?:\d{1,2}|100)(?:\.\d+)?)/i);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : null;
+}
+
+function deriveTrendOpportunity(
+  report: TradingReport,
+  context: PriceContext,
+  breakoutState: ReportDecisionBreakoutState,
+  indicators: IndicatorRow[] = [],
+): ReportDecisionTrendOpportunity {
+  const riskScore = safeScore(report.scoreSummary?.riskScore) ?? 50;
+  const currentEntryScore = safeScore(report.scoreSummary?.entryScores?.currentEntry?.score) ?? 0;
+  const breakoutEntryScore = safeScore(report.scoreSummary?.entryScores?.breakoutEntry?.score) ?? 0;
+  const rsi = extractRsiValue(report, indicators);
+  const evidence = reportEvidenceText(report);
+  const bullishEvidence = /상승|우상향|추세 유지|추세 지속|모멘텀|MACD|거래량.*(증가|확인|우호)|이동평균.*(위|지지)|cloud.*above|bullish|momentum|higher low|higher high|breakout/i.test(evidence);
+  const scoreSupportedBreakoutAttempt = breakoutEntryScore >= 55 && currentEntryScore >= 35;
+  const controlReady = Boolean(
+    (hasUsableDecisionStop(report, context) || context.support !== null) &&
+    context.target !== null &&
+    !context.targetRoleCollapsed &&
+    context.targetGapLabel !== "목표 여유 낮음",
+  );
+  const supportiveRegime =
+    context.chartRegime === "uptrend_pullback" ||
+    context.chartRegime === "uptrend_consolidation" ||
+    context.chartRegime === "healthy_pullback" ||
+    context.chartRegime === "breakout_retest_confirmed";
+
+  if (
+    context.chartRegime === "support_breakdown" ||
+    context.chartRegime === "downtrend" ||
+    breakoutState === "failed_breakout" ||
+    riskScore >= 68 ||
+    (rsi !== null && rsi >= 78)
+  ) {
+    return "none";
+  }
+
+  if (breakoutState === "breakout_attempt" && controlReady && (bullishEvidence || scoreSupportedBreakoutAttempt)) return "bullish_breakout_attempt";
+  if ((breakoutState === "breakout_confirmed" || breakoutState === "breakout_retest_confirmed") && controlReady && bullishEvidence) return "uptrend_continuation";
+  if (supportiveRegime && controlReady && bullishEvidence) return "uptrend_continuation";
+  if (supportiveRegime && controlReady && currentEntryScore >= 45) return "controlled_uptrend_entry";
+  return "none";
+}
+
 function finalActionTone(
   report: TradingReport,
   context: PriceContext,
   finalAction: InstitutionalReportViewModel["finalAction"],
+  breakoutState: ReportDecisionBreakoutState,
+  trendOpportunity: ReportDecisionTrendOpportunity,
 ): ReportDecisionTone {
   const actionState = getActionState(report);
   if (context.chartRegime === "support_breakdown" || context.chartRegime === "downtrend" || actionState === "HIGH_RISK" || actionState === "AVOID") {
     return "risk";
   }
+  if (breakoutState === "failed_breakout") return "caution";
+  if (breakoutState === "breakout_retest_confirmed") return context.targetGapLabel === "목표 여유 낮음" ? "caution" : "buy";
+  if (breakoutState === "breakout_confirmed" || trendOpportunity !== "none") return context.targetGapLabel === "목표 여유 낮음" ? "caution" : "watch";
   if (
     context.chartRegime === "resistance_test" ||
     context.chartRegime === "range_upper_resistance" ||
@@ -2153,18 +2337,226 @@ function entryStrategyDecision(
   };
 }
 
+function scoreInDisplayRange(score: number | null, min: number, max: number) {
+  const safe = safeScore(score);
+  const seeded = safe === null ? min : safe;
+  return Math.max(min, Math.min(max, seeded));
+}
+
+function capDisplayScore(score: number | null, max: number) {
+  const safe = safeScore(score);
+  return safe === null ? null : Math.min(safe, max);
+}
+
+function patchEntryStrategy(
+  entry: EntryStrategyDecision,
+  patch: Partial<Omit<EntryStrategyDecision, "mode">>,
+): EntryStrategyDecision {
+  const label = safeText(patch.label, entry.label);
+  return {
+    ...entry,
+    ...patch,
+    score: patch.score !== undefined ? safeScore(patch.score) : entry.score,
+    label,
+    condition: safeText(patch.condition, entry.condition),
+    stop: safeText(patch.stop, entry.stop),
+    target: safeText(patch.target, entry.target),
+    riskReward: safeText(patch.riskReward, entry.riskReward),
+    explanation: safeText(patch.explanation, entry.explanation),
+    tone: patch.tone ?? entryTone(label),
+    isFutureSetup: patch.isFutureSetup ?? entry.isFutureSetup,
+  };
+}
+
+function calibrateReportDecisionEntries(
+  entries: ReportDecision["entryStrategies"],
+  report: TradingReport,
+  context: PriceContext,
+  breakoutState: ReportDecisionBreakoutState,
+  trendOpportunity: ReportDecisionTrendOpportunity,
+  tone: ReportDecisionTone,
+): ReportDecision["entryStrategies"] {
+  const hasDisplayStop = hasUsableDecisionStop(report, context) || context.support !== null;
+  const hasDisplayTarget = Boolean(context.target !== null && !context.targetRoleCollapsed && context.targetGapLabel !== "목표 여유 낮음");
+  const canRaise = tone !== "risk" && hasDisplayStop && hasDisplayTarget;
+  const breakoutLevelText = context.breakoutLevelText !== FALLBACK.unknown ? context.breakoutLevelText : context.pivotText;
+  const targetText = context.targetGapLabel === "목표 여유 낮음"
+    ? safeText(context.targetStatus || context.targetGapLabel, "목표 여유 낮음")
+    : safeText(context.targetText, "추가 목표 확인 필요");
+  let current = entries.current;
+  let pullback = entries.pullback;
+  let breakout = entries.breakout;
+
+  if (context.chartRegime === "support_breakdown" || tone === "risk") {
+    current = patchEntryStrategy(current, {
+      score: capDisplayScore(current.score, 30),
+      label: "신규 진입 보류",
+      condition: "지지 회복 확인 전 신규 진입 보류",
+      target: targetText,
+      explanation: "주요 지지 이탈 또는 고위험 구간에서는 현재가 진입보다 위험 관리가 우선입니다.",
+      tone: "risk",
+      isFutureSetup: true,
+    });
+    breakout = patchEntryStrategy(breakout, {
+      score: capDisplayScore(breakout.score, 45),
+      label: "돌파 재확인 필요",
+      condition: `${breakoutLevelText} 회복 후 재지지 확인`,
+      target: targetText,
+      explanation: "지지 이탈 이후에는 회복 돌파와 재지지 확인 전까지 공격적 진입을 제한합니다.",
+      tone: "risk",
+      isFutureSetup: true,
+    });
+    return { current, pullback, breakout };
+  }
+
+  if (breakoutState === "failed_breakout") {
+    current = patchEntryStrategy(current, {
+      score: capDisplayScore(current.score, 35),
+      label: "진입 신중",
+      condition: "돌파 실패 후 지지 회복 확인 전 대기",
+      explanation: "돌파 실패 가능성이 있어 현재가 진입은 지지 회복 확인 전까지 신중해야 합니다.",
+      tone: "caution",
+      isFutureSetup: true,
+    });
+    breakout = patchEntryStrategy(breakout, {
+      score: capDisplayScore(breakout.score, 45),
+      label: "돌파 실패 주의",
+      condition: `${breakoutLevelText} 재회복 후 안착 확인`,
+      explanation: "돌파 가격을 다시 회복하고 위에서 버티는지 확인해야 합니다.",
+      tone: "caution",
+      isFutureSetup: true,
+    });
+    return { current, pullback, breakout };
+  }
+
+  if (!canRaise && breakoutState !== "breakout_attempt" && trendOpportunity !== "bullish_breakout_attempt") {
+    return { current, pullback, breakout };
+  }
+
+  if (breakoutState === "breakout_retest_confirmed") {
+    current = patchEntryStrategy(current, {
+      score: scoreInDisplayRange(current.score, 60, 75),
+      label: "현재가 조건부",
+      condition: `${breakoutLevelText} 위 재지지 유지 시 조건부 접근`,
+      target: targetText,
+      explanation: "돌파 가격 위 재지지가 확인된 경우 현재가 접근도 짧은 손절 전제로 검토할 수 있습니다.",
+      tone: "positive",
+      isFutureSetup: false,
+    });
+    pullback = patchEntryStrategy(pullback, {
+      score: scoreInDisplayRange(pullback.score, 65, 80),
+      label: "재지지 관심",
+      condition: `${breakoutLevelText} 재지지 확인 시 분할 접근`,
+      target: targetText,
+      explanation: "돌파 가격이 지지로 전환되는 흐름이 유지되는지 확인합니다.",
+      tone: "positive",
+      isFutureSetup: false,
+    });
+    breakout = patchEntryStrategy(breakout, {
+      score: scoreInDisplayRange(breakout.score, 75, 90),
+      label: "돌파 후 재지지",
+      condition: `${breakoutLevelText} 위 재지지 확인 후 진입 후보`,
+      stop: stopConditionFromZone(breakoutLevelText, "재이탈 시 돌파 실패"),
+      target: targetText,
+      explanation: "돌파 후 재지지가 확인되어 돌파 진입 점수를 우선 표시합니다.",
+      tone: "positive",
+      isFutureSetup: false,
+    });
+  } else if (breakoutState === "breakout_confirmed") {
+    current = patchEntryStrategy(current, {
+      score: scoreInDisplayRange(current.score, 55, 70),
+      label: "조건부 진입",
+      condition: `${breakoutLevelText} 위 안착 유지 시 일부 접근`,
+      target: targetText,
+      explanation: "돌파 이후라 돌파 확인 대기보다 안착 유지와 손절 기준 확인이 핵심입니다.",
+      tone: "positive",
+      isFutureSetup: false,
+    });
+    breakout = patchEntryStrategy(breakout, {
+      score: scoreInDisplayRange(breakout.score, 70, 85),
+      label: "돌파 성공",
+      condition: `${breakoutLevelText} 위 안착 확인`,
+      stop: stopConditionFromZone(breakoutLevelText, "재이탈 시 돌파 실패"),
+      target: targetText,
+      explanation: "현재가가 돌파 기준 위에 있어 다음 저항까지 안착 유지 여부를 봅니다.",
+      tone: "positive",
+      isFutureSetup: false,
+    });
+  } else if (trendOpportunity === "bullish_breakout_attempt") {
+    current = patchEntryStrategy(current, {
+      score: scoreInDisplayRange(current.score, 45, 65),
+      label: "소액 가능",
+      condition: `${breakoutLevelText} 안착 실패 시 빠른 손절 전제`,
+      target: targetText,
+      explanation: "저항 돌파 시도 구간이므로 전량 진입보다 소액과 짧은 손절이 필요합니다.",
+      tone: "caution",
+      isFutureSetup: false,
+    });
+    breakout = patchEntryStrategy(breakout, {
+      score: scoreInDisplayRange(breakout.score, 65, 80),
+      label: "안착 확인",
+      condition: `${breakoutLevelText} 돌파 후 위에서 버티면 진입 후보`,
+      target: targetText,
+      explanation: "모멘텀이 동반된 돌파 시도라 돌파 후 안착 확인을 우선 표시합니다.",
+      tone: "positive",
+      isFutureSetup: false,
+    });
+  } else if (trendOpportunity === "uptrend_continuation" || trendOpportunity === "controlled_uptrend_entry") {
+    current = patchEntryStrategy(current, {
+      score: scoreInDisplayRange(current.score, 50, 70),
+      label: trendOpportunity === "controlled_uptrend_entry" ? "분할 가능" : "추세 우위",
+      condition: "현재가 일부 접근 후 지지 이탈 시 빠른 대응",
+      target: targetText,
+      explanation: "추세와 지지 구조가 유지되는 동안 일부 분할 접근을 검토할 수 있습니다.",
+      tone: "positive",
+      isFutureSetup: false,
+    });
+    pullback = patchEntryStrategy(pullback, {
+      score: scoreInDisplayRange(pullback.score, 60, 80),
+      label: "눌림 관심",
+      condition: `${context.supportText} 지지 반응 확인 시 추가 접근`,
+      target: targetText,
+      explanation: "추세 유지 중에는 눌림 지지 반응이 추가 진입 기준입니다.",
+      tone: "positive",
+      isFutureSetup: false,
+    });
+    breakout = patchEntryStrategy(breakout, {
+      score: scoreInDisplayRange(breakout.score, 55, 75),
+      label: "돌파 확인",
+      condition: `${breakoutLevelText} 위 안착 확인`,
+      target: targetText,
+      explanation: "추세 지속 중에도 돌파 기준 위 안착 여부를 함께 확인합니다.",
+      tone: "positive",
+      isFutureSetup: false,
+    });
+  }
+
+  return { current, pullback, breakout };
+}
+
 function normalizeDecisionEntrySignal(
   displayedEntry: DisplayedEntrySignal,
   report: TradingReport,
   context: PriceContext,
   tone: ReportDecisionTone,
+  breakoutState: ReportDecisionBreakoutState,
+  trendOpportunity: ReportDecisionTrendOpportunity,
+  entries: ReportDecision["entryStrategies"],
 ): ReportDecision["displayedEntrySignal"] {
   const label = safeText(displayedEntry.label, FALLBACK.needsCheck);
   const explanation = safeText(displayedEntry.explanation, FALLBACK.needsCheck);
-  const currentEntry = safeScore(report.scoreSummary?.entryScores?.currentEntry?.score) ?? 0;
-  const pullbackEntry = safeScore(report.scoreSummary?.entryScores?.pullbackEntry?.score) ?? 0;
+  const currentEntry = entries.current.score ?? safeScore(report.scoreSummary?.entryScores?.currentEntry?.score) ?? 0;
+  const pullbackEntry = entries.pullback.score ?? safeScore(report.scoreSummary?.entryScores?.pullbackEntry?.score) ?? 0;
+  const breakoutEntry = entries.breakout.score ?? safeScore(report.scoreSummary?.entryScores?.breakoutEntry?.score) ?? 0;
+  const isPositiveBreakout =
+    breakoutState === "breakout_confirmed" ||
+    breakoutState === "breakout_retest_confirmed" ||
+    trendOpportunity === "bullish_breakout_attempt" ||
+    trendOpportunity === "uptrend_continuation" ||
+    trendOpportunity === "controlled_uptrend_entry";
   const pullbackIsFutureFocus =
     pullbackEntry >= Math.max(currentEntry + 10, 60) &&
+    !isPositiveBreakout &&
     (context.chartRegime === "resistance_test" ||
       context.chartRegime === "range_upper_resistance" ||
       context.chartRegime === "downtrend_rebound" ||
@@ -2178,6 +2570,54 @@ function normalizeDecisionEntrySignal(
       label: "위험 관리 우선",
       score: displayedEntry.score,
       explanation: "위험 또는 지지 이탈 가능성이 우선이므로 신규 진입보다 손절 기준과 비중 관리가 먼저입니다.",
+    };
+  }
+
+  if (breakoutState === "failed_breakout") {
+    return {
+      mode: "wait",
+      label: "돌파 실패 주의",
+      score: Math.max(Math.min(currentEntry, 35), Math.min(breakoutEntry, 45)),
+      explanation: "돌파 기준을 회복하고 위에서 안착하기 전까지 신규 진입은 신중해야 합니다.",
+    };
+  }
+
+  if (breakoutState === "breakout_retest_confirmed") {
+    return {
+      mode: "breakout",
+      label: "재지지 확인",
+      score: entries.breakout.score,
+      explanation: "돌파 가격 위 재지지가 확인되어 돌파/재지지 진입 후보로 해석합니다.",
+    };
+  }
+
+  if (breakoutState === "breakout_confirmed") {
+    return {
+      mode: "breakout",
+      label: "돌파 성공",
+      score: entries.breakout.score,
+      explanation: "현재가가 돌파 기준 위에 있어 돌파 확인 대기보다 안착 유지 여부가 핵심입니다.",
+    };
+  }
+
+  if (trendOpportunity === "bullish_breakout_attempt") {
+    return {
+      mode: "breakout",
+      label: "안착 확인",
+      score: entries.breakout.score,
+      explanation: "모멘텀이 동반된 돌파 시도 구간으로, 돌파 후 안착 여부를 우선 확인합니다.",
+    };
+  }
+
+  if (trendOpportunity === "uptrend_continuation" || trendOpportunity === "controlled_uptrend_entry") {
+    const useCurrent = (entries.current.score ?? 0) >= 50;
+    return {
+      mode: useCurrent ? "current" : "pullback",
+      label: useCurrent ? "분할 가능" : "지지 확인",
+      score: useCurrent ? entries.current.score : entries.pullback.score,
+      explanation: useCurrent
+        ? "추세와 목표 여유가 유지되어 손절 기준을 전제로 일부 분할 접근을 검토할 수 있습니다."
+        : "추세는 유지되지만 진입은 주요 지지 반응 확인을 기준으로 봅니다.",
     };
   }
 
@@ -2220,6 +2660,8 @@ function buildDecisionPrimaryStrategy(
   entries: ReportDecision["entryStrategies"],
   displayedEntry: ReportDecision["displayedEntrySignal"],
   tone: ReportDecisionTone,
+  breakoutState: ReportDecisionBreakoutState,
+  trendOpportunity: ReportDecisionTrendOpportunity,
 ): ReportDecision["primaryStrategy"] {
   const actionState = getActionState(report);
   const targetCollapsed =
@@ -2230,10 +2672,50 @@ function buildDecisionPrimaryStrategy(
 
   let title = safeText(finalAction.title, "최종 판단 확인 필요");
   let summary = safeText(finalAction.subtitle, safeText(finalAction.reason, "주요 지지와 저항 확인 후 접근이 필요합니다."));
+  let entryOverride = "";
+  let stopOverride = "";
+  const badgeOverrides: string[] = [];
+  const breakoutLevelText = context.breakoutLevelText !== FALLBACK.unknown ? context.breakoutLevelText : context.pivotText;
 
   if (context.chartRegime === "support_breakdown" || tone === "risk") {
     title = "위험 관리 / 신규 진입 보류";
     summary = `${context.supportText} 이탈 여부가 핵심입니다. 지지 회복 또는 추세 안정 확인 전까지 신규 진입보다 위험 관리가 우선입니다.`;
+    entryOverride = "신규 진입 보류";
+    badgeOverrides.push("위험 관리", "신규 진입 보류");
+  } else if (breakoutState === "failed_breakout") {
+    title = "돌파 실패 주의 / 신규 진입 신중";
+    summary = `${breakoutLevelText} 돌파 실패 또는 재이탈 가능성이 있어, 회복 후 안착 확인 전까지 신규 진입은 신중해야 합니다.`;
+    entryOverride = `${breakoutLevelText} 재회복 후 안착 확인`;
+    stopOverride = stopConditionFromZone(context.supportText, "이탈 시 반등 실패");
+    badgeOverrides.push("돌파 실패 주의", "신규 진입 신중");
+  } else if (breakoutState === "breakout_retest_confirmed") {
+    title = "돌파 후 재지지 확인 / 진입 후보";
+    summary = `${breakoutLevelText} 위 재지지가 확인되어, 손절 기준을 짧게 두면 돌파/재지지 진입 후보로 볼 수 있습니다.`;
+    entryOverride = `${breakoutLevelText} 재지지 확인 후`;
+    stopOverride = stopConditionFromZone(breakoutLevelText, "재이탈 시 돌파 실패");
+    badgeOverrides.push("재지지 확인", "진입 후보");
+  } else if (breakoutState === "breakout_confirmed") {
+    title = "돌파 성공 / 안착 확인";
+    summary = `현재가가 ${breakoutLevelText} 위에 있어 단순 돌파 대기보다 안착 유지와 재이탈 여부를 확인하는 전략이 우선입니다.`;
+    entryOverride = `${breakoutLevelText} 위 안착 유지 시 조건부 접근`;
+    stopOverride = stopConditionFromZone(breakoutLevelText, "재이탈 시 돌파 실패");
+    badgeOverrides.push("돌파 성공", "안착 확인");
+  } else if (trendOpportunity === "bullish_breakout_attempt") {
+    title = "돌파 시도 / 안착 확인";
+    summary = `모멘텀이 동반된 돌파 시도 구간입니다. 전량 추격보다 ${breakoutLevelText} 안착 확인과 짧은 손절을 기준으로 접근합니다.`;
+    entryOverride = `${breakoutLevelText} 안착 확인 후`;
+    stopOverride = stopConditionFromZone(context.supportText, "이탈 시 선진입 실패");
+    badgeOverrides.push("안착 확인", "소액 접근");
+  } else if (trendOpportunity === "uptrend_continuation") {
+    title = "상승 지속 매수 후보";
+    summary = "추세와 모멘텀, 목표 여유가 유지되어 눌림만 기다리기보다 일부 추세추종 또는 분할 접근을 검토할 수 있습니다.";
+    entryOverride = "현재가 일부 또는 지지 반응 확인 후 분할 접근";
+    badgeOverrides.push("추세 유지", "분할 접근");
+  } else if (trendOpportunity === "controlled_uptrend_entry") {
+    title = "추세 유지 / 분할 접근 가능";
+    summary = "상승 흐름은 유지되지만 확인 조건이 남아 있어 현재가는 소액 또는 분할 접근으로 제한하는 것이 적절합니다.";
+    entryOverride = "현재가 일부 접근 후 지지 확인 시 추가";
+    badgeOverrides.push("분할 접근", "손절 엄수");
   } else if (context.chartRegime === "downtrend_rebound" || context.chartRegime === "resistance_test") {
     title = "신규 진입 보류 / 돌파 확인 대기";
     summary = `현재가는 반등 과정에서 ${context.resistanceText} 부근 저항권을 테스트하고 있습니다. 신규 진입은 ${context.pivotText} 돌파 후 재지지 확인 전까지 신중해야 합니다.`;
@@ -2261,11 +2743,12 @@ function buildDecisionPrimaryStrategy(
             ? "신규 진입 보류"
             : "확인 후 접근";
   const stop =
-    displayedEntry.mode === "breakout"
+    stopOverride ||
+    (displayedEntry.mode === "breakout"
       ? entries.breakout.stop
       : displayedEntry.mode === "pullback"
         ? entries.pullback.stop
-        : entries.current.stop;
+        : entries.current.stop);
   const target = targetCollapsed
     ? safeText(context.targetStatus || context.targetGapLabel, "추가 목표 확인 필요")
     : safeText(context.targetText, "추가 목표 확인 필요");
@@ -2281,10 +2764,10 @@ function buildDecisionPrimaryStrategy(
   return {
     title,
     summary,
-    entry: safeText(entry, FALLBACK.needsCheck),
+    entry: safeText(entryOverride || entry, FALLBACK.needsCheck),
     stop: safeText(stop, FALLBACK.noStop),
     target,
-    badges: uniqueBadges([toneBadge, displayedEntry.label, context.preferredStrategy]),
+    badges: uniqueBadges([toneBadge, displayedEntry.label, context.preferredStrategy, ...badgeOverrides]),
   };
 }
 
@@ -2341,6 +2824,7 @@ function validateReportDecisionDisplayValues(decision: ReportDecision) {
   const invalidFields: string[] = [];
   const requiredTextFields: Array<[string, unknown]> = [
     ["chartRegime", decision.chartRegime],
+    ["breakoutState", decision.breakoutState],
     ["finalActionState", decision.finalActionState],
     ["finalActionLabel", decision.finalActionLabel],
     ["primaryStrategy.title", decision.primaryStrategy.title],
@@ -2421,6 +2905,11 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
   const currentValue = decision.priceRoles.currentPrice.value;
   const resistanceValue = decision.priceRoles.mainResistance.value;
   const targetValue = decision.priceRoles.target?.value ?? null;
+  const breakoutValue = decision.priceRoles.breakoutLevel?.value ?? null;
+  const breakoutScore = decision.entryStrategies.breakout.score ?? null;
+  const currentScore = decision.entryStrategies.current.score ?? null;
+  const pullbackScore = decision.entryStrategies.pullback.score ?? null;
+  const trendOpportunity = decision.trendOpportunity ?? "none";
 
   if ((decision.finalActionTone === "caution" || decision.finalActionTone === "risk") && bullishEntryPattern.test(entryText)) {
     warnings.push("finalAction이 주의/위험인데 표시 진입 라벨이 매수 우세로 해석될 수 있습니다.");
@@ -2440,6 +2929,38 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
 
   if ((decision.chartRegime === "support_breakdown" || decision.finalActionTone === "risk") && aggressiveStrategyPattern.test(decision.primaryStrategy.title)) {
     warnings.push("지지선 이탈 또는 고위험 구간에서 공격적 primary strategy가 표시될 수 있습니다.");
+  }
+
+  if (
+    breakoutValue !== null &&
+    priceAboveByTolerance(currentValue, breakoutValue) &&
+    /돌파 확인 대기|신규 진입 보류\s*\/\s*돌파 확인 대기/.test(finalText) &&
+    decision.breakoutState !== "failed_breakout"
+  ) {
+    warnings.push("현재가가 돌파 기준 위인데 최종/대표 전략이 여전히 돌파 확인 대기로 표시될 수 있습니다.");
+  }
+
+  if (decision.breakoutState === "breakout_confirmed" && (breakoutScore ?? 0) < 60) {
+    warnings.push("돌파 성공 상태인데 돌파 진입 표시 점수가 60 미만입니다.");
+  }
+
+  if (
+    decision.breakoutState === "breakout_retest_confirmed" &&
+    /신규 진입 보류|돌파 확인 대기|추격매수 주의/.test(finalText) &&
+    !/위험|목표 여유|과열|손절|이탈|고위험/.test(finalText)
+  ) {
+    warnings.push("돌파 후 재지지 확인 상태가 명확한 위험 사유 없이 과도하게 보수적으로 표시될 수 있습니다.");
+  }
+
+  if (trendOpportunity !== "none" && Math.max(currentScore ?? 0, pullbackScore ?? 0, breakoutScore ?? 0) < 45) {
+    warnings.push("상승/모멘텀 기회가 감지됐지만 모든 진입 표시 점수가 45 미만입니다.");
+  }
+
+  if (
+    aggressiveStrategyPattern.test(`${decision.primaryStrategy.title} ${decision.displayedEntrySignal.label}`) &&
+    /확인 필요|미확인|손절 기준 확인 필요/.test(`${decision.primaryStrategy.stop} ${decision.priceRoles.stopLoss?.text ?? ""}`)
+  ) {
+    warnings.push("공격적 또는 분할 진입 전략에 명확한 손절 기준이 부족합니다.");
   }
 
   const rsiOverboughtBuy = indicators.some((row) => {
@@ -2490,13 +3011,44 @@ export function buildReportDecision(
   signal: ReturnType<typeof deriveSignal>,
   totalScore: number | null,
 ): ReportDecision {
-  const tone = finalActionTone(report, context, finalAction);
-  const entryStrategies = {
+  const breakoutState = deriveBreakoutState(report, context);
+  const baseEntryStrategies = {
     current: entryStrategyDecision("current", dataset.entryMode.currentEntry, context),
     pullback: entryStrategyDecision("pullback", dataset.entryMode.pullbackEntry, context),
     breakout: entryStrategyDecision("breakout", dataset.entryMode.breakoutEntry, context),
   };
-  const normalizedDisplayedEntry = normalizeDecisionEntrySignal(displayedEntry, report, context, tone);
+  let trendOpportunity = deriveTrendOpportunity(report, context, breakoutState, dataset.indicators);
+  const currentEntryScore = safeScore(report.scoreSummary?.entryScores?.currentEntry?.score) ?? 0;
+  const breakoutEntryScore = safeScore(report.scoreSummary?.entryScores?.breakoutEntry?.score) ?? 0;
+  const opportunityAllowed =
+    trendOpportunity === "none" &&
+    context.chartRegime !== "support_breakdown" &&
+    context.chartRegime !== "downtrend" &&
+    context.chartRegime !== "overheated_breakout" &&
+    context.chartRegime !== "overextended_surge" &&
+    context.target !== null &&
+    context.targetGapLabel !== "목표 여유 낮음";
+  const hasUsableAttemptTarget = context.target !== null || /^\d/.test(safeText(context.targetStatus, ""));
+  const breakoutAttemptAllowed =
+    trendOpportunity === "none" &&
+    breakoutState === "breakout_attempt" &&
+    context.chartRegime !== "support_breakdown" &&
+    context.chartRegime !== "downtrend" &&
+    context.chartRegime !== "overheated_breakout" &&
+    context.chartRegime !== "overextended_surge" &&
+    (context.targetGapLabel !== "목표 여유 낮음" || hasUsableAttemptTarget);
+  if (breakoutAttemptAllowed || (opportunityAllowed && breakoutState === "breakout_attempt" && breakoutEntryScore >= 50 && currentEntryScore >= 30)) {
+    trendOpportunity = "bullish_breakout_attempt";
+  } else if (
+    opportunityAllowed &&
+    (context.chartRegime === "uptrend_pullback" || context.chartRegime === "uptrend_consolidation" || context.chartRegime === "healthy_pullback") &&
+    currentEntryScore >= 45
+  ) {
+    trendOpportunity = currentEntryScore >= 55 ? "uptrend_continuation" : "controlled_uptrend_entry";
+  }
+  const tone = finalActionTone(report, context, finalAction, breakoutState, trendOpportunity);
+  const entryStrategies = calibrateReportDecisionEntries(baseEntryStrategies, report, context, breakoutState, trendOpportunity, tone);
+  const normalizedDisplayedEntry = normalizeDecisionEntrySignal(displayedEntry, report, context, tone, breakoutState, trendOpportunity, entryStrategies);
   const targetCollapsed =
     context.targetRoleCollapsed ||
     samePriceZone(context.target, context.current) ||
@@ -2505,9 +3057,11 @@ export function buildReportDecision(
   const targetStatus = targetCollapsed
     ? safeText(context.targetStatus || context.targetGapLabel, "목표 여유 낮음")
     : safeText(context.targetStatus || context.targetGapLabel, safeText(context.targetText, "추가 목표 확인 필요"));
-  const primaryStrategy = buildDecisionPrimaryStrategy(report, context, finalAction, entryStrategies, normalizedDisplayedEntry, tone);
+  const primaryStrategy = buildDecisionPrimaryStrategy(report, context, finalAction, entryStrategies, normalizedDisplayedEntry, tone, breakoutState, trendOpportunity);
   const decision: ReportDecision = {
     chartRegime: context.chartRegime,
+    breakoutState,
+    trendOpportunity,
     finalActionState: getActionState(report),
     finalActionLabel: primaryStrategy.title,
     finalActionTone: tone,
@@ -2519,7 +3073,7 @@ export function buildReportDecision(
         ? { secondarySupport: displayPrice(context.secondarySupportText, parsePriceFromText(context.secondarySupportText)) }
         : {}),
       mainResistance: displayPrice(context.resistanceText, context.resistance),
-      breakoutLevel: displayPrice(firstText([report.tradePlan.entry.breakoutEntry?.priceZone, context.pivotText], FALLBACK.unknown), context.pivot),
+      breakoutLevel: displayPrice(context.breakoutLevelText, context.breakoutLevel),
       stopLoss: displayPrice(dataset.keyLevels.stopLoss, parsePriceFromText(dataset.keyLevels.stopLoss)),
       invalidation: displayPrice(dataset.keyLevels.invalidation, parsePriceFromText(dataset.keyLevels.invalidation)),
       target: displayPrice(targetCollapsed ? targetStatus : context.targetText, targetCollapsed ? null : context.target, targetStatus),
@@ -2530,7 +3084,7 @@ export function buildReportDecision(
     signalSummary: {
       overallScore: totalScore,
       momentumScore: safeScore(report.scoreSummary?.buyScore),
-      breakoutScore: safeScore(report.scoreSummary?.entryScores?.breakoutEntry?.score),
+      breakoutScore: entryStrategies.breakout.score,
       riskScore: safeScore(report.scoreSummary?.riskScore),
       entryPerspective: normalizedDisplayedEntry.label,
     },

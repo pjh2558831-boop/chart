@@ -466,16 +466,16 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
             <p className="mb-3 text-sm font-extrabold tracking-normal text-slate-950 [word-break:keep-all]">종목 요약</p>
             <h2
               className="max-w-full overflow-visible whitespace-nowrap text-[clamp(2.2rem,4.4vw,4.25rem)] font-extrabold leading-none tracking-normal text-slate-950 [text-overflow:clip]"
-              title={safeValue(displayIdentity.ticker, "확인 필요")}
+              title={safeValue(displayIdentity.ticker, "티커 필요")}
             >
-              {safeValue(displayIdentity.ticker, "확인 필요")}
+              {safeValue(displayIdentity.ticker, "티커 필요")}
             </h2>
           </div>
           <p
             className="mt-3 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold leading-6 text-slate-600"
-            title={safeValue(displayIdentity.companyLine, "시장 확인 필요")}
+            title={safeValue(displayIdentity.companyLine, "종목명을 확인해 주세요")}
           >
-            {safeValue(displayIdentity.companyLine, "시장 확인 필요")}
+            {safeValue(displayIdentity.companyLine, "종목명을 확인해 주세요")}
           </p>
           <div className="mt-5">
             <p

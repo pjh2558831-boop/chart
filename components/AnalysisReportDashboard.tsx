@@ -185,6 +185,31 @@ function compactStrategyLine(value: string, maxLength = 74) {
   return truncateText(value, "확인 필요", maxLength);
 }
 
+function uniqueSafeTextItems(items: string[]) {
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const item of items) {
+    const text = safeValue(item, "");
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    values.push(text);
+  }
+  return values;
+}
+
+function formatHeroGuidanceItems(decision: ReportDecision) {
+  const items = [
+    { label: "신규", value: safeValue(decision.newEntryDecision, "") },
+    { label: "보유", value: safeValue(decision.holderDecision, "") },
+  ];
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item.value || seen.has(item.value)) return false;
+    seen.add(item.value);
+    return true;
+  });
+}
+
 function formatDecisionPrimaryStrategy(decision: ReportDecision): HeroStrategyDisplay {
   const entryTone: StrategyActionTone = decision.finalActionTone === "risk"
     ? "caution"
@@ -214,6 +239,45 @@ function formatEntryCard(item: ReportDecision["entryStrategies"]["current"]): En
     explanation: item.explanation,
     tone: item.tone,
   };
+}
+
+function entryWarningText(warning: string) {
+  if (/MISSING_CONFIRMATION/.test(warning)) return "확인 조건 보완 필요";
+  if (/MISSING_INVALIDATION/.test(warning)) return "무효화 기준 확인 필요";
+  if (/MISSING_TARGET/.test(warning)) return "목표가 여유 확인 필요";
+  if (/LOW_RR_ENTRY/.test(warning)) return "손익비 확인 필요";
+  if (/SUPPORT_STOP_OVERLAP/.test(warning)) return "손절 여유 좁음";
+  if (/BREAKOUT_TARGET_OVERLAP/.test(warning)) return "돌파 목표 추가 확인 필요";
+  if (/PRICE_ROLE_COLLAPSE|TARGET_TOO_CLOSE|TARGET_NOT_ABOVE_ENTRY|RESISTANCE_TOO_CLOSE/.test(warning)) return "가격대 재확인 필요";
+  if (/SCENARIO_INCOMPLETE/.test(warning)) return "시나리오 보완 필요";
+  return "";
+}
+
+function formatEntryDetailRows(item: ReportDecision["entryStrategies"]["current"]) {
+  const rows = [
+    ["진입 조건", item.entryTrigger],
+    ["확인 조건", item.confirmationCondition],
+    ["무효화", item.invalidation],
+    ["1차 목표", item.target1],
+    ["2차 목표", item.target2],
+    ["비중 힌트", item.positionSizingHint],
+    ["실패 조건", item.failureCondition],
+  ] as const;
+  const seen = new Set<string>();
+  return rows.filter(([, value]) => {
+    const text = safeValue(value, "");
+    if (!text || seen.has(text)) return false;
+    seen.add(text);
+    return true;
+  }).slice(0, 6);
+}
+
+function formatEntryCompletenessNotes(item: ReportDecision["entryStrategies"]["current"]) {
+  const notes = uniqueSafeTextItems([
+    ...(item.isComplete === false ? ["확인 조건 보완 필요"] : []),
+    ...(item.completenessWarnings ?? []).map(entryWarningText),
+  ]);
+  return notes.slice(0, 2);
 }
 
 function formatDecisionEntryScenarios(decision: ReportDecision) {
@@ -266,6 +330,39 @@ function formatSignalSummaryItems(decision: ReportDecision) {
   ];
 }
 
+function formatSignalBreakdownItems(summary: ReportDecision["signalSummary"]) {
+  const primaryItems = [
+    { label: "추세", score: summary.trendScore, riskMode: false },
+    { label: "위치", score: summary.locationScore, riskMode: false },
+    { label: "거래량", score: summary.volumeScore, riskMode: false },
+    { label: "지지/저항", score: summary.srQualityScore, riskMode: false },
+    { label: "손익비", score: summary.riskRewardScore, riskMode: false },
+    { label: "데이터 신뢰", score: summary.dataConfidenceScore, riskMode: false },
+  ];
+  const fallbackItems = [
+    { label: "돌파 신뢰", score: summary.breakoutReliabilityScore, riskMode: false },
+    { label: "변동성", score: summary.volatilityRiskScore, riskMode: true },
+  ];
+  return [...primaryItems, ...fallbackItems]
+    .filter((item) => typeof item.score === "number" && Number.isFinite(item.score))
+    .slice(0, 6);
+}
+
+function scoreWarningText(warning: string) {
+  if (/SCORE_CAPPED_BY_CONFIDENCE/.test(warning)) return "데이터 신뢰도 때문에 점수를 보수적으로 해석해야 합니다.";
+  if (/SCORE_CAPPED_BY_PRICE_COLLAPSE/.test(warning)) return "가격대가 겹쳐 목표 여유 판단을 보수적으로 조정했습니다.";
+  if (/SCORE_CAPPED_BY_LOW_RR/.test(warning)) return "손익비가 충분하지 않아 진입 품질을 낮게 평가했습니다.";
+  if (/SCORE_CAPPED_BY_STATE/.test(warning)) return "현재 차트 상태를 반영해 종합 점수를 보수적으로 제한했습니다.";
+  if (/CURRENT_ENTRY_SCORE_CAPPED/.test(warning)) return "저항권 접근으로 현재가 진입 매력도를 낮게 반영했습니다.";
+  if (/SCORE_CAPPED_BY_INCOMPLETE_SCENARIO/.test(warning)) return "진입 조건이 완전하지 않아 점수를 보수적으로 조정했습니다.";
+  if (/BREAKOUT_SCORE_CAPPED/.test(warning)) return "돌파 기준과 목표가가 가까워 돌파 신뢰도를 낮게 반영했습니다.";
+  return "";
+}
+
+function formatScoreWarningNotes(summary: ReportDecision["signalSummary"]) {
+  return uniqueSafeTextItems((summary.scoreWarnings ?? []).map(scoreWarningText)).slice(0, 2);
+}
+
 function getHeroMetadataItems(vm: InstitutionalReportViewModel) {
   return [
     { label: "리포트 신뢰도", value: vm.hero.confidenceScore === null ? "확인 필요" : `${vm.hero.confidenceScore} / 100` },
@@ -288,6 +385,20 @@ function formatDecisionCorePriceItems(decision: ReportDecision, vm: Institutiona
     { label: "손절", value: stopLoss, tone: "text-red-600" },
     { label: "목표", value: target, tone: "text-blue-700" },
   ];
+}
+
+function priceWarningText(warning: string) {
+  if (/TARGET_TOO_CLOSE/.test(warning)) return "1차 목표 여유가 부족합니다.";
+  if (/TARGET_NOT_ABOVE_ENTRY/.test(warning)) return "목표가가 현재가 대비 충분히 위에 있지 않습니다.";
+  if (/RESISTANCE_TOO_CLOSE/.test(warning)) return "현재가가 저항권에 가까워 추격 진입은 신중해야 합니다.";
+  if (/SUPPORT_STOP_OVERLAP/.test(warning)) return "지지선과 손절/무효화 기준이 가까워 리스크 관리가 중요합니다.";
+  if (/BREAKOUT_TARGET_OVERLAP/.test(warning)) return "돌파 확인가와 목표가가 가까워 추가 목표 확인이 필요합니다.";
+  if (/PRICE_ROLE_COLLAPSE/.test(warning)) return "일부 가격 역할이 같은 구간에 겹쳐 보수적으로 병합했습니다.";
+  return "";
+}
+
+function formatPriceWarningNotes(decision: ReportDecision) {
+  return uniqueSafeTextItems((decision.consistencyWarnings ?? []).map(priceWarningText)).slice(0, 3);
 }
 
 function formatHeroTargetText(decision: ReportDecision) {
@@ -455,6 +566,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   const corePriceItems = formatDecisionCorePriceItems(decision, vm);
   const finalAction = formatDecisionFinalSignal(decision, vm);
   const primaryStrategyDisplay = formatDecisionPrimaryStrategy(decision);
+  const heroGuidanceItems = formatHeroGuidanceItems(decision);
   const finalTone = decision.finalActionTone;
 
   return (
@@ -518,6 +630,18 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
               </div>
             ))}
           </div>
+          {heroGuidanceItems.length ? (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {heroGuidanceItems.map((item) => (
+                <div key={item.label} className="min-w-0 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2">
+                  <p className="text-xs font-extrabold text-blue-700">{item.label}</p>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-slate-700 [overflow-wrap:break-word] [word-break:keep-all]">
+                    {truncateText(item.value, "확인 필요", 78)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             {primaryStrategyDisplay.badges.slice(0, 2).map((badge, index) => (
               <SmallBadge
@@ -630,7 +754,10 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   );
 }
 
-function EntryModeItem({ title, item }: { title: string; item: EntryModeCard }) {
+function EntryModeItem({ title, item, decisionItem }: { title: string; item: EntryModeCard; decisionItem: ReportDecision["entryStrategies"]["current"] }) {
+  const detailRows = formatEntryDetailRows(decisionItem);
+  const completenessNotes = formatEntryCompletenessNotes(decisionItem);
+
   return (
     <article className="min-w-0 max-w-full rounded-lg border border-slate-200 bg-white p-4 [overflow-wrap:break-word] [word-break:keep-all]">
       <div className="flex items-start justify-between gap-3">
@@ -654,6 +781,25 @@ function EntryModeItem({ title, item }: { title: string; item: EntryModeCard }) 
           </div>
         ))}
       </dl>
+      {detailRows.length ? (
+        <dl className="mt-4 grid gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3 text-xs leading-5">
+          {detailRows.map(([label, value]) => (
+            <div key={label} className="grid min-w-0 grid-cols-[72px_minmax(0,1fr)] gap-2">
+              <dt className="whitespace-nowrap font-extrabold text-slate-500">{label}</dt>
+              <dd className="font-semibold text-slate-800 [overflow-wrap:break-word] [word-break:keep-all]">{safeValue(value, "확인 필요")}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {completenessNotes.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {completenessNotes.map((note) => (
+            <SmallBadge key={note} className="border-amber-200 bg-amber-50 text-amber-700">
+              {note}
+            </SmallBadge>
+          ))}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -668,18 +814,25 @@ function EntryModesCard({ vm }: { vm: InstitutionalReportViewModel }) {
     <Card>
       <SectionTitle title="진입 방식별 판단" description="현재가, 눌림목, 돌파 진입을 조건과 손절 기준별로 분리합니다." />
       <div className="grid gap-4 xl:grid-cols-3">
-        <EntryModeItem title="현재가 진입" item={currentEntry} />
-        <EntryModeItem title="눌림목 진입" item={pullbackEntry} />
-        <EntryModeItem title="돌파 진입" item={breakoutEntry} />
+        <EntryModeItem title="현재가 진입" item={currentEntry} decisionItem={decision.current} />
+        <EntryModeItem title="눌림목 진입" item={pullbackEntry} decisionItem={decision.pullback} />
+        <EntryModeItem title="돌파 진입" item={breakoutEntry} decisionItem={decision.breakout} />
       </div>
     </Card>
   );
 }
 
 function MarketSummaryCard({ vm }: { vm: InstitutionalReportViewModel }) {
+  const decision = vm.reportDecision;
+  const actionRows = [
+    ["확인 조건", decision.mustConfirmCondition, "bg-blue-500"],
+    ["진입 보류 사유", decision.mustNotTradeReason, "bg-rose-500"],
+    ["다음 점검", decision.nextReviewCondition, "bg-sky-500"],
+  ].filter(([, value]) => Boolean(safeValue(value, "")));
   const rows = [
-    ["시장 관점", vm.reportDecision.finalActionLabel, "bg-blue-500"],
-    ["핵심 해석", vm.reportDecision.primaryStrategy.summary, "bg-emerald-500"],
+    ["시장 관점", decision.finalActionLabel, "bg-blue-500"],
+    ["핵심 해석", decision.primaryStrategy.summary, "bg-emerald-500"],
+    ...actionRows,
     ["지지·저항 해석", vm.marketSummary.supportResistanceInterpretation, "bg-slate-400"],
     ["리스크 요인", vm.marketSummary.riskPoint, "bg-amber-500"],
   ];
@@ -773,6 +926,8 @@ function entryMetricLabel(mode: InstitutionalReportViewModel["reportDecision"]["
 function SignalScoreCard({ vm }: { vm: InstitutionalReportViewModel }) {
   const summary = vm.reportDecision.signalSummary;
   const displayedEntry = vm.reportDecision.displayedEntrySignal;
+  const breakdownItems = formatSignalBreakdownItems(summary);
+  const warningNotes = formatScoreWarningNotes(summary);
 
   return (
     <Card>
@@ -796,12 +951,36 @@ function SignalScoreCard({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
         </div>
       </div>
+      {breakdownItems.length ? (
+        <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          {breakdownItems.map((item) => (
+            <div key={item.label} className="grid min-w-0 grid-cols-[70px_minmax(0,1fr)_42px] items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
+              <span className="font-extrabold text-slate-600">{item.label}</span>
+              <div className="h-1.5 rounded-full bg-slate-200">
+                <div
+                  className={`${item.riskMode ? "bg-amber-500" : "bg-blue-500"} h-1.5 rounded-full`}
+                  style={{ width: `${Math.max(0, Math.min(100, item.score ?? 0))}%` }}
+                />
+              </div>
+              <span className="text-right font-extrabold text-slate-900">{item.score}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {warningNotes.length ? (
+        <div className="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800 [overflow-wrap:break-word] [word-break:keep-all]">
+          {warningNotes.map((note) => (
+            <p key={note}>{note}</p>
+          ))}
+        </div>
+      ) : null}
     </Card>
   );
 }
 
 function PriceLevelsCard({ vm }: { vm: InstitutionalReportViewModel }) {
   const decision = vm.reportDecision.priceRoles;
+  const warningNotes = formatPriceWarningNotes(vm.reportDecision);
   const rows = [
     ["현재 가격", decision.currentPrice.text, "bg-slate-500"],
     ["핵심 전환 가격", decision.breakoutLevel?.text ?? vm.basisSummary.pivotPrice, "bg-blue-900"],
@@ -840,6 +1019,16 @@ function PriceLevelsCard({ vm }: { vm: InstitutionalReportViewModel }) {
         <span className="mx-2 text-slate-300">|</span>
         {vm.keyLevels.targetGapExplanation}
       </p>
+      {warningNotes.length ? (
+        <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800 [overflow-wrap:break-word] [word-break:keep-all]">
+          <p className="font-extrabold text-amber-900">가격대 주의</p>
+          <ul className="mt-1 space-y-1">
+            {warningNotes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </Card>
   );
 }

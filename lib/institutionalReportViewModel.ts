@@ -363,8 +363,9 @@ type DisplayIdentityAlias = {
   aliases: string[];
 };
 
-const DISPLAY_IDENTITY_TITLE_FALLBACK = "확인 필요";
+const DISPLAY_IDENTITY_TITLE_FALLBACK = "티커 필요";
 const DISPLAY_IDENTITY_MARKET_FALLBACK = "시장 확인 필요";
+const DISPLAY_IDENTITY_COMPANY_FALLBACK = "종목명을 확인해 주세요";
 
 const DISPLAY_IDENTITY_ALIASES: DisplayIdentityAlias[] = [
   { ticker: "AAPL", companyName: "Apple", marketLabel: "US", aliases: ["애플", "Apple", "Apple Inc"] },
@@ -372,8 +373,27 @@ const DISPLAY_IDENTITY_ALIASES: DisplayIdentityAlias[] = [
   { ticker: "NVDA", companyName: "NVIDIA", marketLabel: "US", aliases: ["엔비디아", "Nvidia", "NVIDIA"] },
   { ticker: "AVGO", companyName: "Broadcom", marketLabel: "US", aliases: ["브로드컴", "Broadcom"] },
   { ticker: "PLTR", companyName: "Palantir", marketLabel: "US", aliases: ["팔란티어", "Palantir"] },
+  { ticker: "NOW", companyName: "ServiceNow", marketLabel: "US", aliases: ["ServiceNow", "서비스나우"] },
+  { ticker: "CRWV", companyName: "CoreWeave", marketLabel: "US", aliases: ["CoreWeave", "코어위브"] },
   { ticker: "LITE", companyName: "Lumentum", marketLabel: "US", aliases: ["루멘텀", "Lumentum"] },
-  { ticker: "CRDO", companyName: "Credo Technology", marketLabel: "US", aliases: ["크레도", "Credo", "Credo Technology"] },
+  {
+    ticker: "CRDO",
+    companyName: "Credo Technology",
+    marketLabel: "US",
+    aliases: [
+      "Credo",
+      "Credo Technology",
+      "Credo Technology Group",
+      "Credo Technology Group Holding",
+      "Credo Technology Group Holding Ltd",
+      "크레도",
+      "크리드",
+      "크리드 테크놀로지",
+      "크리드 테크놀로지 그룹",
+      "크리드 테크놀로지 그룹 홀딩",
+    ],
+  },
+  { ticker: "005930", companyName: "삼성전자", marketLabel: "KR", aliases: ["Samsung Electronics", "삼성전자"] },
   { ticker: "SPY", companyName: "SPY", marketLabel: "US", aliases: ["SPY"] },
   { ticker: "QQQ", companyName: "QQQ", marketLabel: "US", aliases: ["QQQ"] },
   { ticker: "SOXL", companyName: "SOXL", marketLabel: "US", aliases: ["SOXL"] },
@@ -381,7 +401,7 @@ const DISPLAY_IDENTITY_ALIASES: DisplayIdentityAlias[] = [
 
 function isPlaceholderText(value: unknown) {
   const text = safeText(value, "").trim();
-  return !text || text === "-" || /^(미확인|확인 필요|추정 불가|이미지 기준 추정 불가|시장 확인 필요|티커 확인 필요|종목 확인|종목 정보 확인 필요|unknown|n\/a|na)$/i.test(text);
+  return !text || text === "-" || /^(미확인|확인 필요|티커 필요|추정 불가|이미지 기준 추정 불가|시장 확인 필요|종목명을 확인해 주세요|티커 확인 필요|종목 확인|종목 정보 확인 필요|unknown|n\/a|na)$/i.test(text);
 }
 
 function cleanDisplayText(value: unknown) {
@@ -578,12 +598,12 @@ function buildDisplayIdentity(rawReport: AnalysisResponse, report: TradingReport
     || companyCandidates.map((value) => compactCompanyName(value, ticker)).find(Boolean)
     || (hasResolvedTicker ? ticker : "");
   const companyLine = !hasResolvedTicker && !alias && marketLabel === DISPLAY_IDENTITY_MARKET_FALLBACK
-    ? DISPLAY_IDENTITY_MARKET_FALLBACK
+    ? DISPLAY_IDENTITY_COMPANY_FALLBACK
     : companyName
     ? `${companyName} · ${marketLabel}`
     : hasResolvedTicker
       ? `${ticker} · ${marketLabel}`
-      : DISPLAY_IDENTITY_MARKET_FALLBACK;
+      : DISPLAY_IDENTITY_COMPANY_FALLBACK;
   const rawEstimate = safeNumber(rawReport.aiAnalysis?.priceAxisObservations?.currentPriceEstimate?.value);
   const priceText = formatDisplayPrice(rawEstimate ?? context.current ?? context.heroPrice ?? context.currentText);
   const currencyUnitLabel = getDisplayCurrencyUnit(rawReport, report, ticker, marketLabel, context.current);

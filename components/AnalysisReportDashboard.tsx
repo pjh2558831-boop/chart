@@ -567,6 +567,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   const finalAction = formatDecisionFinalSignal(decision, vm);
   const primaryStrategyDisplay = formatDecisionPrimaryStrategy(decision);
   const heroGuidanceItems = formatHeroGuidanceItems(decision);
+  const strategyBadges = primaryStrategyDisplay.badges.slice(0, 2);
   const finalTone = decision.finalActionTone;
 
   return (
@@ -603,6 +604,18 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           <div className="mt-4 grid gap-2.5">
             <HeroInfoBox label="현재가 해석" value={currentInterpretation} />
           </div>
+          {strategyBadges.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {strategyBadges.map((badge, index) => (
+                <SmallBadge
+                  key={badge}
+                  className={index === 0 ? "border-rose-100 bg-rose-50 text-rose-700" : "border-emerald-100 bg-emerald-50 text-emerald-700"}
+                >
+                  {badge}
+                </SmallBadge>
+              ))}
+            </div>
+          ) : null}
         </HeroPanel>
 
         <HeroPanel className="order-3 md:order-2">
@@ -642,16 +655,6 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
               ))}
             </div>
           ) : null}
-          <div className="mt-3 flex flex-wrap gap-2">
-            {primaryStrategyDisplay.badges.slice(0, 2).map((badge, index) => (
-              <SmallBadge
-                key={badge}
-                className={index === 0 ? "border-rose-100 bg-rose-50 text-rose-700" : "border-emerald-100 bg-emerald-50 text-emerald-700"}
-              >
-                {badge}
-              </SmallBadge>
-            ))}
-          </div>
         </HeroPanel>
 
         <HeroPanel className={`order-2 md:order-3 ${signalToneClass[finalTone]}`}>
@@ -734,18 +737,18 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
         </HeroPanel>
         </div>
 
-      <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid min-w-0 max-w-full gap-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
         {metadataItems.map((item) => (
-          <div key={item.label} className="flex min-w-0 items-center gap-3">
+          <div key={item.label} className="flex min-w-0 items-start gap-2 sm:gap-3">
             <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
-            <span className="whitespace-nowrap font-extrabold text-slate-500">{item.label}</span>
-            <span className="min-w-0 font-bold text-slate-900 [overflow-wrap:break-word] [word-break:keep-all]">{safeValue(item.value, "확인 필요")}</span>
+            <span className="shrink-0 whitespace-nowrap font-extrabold leading-5 text-slate-500">{item.label}</span>
+            <span className="min-w-0 flex-1 whitespace-normal break-words font-bold leading-5 text-slate-900 [overflow-wrap:break-word] [word-break:keep-all]">{safeValue(item.value, "확인 필요")}</span>
           </div>
         ))}
       </div>
 
       {vm.basisSummary.priceUnit.includes("확인 필요") || vm.basisSummary.priceUnit.includes("이미지") ? (
-        <p className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800 [word-break:keep-all]">
+        <p className="min-w-0 max-w-full whitespace-normal break-words rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800 [overflow-wrap:break-word] [word-break:keep-all]">
           가격 단위는 이미지 축 기준 추정값일 수 있어 실제 시세 단위와 차이가 있을 수 있습니다.
         </p>
       ) : null}

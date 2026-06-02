@@ -197,19 +197,6 @@ function uniqueSafeTextItems(items: string[]) {
   return values;
 }
 
-function formatHeroGuidanceItems(decision: ReportDecision) {
-  const items = [
-    { label: "신규", value: safeValue(decision.newEntryDecision, "") },
-    { label: "보유", value: safeValue(decision.holderDecision, "") },
-  ];
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    if (!item.value || seen.has(item.value)) return false;
-    seen.add(item.value);
-    return true;
-  });
-}
-
 function formatDecisionPrimaryStrategy(decision: ReportDecision): HeroStrategyDisplay {
   const entryTone: StrategyActionTone = decision.finalActionTone === "risk"
     ? "caution"
@@ -472,11 +459,29 @@ function userFacingFinalSignalExplanation(decision: ReportDecision, fallback: st
   return safeValue(fallback, "주요 가격대 확인 후 조건부로 접근하는 것이 좋습니다.");
 }
 
+function compactFinalActionTitle(value: string) {
+  const title = safeValue(value, "재지지 확인 우선");
+  const compactMap: Array<[RegExp, string]> = [
+    [/신규\s*진입\s*보류\s*\/\s*돌파\s*확인\s*대기/, "돌파 확인 대기"],
+    [/추격매수\s*주의\s*\/\s*재지지\s*확인/, "재지지 확인 우선"],
+    [/추격매수\s*주의\s*\/\s*눌림목\s*확인\s*우선/, "눌림목 확인 우선"],
+    [/돌파\s*후\s*재지지\s*확인\s*\/\s*진입\s*후보/, "재지지 진입 후보"],
+    [/보유\s*우세\s*\/\s*신규\s*대기/, "보유 우세"],
+    [/상승\s*지속\s*매수\s*후보/, "상승 지속 후보"],
+    [/일부\s*익절\s*후\s*관망/, "일부 익절 관망"],
+    [/위험\s*관리\s*\/\s*신규\s*진입\s*보류/, "위험 관리 우선"],
+  ];
+  for (const [pattern, replacement] of compactMap) {
+    if (pattern.test(title)) return replacement;
+  }
+  return truncateText(title, "재지지 확인 우선", 24);
+}
+
 function formatDecisionFinalSignal(decision: ReportDecision, vm: InstitutionalReportViewModel) {
   return {
-    title: truncateText(decision.finalActionLabel, "재지지 확인 우선", 36),
+    title: compactFinalActionTitle(decision.finalActionLabel),
     explanation: userFacingFinalSignalExplanation(decision, vm.finalAction.subtitle),
-    keyPoint: safeValue(decision.displayedEntrySignal.label, "주요 가격대 확인"),
+    keyPoint: truncateText(decision.displayedEntrySignal.label, "주요 가격대 확인", 28),
   };
 }
 
@@ -566,7 +571,6 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   const corePriceItems = formatDecisionCorePriceItems(decision, vm);
   const finalAction = formatDecisionFinalSignal(decision, vm);
   const primaryStrategyDisplay = formatDecisionPrimaryStrategy(decision);
-  const heroGuidanceItems = formatHeroGuidanceItems(decision);
   const strategyBadges = primaryStrategyDisplay.badges.slice(0, 2);
   const finalTone = decision.finalActionTone;
 
@@ -643,18 +647,6 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
               </div>
             ))}
           </div>
-          {heroGuidanceItems.length ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {heroGuidanceItems.map((item) => (
-                <div key={item.label} className="min-w-0 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2">
-                  <p className="text-xs font-extrabold text-blue-700">{item.label}</p>
-                  <p className="mt-1 text-xs font-semibold leading-5 text-slate-700 [overflow-wrap:break-word] [word-break:keep-all]">
-                    {truncateText(item.value, "확인 필요", 78)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : null}
         </HeroPanel>
 
         <HeroPanel className={`order-2 md:order-3 ${signalToneClass[finalTone]}`}>
@@ -664,7 +656,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
                 !
               </div>
               <div className="min-w-0">
-                <p className="max-w-full text-[clamp(1.45rem,2.15vw,2.3rem)] font-extrabold leading-tight tracking-normal [overflow-wrap:break-word] [word-break:keep-all]">
+                <p className="max-w-full text-[clamp(1.25rem,1.8vw,1.95rem)] font-extrabold leading-tight tracking-normal [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                   {finalAction.title}
                 </p>
                 <p className="mt-3 text-sm font-semibold leading-6 [overflow-wrap:break-word] [word-break:keep-all]">

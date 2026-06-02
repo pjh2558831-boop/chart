@@ -326,6 +326,40 @@ function safeText(value: unknown, fallback = "-") {
   return text;
 }
 
+function compactAnalysisBasis(...values: unknown[]) {
+  const source = values
+    .map((value) => safeText(value, ""))
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (!source) return "분석 기준 추정 불가";
+
+  const text = source.toLowerCase();
+  let horizon: "단기" | "중기" | "장기" | null = null;
+  let candle: "분봉" | "일봉" | "주봉" | null = null;
+
+  if (/단기/.test(source)) horizon = "단기";
+  else if (/중기/.test(source)) horizon = "중기";
+  else if (/장기/.test(source)) horizon = "장기";
+  else if (/(intraday|very\s*short|scalp|day\s*trade|장중|분봉|\b(?:1|3|5|10|15|30|60|120|240)\s*m(?:in(?:ute)?s?)?\b|\b(?:1|2|4|6|12)\s*h(?:our)?\b)/i.test(text)) horizon = "단기";
+  else if (/(weekly|week|\b1\s*w\b|position|longer|long\s*term|주봉|월봉|monthly|month|year|년)/i.test(text)) horizon = "장기";
+  else if (/(daily|day|\b1\s*d\b|swing|few\s*weeks|few\s*months|일봉|개월|월)/i.test(text)) horizon = "중기";
+
+  if (/(weekly|week|\b1\s*w\b|주봉|월봉|monthly|month)/i.test(text)) candle = "주봉";
+  else if (/(intraday|minute|minutes|\b(?:1|3|5|10|15|30|60|120|240)\s*m(?:in(?:ute)?s?)?\b|\b(?:1|2|4|6|12)\s*h(?:our)?\b|분봉|시간봉|장중)/i.test(text)) candle = "분봉";
+  else if (/(daily|day|\b1\s*d\b|일봉)/i.test(text)) candle = "일봉";
+
+  if (!horizon && candle) {
+    horizon = candle === "분봉" ? "단기" : candle === "주봉" ? "장기" : "중기";
+  }
+  if (!candle && horizon) {
+    candle = horizon === "단기" ? "분봉" : horizon === "장기" ? "주봉" : "일봉";
+  }
+
+  if (!horizon || !candle) return "분석 기준 추정 불가";
+  return `${horizon} · ${candle} 추정`;
+}
+
 function safeNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string") return null;
@@ -4237,7 +4271,7 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
       signalTone: signal.signalTone,
     },
     basisSummary: {
-      chartBasis: safeText(normalizedReport.analysisMeta?.chartTimeframe, "추정 불가"),
+      chartBasis: compactAnalysisBasis(normalizedReport.analysisMeta?.chartTimeframe, rawReport.aiAnalysis?.timeframeEstimate),
       currentPrice: context.currentText,
       pivotPrice: context.pivotText,
       recentSupport: joinZones(supportZones),

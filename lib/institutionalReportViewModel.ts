@@ -299,15 +299,15 @@ const chartRegimeLabels: Record<ChartRegime, string> = {
   uptrend_pullback: "상승추세 눌림",
   uptrend_consolidation: "상승추세 조정",
   downtrend_rebound: "하락추세 반등",
-  resistance_test: "저항권 테스트",
-  support_breakdown: "지지선 이탈",
+  resistance_test: "저항권 리테스트",
+  support_breakdown: "붕괴 위험",
   downtrend: "하락 추세",
   overextended_surge: "급등 과열",
   overheated_breakout: "과열권 돌파 후 조정 대기",
   breakout_retest_confirmed: "돌파 후 재지지",
   breakout_wait: "돌파 확인 대기",
-  range_lower_support: "박스권 하단",
-  range_upper_resistance: "박스권 상단",
+  range_lower_support: "박스권 하단 반등",
+  range_upper_resistance: "박스권 상단 저항",
   healthy_pullback: "건전한 눌림",
   sideways: "방향 확인",
   unknown: "상태 확인 필요",
@@ -2230,6 +2230,25 @@ function sameDisplayRoleZone(a: number | null, b: number | null) {
   return samePriceZone(a, b, 0.75);
 }
 
+const LONG_ROLE_MIN_GAP_RATIO = 0.0025;
+
+function isValidLowerLongRole(value: number | null, current: number | null) {
+  if (value === null || current === null || !Number.isFinite(value) || !Number.isFinite(current)) return false;
+  return value < current * (1 - LONG_ROLE_MIN_GAP_RATIO);
+}
+
+function isInvalidLongRoleAtCurrent(value: number | null, current: number | null) {
+  if (value === null || current === null || !Number.isFinite(value) || !Number.isFinite(current)) return false;
+  return !isValidLowerLongRole(value, current);
+}
+
+function lowerLongRoleCandidates(candidates: PriceCandidate[], current: number | null) {
+  if (current === null) return [...candidates].sort((a, b) => b.value - a.value);
+  return candidates
+    .filter((candidate) => isValidLowerLongRole(candidate.value, current))
+    .sort((a, b) => b.value - a.value);
+}
+
 function hasDecisionWarning(decision: Pick<ReportDecision, "consistencyWarnings">, pattern: RegExp) {
   return (decision.consistencyWarnings ?? []).some((warning) => pattern.test(warning));
 }
@@ -2239,6 +2258,7 @@ function targetStatusForPriceRoles(context: PriceContext, warnings: string[]) {
   if (warnings.includes("TARGET_NOT_ABOVE_ENTRY")) return "추가 목표 확인 필요";
   if (warnings.includes("BREAKOUT_TARGET_OVERLAP")) return "돌파 목표 재확인 필요";
   if (warnings.includes("RESISTANCE_TOO_CLOSE")) return "상단 저항 재확인 필요";
+  if (warnings.includes("LONG_STOP_RECHECK_REQUIRED")) return "손절 기준 재산정 필요";
   return safeText(context.targetStatus || context.targetGapLabel, "추가 목표 확인 필요");
 }
 
@@ -2296,6 +2316,15 @@ function normalizeDecisionPriceRoles(
     sameDisplayRoleZone(context.support, stopValue) ||
     sameDisplayRoleZone(context.support, invalidationValue) ||
     supportCandidates.some((support) => stopCandidates.some((stop) => sameDisplayRoleZone(support.value, stop.value)));
+  const lowerSupports = lowerLongRoleCandidates(supportCandidates, context.current);
+  const selectedSupport = lowerSupports[0] ?? null;
+  const selectedSecondarySupport = lowerSupports.find((candidate) => selectedSupport === null || !sameDisplayRoleZone(candidate.value, selectedSupport.value)) ?? null;
+  const lowerStops = lowerLongRoleCandidates(stopCandidates, context.current);
+  const selectedStop = lowerStops[0] ?? null;
+  const selectedInvalidation = lowerStops.find((candidate) => selectedStop === null || !sameDisplayRoleZone(candidate.value, selectedStop.value)) ?? selectedStop;
+  const contextSupportInvalidForLong = isInvalidLongRoleAtCurrent(context.support, context.current);
+  const stopInvalidForLong = isInvalidLongRoleAtCurrent(stopValue, context.current);
+  const invalidationInvalidForLong = isInvalidLongRoleAtCurrent(invalidationValue, context.current);
 
   if (context.targetRoleCollapsed || explicitTargetCollapsed) warnings.push("PRICE_ROLE_COLLAPSE");
   if (rawTargetNearCurrent) warnings.push("TARGET_TOO_CLOSE");
@@ -2303,32 +2332,49 @@ function normalizeDecisionPriceRoles(
   if (currentNearResistance || rawTargetNearResistance) warnings.push("RESISTANCE_TOO_CLOSE");
   if (supportStopOverlap) warnings.push("SUPPORT_STOP_OVERLAP");
   if (rawTargetNearBreakout) warnings.push("BREAKOUT_TARGET_OVERLAP");
+  if (contextSupportInvalidForLong) warnings.push("SUPPORT_ABOVE_CURRENT");
+  if (stopInvalidForLong || invalidationInvalidForLong) warnings.push("INVALID_LONG_STOP");
+  if (context.current !== null && (!selectedSupport || !selectedStop)) warnings.push("LONG_STOP_RECHECK_REQUIRED");
 
+  const effectiveStopValue = selectedStop?.value ?? stopValue;
+  const effectiveInvalidationValue = selectedInvalidation?.value ?? invalidationValue;
   const validTarget = allTargets.find((candidate) => {
     if (baseline !== null && candidate.value <= baseline * 1.0075) return false;
     if (sameDisplayRoleZone(candidate.value, context.current)) return false;
     if (sameDisplayRoleZone(candidate.value, context.resistance)) return false;
     if (sameDisplayRoleZone(candidate.value, context.breakoutLevel)) return false;
-    if (sameDisplayRoleZone(candidate.value, stopValue)) return false;
-    if (sameDisplayRoleZone(candidate.value, invalidationValue)) return false;
+    if (sameDisplayRoleZone(candidate.value, effectiveStopValue)) return false;
+    if (sameDisplayRoleZone(candidate.value, effectiveInvalidationValue)) return false;
     return true;
   });
   const targetStatus = validTarget
     ? (warnings.includes("PRICE_ROLE_COLLAPSE") ? "1차 목표 근접 / 다음 목표 사용" : safeText(context.targetStatus || context.targetGapLabel, validTarget.text))
     : targetStatusForPriceRoles(context, warnings);
-  const stopStatus = supportStopOverlap ? "주요 지지와 손절 기준이 같은 가격대입니다." : undefined;
+  const supportStatus = contextSupportInvalidForLong ? "현재가보다 낮은 지지 재확인 필요" : undefined;
+  const stopStatus = selectedStop
+    ? (supportStopOverlap ? "주요 지지와 손절 기준이 같은 가격대입니다." : undefined)
+    : "현재가보다 낮은 손절 기준 확인 필요";
+  const invalidationStatus = selectedInvalidation
+    ? (supportStopOverlap ? "주요 지지와 무효화 기준이 겹칠 수 있습니다." : undefined)
+    : "무효화 기준 재확인 필요";
 
   return {
     priceRoles: {
       currentPrice: displayPrice(context.currentText, context.current, context.currentLocation),
-      mainSupport: displayPrice(context.supportText, context.support),
-      ...(context.secondarySupportText !== FALLBACK.unknown
-        ? { secondarySupport: displayPrice(context.secondarySupportText, parsePriceFromText(context.secondarySupportText)) }
+      mainSupport: selectedSupport
+        ? displayPrice(selectedSupport.text, selectedSupport.value, supportStatus)
+        : displayPrice("현재가 기준 지지 재확인 필요", null, supportStatus),
+      ...(selectedSecondarySupport
+        ? { secondarySupport: displayPrice(selectedSecondarySupport.text, selectedSecondarySupport.value) }
         : {}),
       mainResistance: displayPrice(context.resistanceText, context.resistance, currentNearResistance ? "현재가와 가까운 저항권입니다." : undefined),
       breakoutLevel: displayPrice(context.breakoutLevelText, context.breakoutLevel),
-      stopLoss: displayPrice(dataset.keyLevels.stopLoss, stopValue, stopStatus),
-      invalidation: displayPrice(dataset.keyLevels.invalidation, invalidationValue, supportStopOverlap ? "주요 지지와 무효화 기준이 겹칠 수 있습니다." : undefined),
+      stopLoss: selectedStop
+        ? displayPrice(selectedStop.text, selectedStop.value, stopStatus)
+        : displayPrice("손절 기준 재산정 필요", null, stopStatus),
+      invalidation: selectedInvalidation
+        ? displayPrice(selectedInvalidation.text, selectedInvalidation.value, invalidationStatus)
+        : displayPrice("무효화 기준 재확인 필요", null, invalidationStatus),
       target: validTarget
         ? displayPrice(validTarget.text, validTarget.value, targetStatus)
         : displayPrice(targetStatus, null, targetStatus),
@@ -2857,12 +2903,14 @@ function entryDisplayScoreCap(
     if (entry.mode === "breakout") cap = Math.min(cap, 45);
   } else if (isOverheatedDecisionState(context)) {
     if (entry.mode === "current") cap = Math.min(cap, 35);
-    if (entry.mode === "pullback") cap = Math.min(cap, 55);
-    if (entry.mode === "breakout") cap = Math.min(cap, 55);
+    if (entry.mode === "pullback") cap = Math.min(cap, 60);
+    if (entry.mode === "breakout") cap = Math.min(cap, 60);
   } else if (isUpperResistanceDecisionState(context) && breakoutState !== "breakout_confirmed" && breakoutState !== "breakout_retest_confirmed") {
-    if (entry.mode === "current") cap = Math.min(cap, 40);
-    if (entry.mode === "pullback") cap = Math.min(cap, 55);
-    if (entry.mode === "breakout" && trendOpportunity !== "bullish_breakout_attempt") cap = Math.min(cap, 65);
+    if (entry.mode === "current") cap = Math.min(cap, context.chartRegime === "downtrend_rebound" ? 35 : 45);
+    if (entry.mode === "pullback") cap = Math.min(cap, 60);
+    if (entry.mode === "breakout" && trendOpportunity !== "bullish_breakout_attempt") {
+      cap = Math.min(cap, context.chartRegime === "downtrend_rebound" ? 55 : 70);
+    }
   }
 
   if (entry.mode === "current" && priceWarnings.some((warning) => /TARGET_TOO_CLOSE|TARGET_NOT_ABOVE_ENTRY|RESISTANCE_TOO_CLOSE/.test(warning))) {
@@ -2873,6 +2921,9 @@ function entryDisplayScoreCap(
   }
   if ((entry.mode === "current" || entry.mode === "pullback") && priceWarnings.includes("SUPPORT_STOP_OVERLAP")) {
     cap = Math.min(cap, 55);
+  }
+  if (entry.mode === "current" && priceWarnings.some((warning) => /SUPPORT_ABOVE_CURRENT|INVALID_LONG_STOP|LONG_STOP_RECHECK_REQUIRED/.test(warning))) {
+    cap = Math.min(cap, 30);
   }
   return cap;
 }
@@ -2908,7 +2959,7 @@ function normalizeDecisionEntryStrategies(
     let warnings = entryScenarioWarnings(entry, context, priceRoles, breakoutState);
     let isComplete = warnings.length === 0;
     const confirmationCondition = safeText(entry.confirmationCondition, defaultConfirmationForEntry(entry, context, breakoutState));
-    const invalidation = hasUsableStopText(entry.stop) ? entry.stop : FALLBACK.noStop;
+    let invalidation = hasUsableStopText(entry.stop) ? entry.stop : FALLBACK.noStop;
     const target1 = entryTargetUsable(entry, priceRoles) ? safeText(entry.target, priceRoles.target?.text ?? FALLBACK.needsCheck) : safeText(priceRoles.targetStatus, "추가 목표 확인 필요");
     const positionSizingHint = scenarioPositionSizingHint(entry, context, tone, lowConfidence);
     let label = guardUserFacingWording(entry.label);
@@ -2916,6 +2967,29 @@ function normalizeDecisionEntryStrategies(
     let explanation = guardUserFacingWording(entry.explanation);
     let toneOverride: EntryTone | undefined;
     let isFutureSetup = entry.isFutureSetup;
+    const breakoutConfirmedOrRetested = breakoutState === "breakout_confirmed" || breakoutState === "breakout_retest_confirmed";
+    const explicitOverheatState = /overheated_breakout|overextended_surge|overheated|overextended|과열|과매수/i.test(
+      `${safeText(report.marketContext?.chartRegime, "")} ${safeText(report.chartRegime?.type, "")}`,
+    );
+    const highRiskChaseEvidence =
+      (safeScore(report.scoreSummary?.riskScore) ?? 0) >= 60 &&
+      (safeScore(report.scoreSummary?.entryScores?.currentEntry?.score) ?? 0) >= 45 &&
+      (
+        isUpperResistanceDecisionState(context) ||
+        isOverheatedDecisionState(context) ||
+        priceWarnings.some((warning) => /TARGET_TOO_CLOSE|RESISTANCE_TOO_CLOSE|PRICE_ROLE_COLLAPSE/.test(warning))
+      );
+    const overheatEvidence =
+      !breakoutConfirmedOrRetested &&
+      (
+        isOverheatedDecisionState(context) ||
+        explicitOverheatState ||
+        highRiskChaseEvidence ||
+        ((extractRsiValue(report) ?? 0) >= 75)
+      );
+    const invalidCurrentLongStop =
+      entry.mode === "current" &&
+      priceWarnings.some((warning) => /SUPPORT_ABOVE_CURRENT|INVALID_LONG_STOP|LONG_STOP_RECHECK_REQUIRED/.test(warning));
 
     if (isBearishOrRiskDecisionState(context, tone)) {
       toneOverride = "risk";
@@ -2931,7 +3005,7 @@ function normalizeDecisionEntryStrategies(
         condition = `${context.breakoutLevelText !== FALLBACK.unknown ? context.breakoutLevelText : context.pivotText} 회복 후 재지지 확인`;
       }
       explanation = "위험 또는 지지 이탈 우선 구간에서는 신규 진입보다 손절 기준과 비중 관리가 먼저입니다.";
-    } else if (isOverheatedDecisionState(context)) {
+    } else if (overheatEvidence) {
       toneOverride = "caution";
       isFutureSetup = true;
       if (entry.mode === "current") {
@@ -2997,6 +3071,18 @@ function normalizeDecisionEntryStrategies(
       warnings.push("SUPPORT_STOP_OVERLAP");
     }
 
+    if (invalidCurrentLongStop) {
+      label = "재평가 필요";
+      condition = "현재가보다 낮은 지지와 손절 기준 확인 후 접근";
+      invalidation = safeText(priceRoles.stopLoss?.text, "손절 기준 재산정 필요");
+      explanation = "현재가가 제시된 지지 또는 손절 기준을 이미 밑돌거나 기준이 불명확해 현재가 진입은 재산정이 필요합니다.";
+      toneOverride = "caution";
+      isFutureSetup = true;
+      warnings.push("INVALID_LONG_STOP");
+      if (priceWarnings.includes("SUPPORT_ABOVE_CURRENT")) warnings.push("SUPPORT_ABOVE_CURRENT");
+      if (priceWarnings.includes("LONG_STOP_RECHECK_REQUIRED")) warnings.push("LONG_STOP_RECHECK_REQUIRED");
+    }
+
     if (!isComplete && !/확인|조건부|신중|보류|대기|관심|돌파|재지지|안착/.test(label)) {
       label = "조건부 확인";
       toneOverride = "caution";
@@ -3020,10 +3106,17 @@ function normalizeDecisionEntryStrategies(
       ),
       ...priceSpecificWarnings,
     ]));
-    isComplete = !warnings.some((warning) => /SCENARIO_INCOMPLETE|MISSING_CONFIRMATION|MISSING_INVALIDATION|MISSING_TARGET|LOW_RR_ENTRY/.test(warning));
+    isComplete = !warnings.some((warning) => /SCENARIO_INCOMPLETE|MISSING_CONFIRMATION|MISSING_INVALIDATION|MISSING_TARGET|LOW_RR_ENTRY|INVALID_LONG_STOP|SUPPORT_ABOVE_CURRENT|LONG_STOP_RECHECK_REQUIRED/.test(warning));
     const cap = entryDisplayScoreCap(entry, context, tone, breakoutState, trendOpportunity, priceWarnings, isComplete, lowConfidence);
     let normalizedScore = capDisplayScore(entry.score, cap);
     const hasCurrentPricePressure = priceWarnings.some((warning) => /TARGET_TOO_CLOSE|TARGET_NOT_ABOVE_ENTRY|RESISTANCE_TOO_CLOSE/.test(warning));
+    const hasUsableDisplayTarget = priceRoles.target?.value !== null && priceRoles.target?.value !== undefined;
+    const invalidLongPriceRole = priceWarnings.some((warning) => /SUPPORT_ABOVE_CURRENT|INVALID_LONG_STOP|LONG_STOP_RECHECK_REQUIRED/.test(warning));
+    const targetInvalidWithoutFallback = priceWarnings.includes("TARGET_NOT_ABOVE_ENTRY") && !hasUsableDisplayTarget;
+    const structureInvalidForAction =
+      invalidLongPriceRole ||
+      targetInvalidWithoutFallback ||
+      (priceWarnings.includes("PRICE_ROLE_COLLAPSE") && !hasUsableDisplayTarget);
     if (!isBearishOrRiskDecisionState(context, tone)) {
       if ((breakoutState === "breakout_retest_confirmed" || context.breakoutRetestConfirmed) && entry.mode === "breakout") {
         normalizedScore = scoreInDisplayRange(normalizedScore, 75, 90);
@@ -3041,7 +3134,63 @@ function normalizeDecisionEntryStrategies(
         !(hasCurrentPricePressure && isUpperResistanceDecisionState(context))
       ) {
         normalizedScore = scoreInDisplayRange(normalizedScore, 50, 70);
+      } else if (
+        !structureInvalidForAction &&
+        (context.chartRegime === "uptrend_pullback" || context.chartRegime === "healthy_pullback") &&
+        entry.mode === "pullback"
+      ) {
+        normalizedScore = scoreInDisplayRange(normalizedScore, 70, 80);
+      } else if (
+        !structureInvalidForAction &&
+        context.chartRegime === "range_lower_support" &&
+        entry.mode === "pullback"
+      ) {
+        normalizedScore = scoreInDisplayRange(normalizedScore, 60, 80);
+      } else if (
+        !structureInvalidForAction &&
+        (context.chartRegime === "resistance_test" || context.chartRegime === "range_upper_resistance") &&
+        entry.mode === "breakout" &&
+        breakoutState !== "failed_breakout"
+      ) {
+        normalizedScore = scoreInDisplayRange(normalizedScore, 50, 70);
+      } else if (
+        !structureInvalidForAction &&
+        context.chartRegime === "downtrend_rebound" &&
+        entry.mode === "breakout" &&
+        breakoutState !== "failed_breakout"
+      ) {
+        normalizedScore = scoreInDisplayRange(normalizedScore, 30, 55);
+      } else if (
+        !structureInvalidForAction &&
+        isOverheatedDecisionState(context) &&
+        (entry.mode === "pullback" || entry.mode === "breakout")
+      ) {
+        normalizedScore = scoreInDisplayRange(normalizedScore, 45, 60);
       }
+    }
+    if (
+      !invalidCurrentLongStop &&
+      !isBearishOrRiskDecisionState(context, tone) &&
+      isUpperResistanceDecisionState(context) &&
+      breakoutState !== "breakout_confirmed" &&
+      breakoutState !== "breakout_retest_confirmed" &&
+      entry.mode === "current" &&
+      normalizedScore !== null
+    ) {
+      const minScore = context.chartRegime === "downtrend_rebound" ? 15 : 25;
+      const maxScore = context.chartRegime === "downtrend_rebound" ? 35 : 45;
+      normalizedScore = Math.max(minScore, Math.min(maxScore, normalizedScore));
+    }
+    if (overheatEvidence && entry.mode === "current" && normalizedScore !== null) {
+      normalizedScore = Math.min(normalizedScore, 35);
+    }
+    if (
+      overheatEvidence &&
+      !structureInvalidForAction &&
+      (entry.mode === "pullback" || entry.mode === "breakout") &&
+      normalizedScore !== null
+    ) {
+      normalizedScore = scoreInDisplayRange(normalizedScore, 45, 60);
     }
 
     allWarnings.push(...warnings);
@@ -3240,8 +3389,32 @@ function normalizeDecisionSignalSummary(
     overallScore = capSignalScore(overallScore, 59, warnings, "SCORE_CAPPED_BY_STATE", overallReference);
   }
 
-  if (hasLowDecisionConfidence(report, context)) {
+  const lowDecisionConfidence = hasLowDecisionConfidence(report, context);
+  if (lowDecisionConfidence) {
     overallScore = capSignalScore(overallScore, 55, warnings, "SCORE_CAPPED_BY_CONFIDENCE", overallReference);
+  }
+
+  const hasInvalidLongRole = priceWarnings.some((warning) => /SUPPORT_ABOVE_CURRENT|INVALID_LONG_STOP|LONG_STOP_RECHECK_REQUIRED/.test(warning));
+  const canApplyActionableFloor =
+    overallScore !== null &&
+    !lowDecisionConfidence &&
+    !hardPriceCollapse &&
+    !hasInvalidLongRole &&
+    !isBearishOrRiskDecisionState(context, tone);
+  if (canApplyActionableFloor && overallScore !== null) {
+    if (breakoutState === "breakout_retest_confirmed" || breakoutState === "breakout_confirmed") {
+      overallScore = Math.max(overallScore, 60);
+    } else if (context.chartRegime === "uptrend_pullback" || context.chartRegime === "uptrend_consolidation" || context.chartRegime === "healthy_pullback") {
+      overallScore = Math.max(overallScore, 55);
+    } else if (context.chartRegime === "range_lower_support") {
+      overallScore = Math.max(overallScore, 52);
+    } else if (context.chartRegime === "resistance_test" || context.chartRegime === "range_upper_resistance") {
+      overallScore = Math.max(overallScore, 40);
+    } else if (context.chartRegime === "downtrend_rebound") {
+      overallScore = Math.max(overallScore, 35);
+    } else if (context.chartRegime === "overheated_breakout" || context.chartRegime === "overextended_surge") {
+      overallScore = Math.max(overallScore, 40);
+    }
   }
 
   return {
@@ -3453,9 +3626,16 @@ function buildDecisionPrimaryStrategy(
     summary = "상승 흐름은 유지되지만 확인 조건이 남아 있어 현재가는 소액 또는 분할 접근으로 제한하는 것이 적절합니다.";
     entryOverride = "현재가 일부 접근 후 지지 확인 시 추가";
     badgeOverrides.push("분할 접근", "손절 엄수");
-  } else if (context.chartRegime === "downtrend_rebound" || context.chartRegime === "resistance_test") {
-    title = "신규 진입 보류 / 돌파 확인 대기";
-    summary = `현재가는 반등 과정에서 ${context.resistanceText} 부근 저항권을 테스트하고 있습니다. 신규 진입은 ${context.pivotText} 돌파 후 재지지 확인 전까지 신중해야 합니다.`;
+  } else if (context.chartRegime === "resistance_test" || context.chartRegime === "range_upper_resistance") {
+    title = "돌파 확인 대기";
+    summary = `현재가는 ${context.resistanceText} 부근 저항권을 테스트하고 있습니다. 추격보다 ${breakoutLevelText} 돌파 후 안착 확인 시 조건부 접근을 봅니다.`;
+    entryOverride = `${breakoutLevelText} 돌파 후 재지지 확인`;
+    badgeOverrides.push("돌파 확인", "조건부 접근");
+  } else if (context.chartRegime === "downtrend_rebound") {
+    title = "저항 회복 확인";
+    summary = `하락 이후 반등 과정이므로 현재가 추격보다 ${breakoutLevelText} 회복과 재지지 확인 후 접근이 우선입니다.`;
+    entryOverride = `${breakoutLevelText} 회복 후 재지지 확인`;
+    badgeOverrides.push("전환 확인", "신중 접근");
   } else if (targetCollapsed && /분할|소액|매수 후보|매수 우세|진입 우세/.test(title)) {
     title = "추격매수 주의 / 목표 여유 낮음";
     summary = "현재가와 목표 또는 저항 구간이 가까워 즉시 진입 손익비가 낮습니다. 돌파 후 재지지 또는 눌림목 확인이 우선입니다.";
@@ -3664,10 +3844,12 @@ function guardPrimaryStrategyForState(
     badges = uniqueBadges(["위험 관리 우선", "신규 진입 보류"]);
   } else if (isResistanceOrOverheatedState(context) && DISPLAY_BULLISH_BUY_PATTERN.test(strategyText)) {
     title = context.chartRegime === "overheated_breakout" || context.chartRegime === "overextended_surge"
-      ? "추격매수 주의 / 재지지 확인"
-      : "신규 진입 신중 / 확인 우선";
+      ? "재지지 확인 대기"
+      : context.chartRegime === "downtrend_rebound"
+        ? "저항 회복 확인"
+        : "돌파 확인 대기";
     summary = "현재 구간은 저항 또는 과열 부담이 있어 즉시 진입보다 돌파 후 재지지나 지지 반응 확인이 우선입니다.";
-    entry = context.chartRegime === "resistance_test" || context.chartRegime === "downtrend_rebound"
+    entry = context.chartRegime === "resistance_test" || context.chartRegime === "downtrend_rebound" || context.chartRegime === "range_upper_resistance"
       ? `${context.breakoutLevelText !== FALLBACK.unknown ? context.breakoutLevelText : context.pivotText} 돌파 후 재지지 확인`
       : "눌림 또는 재지지 확인 후 접근";
     badges = uniqueBadges(["추격 주의", "확인 우선", ...badges]);
@@ -3685,7 +3867,7 @@ function guardPrimaryStrategyForState(
   }
 
   if (HOLDER_ONLY_PROFIT_PATTERN.test(`${title} ${summary}`) && (context.chartRegime === "downtrend_rebound" || context.chartRegime === "resistance_test")) {
-    title = "신규 진입 보류 / 돌파 확인 대기";
+    title = context.chartRegime === "downtrend_rebound" ? "저항 회복 확인" : "돌파 확인 대기";
     summary = "반등 또는 저항 테스트 구간에서는 보유자 대응과 신규 진입 판단을 분리하고, 신규 진입은 돌파 후 재지지 확인이 우선입니다.";
     entry = `${context.breakoutLevelText !== FALLBACK.unknown ? context.breakoutLevelText : context.pivotText} 돌파 후 재지지 확인`;
     badges = uniqueBadges(["신규 진입 신중", "재지지 확인"]);
@@ -3723,20 +3905,26 @@ function buildDecisionDisplayGuidance(
     mustConfirmCondition = "지지 회복 확인";
     mustNotTradeReason = "지지 이탈 또는 고위험 신호가 우선입니다.";
     nextReviewCondition = `${context.supportText} 회복 또는 위험 완화 확인`;
-  } else if (context.chartRegime === "downtrend_rebound" || context.chartRegime === "resistance_test" || context.chartRegime === "range_upper_resistance") {
-    newEntryDecision = `신규 진입은 ${confirmLevel} 돌파 후 재지지 또는 주요 지지 반응 확인 전까지 신중합니다.`;
+  } else if (context.chartRegime === "resistance_test" || context.chartRegime === "range_upper_resistance") {
+    newEntryDecision = `현 위치 추격은 부적합하지만 ${confirmLevel} 돌파 후 재지지 확인 시 조건부 접근을 검토합니다.`;
     holderDecision = `보유자는 ${context.supportText} 이탈 여부를 기준으로 방어적으로 대응하고 추가 매수는 확인 후 검토합니다.`;
     mustConfirmCondition = `${confirmLevel} 돌파 후 재지지 확인`;
     mustNotTradeReason = context.targetRoleCollapsed || context.targetGapLabel ? safeText(context.targetStatus || context.targetGapLabel, "저항권 확인이 필요합니다.") : "";
     nextReviewCondition = `${confirmLevel} 안착 또는 ${context.supportText} 지지 반응`;
+  } else if (context.chartRegime === "downtrend_rebound") {
+    newEntryDecision = `추세 전환은 미확정이므로 ${confirmLevel} 회복과 재지지 확인 후 단계적 접근을 검토합니다.`;
+    holderDecision = `보유자는 ${context.supportText} 이탈 여부를 기준으로 방어적으로 대응하고 추가 매수는 확인 후 검토합니다.`;
+    mustConfirmCondition = `${confirmLevel} 회복 후 재지지 확인`;
+    mustNotTradeReason = "추세 전환 확인 전 현재가 추격은 부적합합니다.";
+    nextReviewCondition = `${confirmLevel} 회복 또는 ${context.supportText} 지지 반응`;
   } else if (context.chartRegime === "overheated_breakout" || context.chartRegime === "overextended_surge") {
-    newEntryDecision = "현재가 추격보다 눌림 또는 재지지 확인 후 접근이 안전합니다.";
+    newEntryDecision = "현재가 추격보다 눌림 또는 재지지 확인 후 소액/조건부 접근을 검토합니다.";
     holderDecision = "보유자는 저항 반응과 기준 이탈 여부를 보며 비중 축소를 검토합니다.";
     mustConfirmCondition = "눌림 또는 재지지 확인";
     mustNotTradeReason = "과열 또는 추격매수 부담이 있습니다.";
     nextReviewCondition = `${context.supportText} 지지 반응 또는 과열 완화`;
   } else if (isPullbackConfirmationState(context)) {
-    newEntryDecision = `${context.supportText} 부근 지지 반응 확인 시 분할 접근을 검토합니다.`;
+    newEntryDecision = `${context.supportText} 부근 지지 반응 확인 시 조건 충족 후 분할 접근을 검토합니다.`;
     holderDecision = `보유자는 ${stopText} 이탈 전까지 추세 유지 여부를 확인합니다.`;
     mustConfirmCondition = `${context.supportText} 지지 반응 확인`;
     nextReviewCondition = `${context.supportText} 지지 유지 또는 ${confirmLevel} 돌파 확인`;
@@ -3938,6 +4126,21 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
 
   if ((samePriceZone(supportValue, stopValue) || samePriceZone(supportValue, invalidationValue)) && !hasDecisionWarning(decision, /SUPPORT_STOP_OVERLAP/)) {
     warnings.push("SUPPORT_STOP_OVERLAP: 지지선과 손절/무효화 기준이 같은 가격대입니다.");
+  }
+
+  if (isInvalidLongRoleAtCurrent(supportValue, currentValue) && !hasDecisionWarning(decision, /SUPPORT_ABOVE_CURRENT|LONG_STOP_RECHECK_REQUIRED/)) {
+    warnings.push("SUPPORT_ABOVE_CURRENT: 현재가보다 위에 있는 지지가 현재가 롱 진입 기준으로 표시되고 있습니다.");
+  }
+
+  if (isInvalidLongRoleAtCurrent(stopValue, currentValue) && !hasDecisionWarning(decision, /INVALID_LONG_STOP|LONG_STOP_RECHECK_REQUIRED/)) {
+    warnings.push("INVALID_LONG_STOP: 현재가보다 위에 있는 손절 기준이 현재가 롱 진입 기준으로 표시되고 있습니다.");
+  }
+
+  if (
+    hasDecisionWarning(decision, /SUPPORT_ABOVE_CURRENT|INVALID_LONG_STOP|LONG_STOP_RECHECK_REQUIRED/) &&
+    (decision.entryStrategies.current.score ?? 0) > 30
+  ) {
+    warnings.push("INVALID_LONG_STOP: 현재가 진입 점수가 무효 손절 기준에 맞게 제한되지 않았습니다.");
   }
 
   if (DETERMINISTIC_WORDING_PATTERN.test(allDecisionText)) {
@@ -4226,6 +4429,7 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
   const signal = deriveSignal(normalizedReport, context, entryMode);
   const totalScore = safeScore(normalizedReport.scoreSummary?.totalScore);
   const reportDecision = buildReportDecision(rawReport, normalizedReport, context, finalAction, dataset, displayedEntry, signal, totalScore);
+  const reportConfidenceScore = dataConfidenceDisplayScore(normalizedReport, context);
   warnReportDecisionInDevelopment(reportDecision);
   const displayIdentity = buildDisplayIdentity(rawReport, normalizedReport, context);
   const priceUnit = displayIdentity.priceUnitNote;
@@ -4258,8 +4462,8 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
       currencyOrUnit: displayIdentity.currencyUnitLabel,
       displayCurrencyUnit: displayIdentity.priceUnitNote,
       priceChange: "-",
-      confidenceScore: totalScore,
-      confidenceLabel: confidenceLabel(normalizedReport.finalSummary.confidence, totalScore),
+      confidenceScore: reportConfidenceScore,
+      confidenceLabel: confidenceLabel(normalizedReport.finalSummary.confidence, reportConfidenceScore),
       trendLabel,
       trendDescription,
       miniChartData: [

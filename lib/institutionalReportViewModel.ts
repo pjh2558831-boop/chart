@@ -718,12 +718,12 @@ function buildDisplayIdentity(rawReport: AnalysisResponse, report: TradingReport
     ? "KR"
     : isUsTicker(ticker)
       ? "US"
-      : alias?.marketLabel || getDetectedMarket(rawReport) || DISPLAY_IDENTITY_MARKET_FALLBACK;
+      : alias?.marketLabel || (symbol ? getDetectedMarket(rawReport) : "") || DISPLAY_IDENTITY_MARKET_FALLBACK;
   const companyName = compactCompanyName(alias?.companyName, ticker)
     || companyCandidates.map((value) => compactCompanyName(value, ticker)).find(Boolean)
     || (hasResolvedTicker ? ticker : "");
-  const companyLine = !hasResolvedTicker && !alias && marketLabel === DISPLAY_IDENTITY_MARKET_FALLBACK
-    ? DISPLAY_IDENTITY_COMPANY_FALLBACK
+  const companyLine = !hasResolvedTicker && !alias
+    ? (companyName ? `${companyName} · ${DISPLAY_IDENTITY_MARKET_FALLBACK}` : DISPLAY_IDENTITY_COMPANY_FALLBACK)
     : companyName
     ? `${companyName} · ${marketLabel}`
     : hasResolvedTicker

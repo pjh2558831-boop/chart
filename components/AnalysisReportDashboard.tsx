@@ -40,6 +40,11 @@ type HeroStrategyDisplay = {
   badges: string[];
 };
 
+const HERO_TICKER_FALLBACK = "티커 필요";
+const HERO_COMPANY_FALLBACK = "종목명을 확인해 주세요";
+const HERO_PRICE_FALLBACK = "가격 확인 필요";
+const HERO_UNIT_FALLBACK = "이미지 축 기준 추정";
+
 function safeValue(value: string | number | null | undefined, fallback = "-") {
   if (typeof value === "number") return Number.isFinite(value) ? String(value) : fallback;
   if (typeof value !== "string") return fallback;
@@ -156,20 +161,78 @@ function isResolvedDisplayTicker(value: string | number | null | undefined) {
 }
 
 function isTickerFallback(value: string | number | null | undefined) {
-  const text = safeValue(value, "티커 필요").trim();
-  return !isResolvedDisplayTicker(text) || /^(티커 필요|확인 필요|종목 확인|UNKNOWN|시장 확인 필요|종목명을 확인해 주세요)$/i.test(text);
+  const text = safeValue(value, HERO_TICKER_FALLBACK).trim();
+  return !isResolvedDisplayTicker(text);
 }
 
 function heroTickerText(value: string | number | null | undefined) {
-  const text = safeValue(value, "티커 필요").trim();
-  if (!text || /^(UNKNOWN|undefined|null|NaN|Infinity|\[object Object\])$/i.test(text)) return "티커 필요";
-  return isResolvedDisplayTicker(text) ? text : text.length > 18 ? "티커 필요" : text;
+  const text = safeValue(value, HERO_TICKER_FALLBACK).trim();
+  return isResolvedDisplayTicker(text) ? text : HERO_TICKER_FALLBACK;
 }
 
 function getHeroTickerClassName(value: string | number | null | undefined) {
   return isTickerFallback(value)
     ? "max-w-full whitespace-normal text-[clamp(1.75rem,3vw,2.65rem)] font-extrabold leading-tight tracking-normal text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]"
     : "max-w-full overflow-visible whitespace-nowrap text-[clamp(2.2rem,4.4vw,4.25rem)] font-extrabold leading-none tracking-normal text-slate-950 [text-overflow:clip]";
+}
+
+function isUnsafeHeroDisplayText(value: string | number | null | undefined) {
+  const text = safeValue(value, "").trim();
+  return (
+    !text ||
+    /^(UNKNOWN|undefined|null|NaN|Infinity|\[object Object\]|-|티커 필요|확인 필요|종목 확인|시장 확인 필요)$/i.test(text) ||
+    /\b(UNKNOWN|undefined|null|NaN|Infinity)\b/i.test(text) ||
+    text.includes("[object Object]")
+  );
+}
+
+function stripHeroMarketSuffix(value: string) {
+  return value
+    .replace(/\s*[·•]\s*(KR|US|시장 확인 필요)$/i, "")
+    .replace(/\s+-\s*(KR|US)$/i, "")
+    .trim();
+}
+
+function formatHeroCompanyLine(
+  displayIdentity: InstitutionalReportViewModel["hero"]["displayIdentity"],
+  tickerText: string,
+) {
+  const rawLine = safeValue(displayIdentity.companyLine, "");
+  const rawCompany = safeValue(displayIdentity.companyName, "");
+  const tickerResolved = isResolvedDisplayTicker(tickerText);
+
+  if (tickerResolved) {
+    if (
+      isUnsafeHeroDisplayText(rawLine) ||
+      /^-\s*[·•]\s*(KR|US)$/i.test(rawLine) ||
+      /-\s+·\s+(KR|US)$/i.test(rawLine)
+    ) {
+      return HERO_COMPANY_FALLBACK;
+    }
+    return rawLine;
+  }
+
+  const strippedCompany = stripHeroMarketSuffix(rawCompany);
+  const strippedLine = stripHeroMarketSuffix(rawLine);
+  const candidate = [strippedCompany, strippedLine].find((text) => !isUnsafeHeroDisplayText(text));
+  return candidate || HERO_COMPANY_FALLBACK;
+}
+
+function isResolvedPriceText(value: string | number | null | undefined) {
+  const text = safeValue(value, "").trim();
+  if (isUnsafeHeroDisplayText(text)) return false;
+  return /^[₩$]?\s*-?\d[\d,]*(?:\.\d+)?(?:\s*(원|달러|USD|KRW))?$/i.test(text);
+}
+
+function heroPriceText(value: string | number | null | undefined) {
+  const text = safeValue(value, HERO_PRICE_FALLBACK).trim();
+  return isResolvedPriceText(text) ? text : HERO_PRICE_FALLBACK;
+}
+
+function getHeroPriceClassName(value: string | number | null | undefined) {
+  return isResolvedPriceText(value)
+    ? "max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(2.5rem,5vw,4.5rem)] font-extrabold leading-none tracking-[-0.02em] text-slate-950 [text-overflow:clip]"
+    : "max-w-full min-w-0 whitespace-normal text-[clamp(1.25rem,2vw,2rem)] font-extrabold leading-tight tracking-normal text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]";
 }
 
 function scoreText(score: number | null | undefined) {
@@ -485,6 +548,13 @@ function compactFinalActionTitle(value: string) {
   const title = safeValue(value, "재지지 확인 우선");
   const compactMap: Array<[RegExp, string]> = [
     [/신규\s*진입\s*보류\s*\/\s*돌파\s*확인\s*대기/, "돌파 확인 대기"],
+    [/상승추세\s*눌림\s*\/\s*분할진입\s*후보/, "상승추세 눌림 / 분할진입"],
+    [/상승추세\s*눌림\s*\/\s*조건부\s*분할/, "상승추세 눌림 / 조건부 분할"],
+    [/급락\s*후\s*지지\s*테스트\s*\/\s*신규\s*진입\s*신중/, "급락 후 지지 테스트"],
+    [/확장\s*목표\s*의존\s*\/\s*1차\s*목표\s*확인/, "확장 목표 / 1차 확인"],
+    [/갭\s*돌파\s*시도\s*\/\s*안착\s*확인/, "갭 돌파 시도 / 안착 확인"],
+    [/상승\s*전환\s*시도\s*\/\s*확인\s*필요/, "상승 전환 시도 / 확인 필요"],
+    [/위험\s*관리\s*\/\s*신규\s*진입\s*보류/, "위험 관리 우선"],
     [/추격매수\s*주의\s*\/\s*재지지\s*확인/, "재지지 확인 우선"],
     [/추격매수\s*주의\s*\/\s*눌림목\s*확인\s*우선/, "눌림목 확인 우선"],
     [/돌파\s*후\s*재지지\s*확인\s*\/\s*진입\s*후보/, "재지지 진입 후보"],
@@ -606,6 +676,8 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   const strategyBadges = primaryStrategyDisplay.badges.slice(0, 2);
   const finalTone = decision.finalActionTone;
   const tickerText = heroTickerText(displayIdentity.ticker);
+  const companyLineText = formatHeroCompanyLine(displayIdentity, tickerText);
+  const priceText = heroPriceText(displayIdentity.priceText);
 
   return (
     <Card className="overflow-hidden border-slate-200 bg-white">
@@ -623,19 +695,19 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
           <p
             className="mt-3 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold leading-6 text-slate-600"
-            title={safeValue(displayIdentity.companyLine, "종목명을 확인해 주세요")}
+            title={companyLineText}
           >
-            {safeValue(displayIdentity.companyLine, "종목명을 확인해 주세요")}
+            {companyLineText}
           </p>
           <div className="mt-5">
             <p
-              className="max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(2.5rem,5vw,4.5rem)] font-extrabold leading-none tracking-[-0.02em] text-slate-950 [text-overflow:clip]"
-              title={safeValue(displayIdentity.priceText, "가격 확인 필요")}
+              className={getHeroPriceClassName(priceText)}
+              title={priceText}
             >
-              {safeValue(displayIdentity.priceText, "가격 확인 필요")}
+              {priceText}
             </p>
             <p className="mt-2 text-base font-semibold leading-6 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
-              {safeValue(displayIdentity.priceUnitNote, "이미지 축 기준 추정")}
+              {safeValue(displayIdentity.priceUnitNote, HERO_UNIT_FALLBACK)}
             </p>
           </div>
           <div className="mt-4 grid gap-2.5">

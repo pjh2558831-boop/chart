@@ -150,6 +150,28 @@ function truncateText(value: string | number | null | undefined, fallback = "확
   return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
 }
 
+function isResolvedDisplayTicker(value: string | number | null | undefined) {
+  const text = safeValue(value, "").trim();
+  return /^[A-Z]{1,8}(?:[.-][A-Z])?$/.test(text) || /^\d{6}$/.test(text);
+}
+
+function isTickerFallback(value: string | number | null | undefined) {
+  const text = safeValue(value, "티커 필요").trim();
+  return !isResolvedDisplayTicker(text) || /^(티커 필요|확인 필요|종목 확인|UNKNOWN|시장 확인 필요|종목명을 확인해 주세요)$/i.test(text);
+}
+
+function heroTickerText(value: string | number | null | undefined) {
+  const text = safeValue(value, "티커 필요").trim();
+  if (!text || /^(UNKNOWN|undefined|null|NaN|Infinity|\[object Object\])$/i.test(text)) return "티커 필요";
+  return isResolvedDisplayTicker(text) ? text : text.length > 18 ? "티커 필요" : text;
+}
+
+function getHeroTickerClassName(value: string | number | null | undefined) {
+  return isTickerFallback(value)
+    ? "max-w-full whitespace-normal text-[clamp(1.75rem,3vw,2.65rem)] font-extrabold leading-tight tracking-normal text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]"
+    : "max-w-full overflow-visible whitespace-nowrap text-[clamp(2.2rem,4.4vw,4.25rem)] font-extrabold leading-none tracking-normal text-slate-950 [text-overflow:clip]";
+}
+
 function scoreText(score: number | null | undefined) {
   return typeof score === "number" && Number.isFinite(score) ? `${score} / 100` : "확인 필요";
 }
@@ -205,7 +227,7 @@ function formatDecisionPrimaryStrategy(decision: ReportDecision): HeroStrategyDi
       : "positive";
   return {
     title: safeValue(decision.primaryStrategy.title, "매매 전략 확인 필요"),
-    summary: [compactStrategyLine(decision.primaryStrategy.summary, 112)],
+    summary: [compactStrategyLine(decision.primaryStrategy.summary, 92)],
     execution: [
       { label: "진입", value: decision.primaryStrategy.entry, tone: entryTone },
       { label: "손절", value: decision.primaryStrategy.stop, tone: "risk" },
@@ -466,6 +488,9 @@ function compactFinalActionTitle(value: string) {
     [/추격매수\s*주의\s*\/\s*재지지\s*확인/, "재지지 확인 우선"],
     [/추격매수\s*주의\s*\/\s*눌림목\s*확인\s*우선/, "눌림목 확인 우선"],
     [/돌파\s*후\s*재지지\s*확인\s*\/\s*진입\s*후보/, "재지지 진입 후보"],
+    [/상승추세\s*눌림\s*\/\s*분할진입\s*후보/, "상승추세 눌림 / 분할진입"],
+    [/상승추세\s*눌림\s*\/\s*조건부\s*분할/, "상승추세 눌림 / 조건부 분할"],
+    [/급락\s*후\s*지지\s*테스트\s*\/\s*신규\s*진입\s*신중/, "급락 후 지지 테스트"],
     [/보유\s*우세\s*\/\s*신규\s*대기/, "보유 우세"],
     [/상승\s*지속\s*매수\s*후보/, "상승 지속 후보"],
     [/일부\s*익절\s*후\s*관망/, "일부 익절 관망"],
@@ -474,7 +499,14 @@ function compactFinalActionTitle(value: string) {
   for (const [pattern, replacement] of compactMap) {
     if (pattern.test(title)) return replacement;
   }
-  return truncateText(title, "재지지 확인 우선", 24);
+  if (title.length > 24 && title.includes("/")) {
+    const parts = title.split(/\s*\/\s*/).filter(Boolean);
+    const riskPart = parts.find((part) => /위험|신중|확인|안착|이탈/.test(part));
+    const firstPart = parts[0] ?? title;
+    const compact = riskPart && `${firstPart} / ${riskPart}`.length <= 24 ? `${firstPart} / ${riskPart}` : firstPart;
+    return compact.length > 24 ? compact.slice(0, 24).trim() : compact;
+  }
+  return title.length > 24 ? title.slice(0, 24).trim() : title;
 }
 
 function formatDecisionFinalSignal(decision: ReportDecision, vm: InstitutionalReportViewModel) {
@@ -550,7 +582,7 @@ function HeroMetricBar({ label, score, riskMode = false }: { label: string; scor
       : score >= 70 ? "bg-blue-600" : score >= 40 ? "bg-amber-500" : "bg-rose-500";
 
   return (
-    <div className="grid min-w-0 grid-cols-[70px_minmax(0,1fr)_48px] items-center gap-2 text-xs">
+    <div className="grid min-w-0 grid-cols-[58px_minmax(0,1fr)_40px] items-center gap-2 text-xs">
       <span className="font-bold leading-5 text-slate-700 [overflow-wrap:break-word] [word-break:keep-all]">{label}</span>
       <div className="h-2 rounded-full bg-slate-100">
         <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
@@ -573,19 +605,20 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
   const primaryStrategyDisplay = formatDecisionPrimaryStrategy(decision);
   const strategyBadges = primaryStrategyDisplay.badges.slice(0, 2);
   const finalTone = decision.finalActionTone;
+  const tickerText = heroTickerText(displayIdentity.ticker);
 
   return (
     <Card className="overflow-hidden border-slate-200 bg-white">
       <div className="space-y-4">
-        <div className="grid w-full min-w-0 max-w-full grid-cols-1 gap-4 overflow-hidden md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.35fr)_minmax(0,1fr)] md:items-stretch xl:grid-cols-[minmax(240px,0.85fr)_minmax(360px,1.35fr)_minmax(300px,1fr)]">
-        <HeroPanel className="order-1">
+        <div className="grid w-full min-w-0 max-w-full grid-cols-1 gap-4 overflow-hidden md:grid-cols-2 lg:grid-cols-[minmax(0,3fr)_minmax(0,5fr)_minmax(0,4fr)] lg:items-stretch">
+        <HeroPanel className="order-1 min-h-[21rem]">
           <div className="min-w-0">
             <p className="mb-3 text-sm font-extrabold tracking-normal text-slate-950 [word-break:keep-all]">종목 요약</p>
             <h2
-              className="max-w-full overflow-visible whitespace-nowrap text-[clamp(2.2rem,4.4vw,4.25rem)] font-extrabold leading-none tracking-normal text-slate-950 [text-overflow:clip]"
-              title={safeValue(displayIdentity.ticker, "티커 필요")}
+              className={getHeroTickerClassName(tickerText)}
+              title={tickerText}
             >
-              {safeValue(displayIdentity.ticker, "티커 필요")}
+              {tickerText}
             </h2>
           </div>
           <p
@@ -622,17 +655,17 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           ) : null}
         </HeroPanel>
 
-        <HeroPanel className="order-3 md:order-2">
+        <HeroPanel className="order-3 min-h-[21rem] lg:order-2">
           <HeroPanelTitle title="매매 전략" />
-          <p className="max-w-full overflow-hidden text-[clamp(1.3rem,1.75vw,1.9rem)] font-extrabold leading-tight tracking-normal text-slate-950 [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          <p className="max-w-full overflow-hidden text-[clamp(1.15rem,1.55vw,1.65rem)] font-extrabold leading-tight tracking-normal text-slate-950 [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {primaryStrategyDisplay.title}
           </p>
-          <div className="mt-3 space-y-1.5 text-sm font-semibold leading-6 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
+          <div className="mt-3 space-y-1 text-[13px] font-semibold leading-5 text-slate-600 [overflow-wrap:break-word] [word-break:keep-all]">
             {primaryStrategyDisplay.summary.map((line, index) => (
               <p key={`${index}-${line}`}>{line}</p>
             ))}
           </div>
-          <div className="mt-4 grid gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+          <div className="mt-4 grid gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
             {primaryStrategyDisplay.execution.map((item) => (
               <div
                 key={item.label}
@@ -649,31 +682,31 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
         </HeroPanel>
 
-        <HeroPanel className={`order-2 md:order-3 ${signalToneClass[finalTone]}`}>
-          <div className="flex min-w-0 flex-col gap-4">
-            <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-current/20 bg-white/60 text-3xl font-black leading-none">
+        <HeroPanel className={`order-2 min-h-[21rem] lg:order-3 ${signalToneClass[finalTone]}`}>
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-current/20 bg-white/60 text-2xl font-black leading-none">
                 !
               </div>
               <div className="min-w-0">
-                <p className="max-w-full text-[clamp(1.25rem,1.8vw,1.95rem)] font-extrabold leading-tight tracking-normal [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                <p className="mb-3 max-w-full overflow-hidden text-[clamp(1.05rem,1.28vw,1.4rem)] font-extrabold leading-snug tracking-normal [display:-webkit-box] [overflow-wrap:break-word] [word-break:keep-all] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                   {finalAction.title}
                 </p>
-                <p className="mt-3 text-sm font-semibold leading-6 [overflow-wrap:break-word] [word-break:keep-all]">
-                  {truncateText(finalAction.explanation, "주요 가격대 확인 후 접근이 필요합니다.", 132)}
+                <p className="text-[13px] font-semibold leading-5 [overflow-wrap:break-word] [word-break:keep-all]">
+                  {truncateText(finalAction.explanation, "주요 가격대 확인 후 접근이 필요합니다.", 92)}
                 </p>
               </div>
             </div>
-            <div className="rounded-xl border border-current/20 bg-white/60 px-4 py-3">
+            <div className="rounded-xl border border-current/20 bg-white/60 px-3 py-2.5">
               <p className="shrink-0 text-sm font-extrabold">핵심 포인트</p>
-              <p className="mt-2 text-sm font-semibold leading-6 [overflow-wrap:break-word] [word-break:keep-all]">{finalAction.keyPoint}</p>
+              <p className="mt-1 text-sm font-semibold leading-5 [overflow-wrap:break-word] [word-break:keep-all]">{finalAction.keyPoint}</p>
             </div>
           </div>
         </HeroPanel>
         </div>
 
-        <div className="grid w-full min-w-0 max-w-full grid-cols-1 gap-4 overflow-hidden md:grid-cols-2 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,0.9fr)] lg:items-stretch xl:grid-cols-[minmax(420px,1.5fr)_minmax(260px,0.8fr)_minmax(280px,0.9fr)]">
-        <HeroPanel className="md:col-span-2 lg:col-span-1">
+        <div className="grid w-full min-w-0 max-w-full grid-cols-1 gap-4 overflow-hidden md:grid-cols-2 lg:grid-cols-[minmax(0,5fr)_minmax(0,3fr)_minmax(0,4fr)] lg:items-stretch">
+        <HeroPanel className="order-1 md:col-span-2 lg:col-span-1">
           <HeroPanelTitle title="진입 시나리오" />
           <div className="space-y-3">
             {entryItems.map(({ key, title, item, status, context }) => (
@@ -693,7 +726,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
         </HeroPanel>
 
-        <HeroPanel>
+        <HeroPanel className="order-3 lg:order-2">
           <HeroPanelTitle title="시그널 요약" />
           <div className="grid min-w-0 gap-4 sm:grid-cols-[120px_minmax(0,1fr)] md:grid-cols-1">
             <HeroScoreRing score={decision.signalSummary.overallScore} />
@@ -714,7 +747,7 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
           </div>
         </HeroPanel>
 
-        <HeroPanel>
+        <HeroPanel className="order-2 lg:order-3">
           <HeroPanelTitle title="핵심 가격대" />
           <div className="rounded-lg border border-slate-200 bg-slate-50">
             {corePriceItems.map((item, index) => (
@@ -729,12 +762,12 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
         </HeroPanel>
         </div>
 
-      <div className="grid min-w-0 max-w-full gap-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid min-w-0 max-w-full gap-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs sm:grid-cols-2 xl:grid-cols-4">
         {metadataItems.map((item) => (
           <div key={item.label} className="flex min-w-0 items-start gap-2 sm:gap-3">
             <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
-            <span className="shrink-0 whitespace-nowrap font-extrabold leading-5 text-slate-500">{item.label}</span>
-            <span className="min-w-0 flex-1 whitespace-normal break-words font-bold leading-5 text-slate-900 [overflow-wrap:break-word] [word-break:keep-all]">{safeValue(item.value, "확인 필요")}</span>
+            <span className="shrink-0 whitespace-nowrap font-extrabold leading-snug text-slate-500">{item.label}</span>
+            <span className="min-w-0 flex-1 whitespace-normal break-words font-bold leading-snug text-slate-900 [overflow-wrap:break-word] [word-break:keep-all]">{safeValue(item.value, "확인 필요")}</span>
           </div>
         ))}
       </div>

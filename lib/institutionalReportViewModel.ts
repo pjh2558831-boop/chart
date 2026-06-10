@@ -30,11 +30,14 @@ export type ReportDecisionTrendOpportunity =
   | "controlled_uptrend_entry";
 export type ReportDecisionRefinedRegime =
   | "healthy_uptrend_pullback"
+  | "bullish_reversal_attempt"
+  | "gap_breakout_attempt"
   | "overheated_pullback"
   | "sharp_pullback"
   | "trend_damage_warning"
   | "support_shock_test"
   | "parabolic_risk"
+  | "target_extension_only"
   | "normal_breakout_attempt"
   | "confirmed_breakout"
   | "failed_breakout"
@@ -48,6 +51,24 @@ export type InstrumentRiskProfile = {
   reason?: string;
 };
 
+export type ReversalConfirmationProfile = {
+  hasBullishReversalEvidence: boolean;
+  confirmationStrength: "none" | "weak" | "moderate" | "strong";
+  evidenceCount: number;
+  evidenceCodes: string[];
+};
+
+export type TrendRegimeGate = {
+  trendBias: "bullish" | "neutral" | "bearish" | "damaged" | "unknown";
+  trendStrength: "weak" | "moderate" | "strong" | "unknown";
+  supportBonusAllowed: boolean;
+  reversalBonusAllowed: boolean;
+  breakoutBonusAllowed: boolean;
+  maxOverallByGate?: number;
+  maxCurrentEntryByGate?: number;
+  reasonCodes: string[];
+};
+
 export type CandleRiskProfile = {
   largeBearishCandle: boolean;
   sharpDrop: boolean;
@@ -55,6 +76,11 @@ export type CandleRiskProfile = {
   peakToCurrentDropRisk: "low" | "medium" | "high";
   parabolicAdvance: boolean;
   firstPullbackAfterSurge: boolean;
+  bullishReversalAttempt: boolean;
+  gapBreakoutAttempt: boolean;
+  deepPullbackAfterSurge: boolean;
+  targetExtensionOnly: boolean;
+  reversalConfirmation: ReversalConfirmationProfile;
   trendDamageRisk: "low" | "medium" | "high";
 };
 
@@ -119,6 +145,7 @@ export interface ReportDecision {
   refinedRegime?: ReportDecisionRefinedRegime;
   instrumentRiskProfile?: InstrumentRiskProfile;
   candleRiskProfile?: CandleRiskProfile;
+  trendRegimeGate?: TrendRegimeGate;
   targetProfile?: TargetProfile;
   finalActionState: string;
   finalActionLabel: string;
@@ -2601,10 +2628,26 @@ function deriveCandleRiskProfile(
   report: TradingReport,
   context: PriceContext,
   indicators: IndicatorRow[] = [],
+  rawReport?: AnalysisResponse,
+  targetProfile?: TargetProfile,
 ): CandleRiskProfile {
-  const evidence = reportEvidenceText(report);
+  const rawRecord = rawReport as unknown as Record<string, unknown> | undefined;
+  const rawEvidence = rawRecord
+    ? [
+        rawRecord["evidence"],
+        rawRecord["chartEvidence"],
+        rawRecord["trendEvidence"],
+        rawRecord["visualEvidence"],
+        rawRecord["notes"],
+      ].map((value) => safeText(value, "")).join(" ")
+    : "";
+  const evidence = `${reportEvidenceText(report)} ${rawEvidence}`;
   const rsi = extractRsiValue(report, indicators);
   const lowerEvidence = evidence.toLowerCase();
+  const indicatorEvidence = indicators
+    .map((row) => `${row.name} ${row.value} ${row.signal} ${row.interpretation}`)
+    .join(" ");
+  const combinedEvidence = `${evidence} ${indicatorEvidence}`;
   const largeBearishCandle = hasPattern(
     evidence,
     /장대음봉|긴 음봉|대형 음봉|강한 매도|매도 압력|급락|폭락|sharp drop|large bearish|selloff|panic|bearish candle/i,
@@ -2621,6 +2664,74 @@ function deriveCandleRiskProfile(
     (rsi !== null && rsi >= 76 && hasPattern(lowerEvidence, /momentum|surge|breakout|extended|overheated|과열|급등/i));
   const firstPullbackAfterSurge =
     parabolicAdvance && hasPattern(evidence, /첫 조정|초기 눌림|pullback after surge|first pullback|조정 진입|눌림/i);
+  const currentForBreakout = context.current;
+  const nearBreakoutOrResistance =
+    currentForBreakout !== null &&
+    [context.breakoutLevel, context.resistance, context.pivot]
+      .filter((value): value is number => value !== null && Number.isFinite(value))
+      .some((level) => Math.abs((level - currentForBreakout) / Math.max(Math.abs(level), 1)) <= 0.03);
+  const bullishReversalEvidence = hasPattern(
+    evidence,
+    /상승 전환|전환 시도|강한 양봉|양봉 장악|반전 양봉|저점 높임|매수세 회복|모멘텀 개선|macd 개선|bullish reversal|reversal attempt|higher low|strong green candle|momentum improves|momentum improvement/i,
+  );
+  const gapBreakoutEvidence = hasPattern(
+    evidence,
+    /갭상승|갭 상승|갭 돌파|갭업|돌파 갭|gap up|gap breakout|gap above|breakaway gap/i,
+  );
+  const explicitVolumeRebound = hasPattern(evidence, /거래량 증가|거래량 급증|수급 유입|매수 거래량|volume surge|volume expansion|volume increase|strong volume/i);
+  const volumeMomentumEvidence =
+    explicitVolumeRebound ||
+    (volumeDisplayScore(report) ?? 0) >= 64 ||
+    (safeScore(report.scoreSummary?.buyScore) ?? 0) >= 60;
+  const hasControlLevel = context.support !== null || hasUsableDecisionStop(report, context);
+  const supportHoldCandidate = hasPattern(combinedEvidence, /지지 유지|지지 확인|지지 반응|support holding|support hold|held support|support intact/i);
+  const supportPressureEvidence =
+    highVolumeDrop ||
+    largeBearishCandle ||
+    hasPattern(combinedEvidence, /지지 압박|지지 약화|지지 이탈 위험|failed bounce|support pressure|support weakening|breakdown pressure/i);
+  const reversalEvidenceCodes = [
+    hasPattern(combinedEvidence, /강한 양봉|장악형|양봉 장악|아래꼬리|망치형|bullish candle|strong green candle|hammer|long lower wick/i) ? "BULLISH_CANDLE" : "",
+    hasPattern(combinedEvidence, /MACD[^.]{0,30}(개선|상향|골든|bullish|cross|crossover|improv)/i) ? "MACD_IMPROVING" : "",
+    hasPattern(combinedEvidence, /RSI[^.]{0,30}(회복|상향|reclaim|divergence|recover)/i) || (rsi !== null && rsi >= 55 && rsi <= 72 && hasPattern(combinedEvidence, /상승 전환|전환 시도|reversal|momentum improv/i)) ? "RSI_RECOVERY" : "",
+    hasPattern(combinedEvidence, /(?:20\s*EMA|EMA|이평|이동평균|moving average)[^.]{0,40}(회복|탈환|상향|돌파|reclaim|recover)/i) ? "EMA_RECLAIM" : "",
+    hasPattern(combinedEvidence, /저점 높임|고점 높임|higher low|higher high/i) ? "HIGHER_LOW" : "",
+    explicitVolumeRebound && !highVolumeDrop && !largeBearishCandle ? "VOLUME_REBOUND" : "",
+    supportHoldCandidate && !supportPressureEvidence ? "SUPPORT_HOLD" : "",
+    hasPattern(combinedEvidence, /돌파선 회복|저항 돌파|breakout reclaim|reclaim breakout|reclaim resistance/i) ? "BREAKOUT_RECLAIM" : "",
+    hasPattern(combinedEvidence, /재지지|안착|retest hold|hold above|anchoring above/i) ? "RETEST_HOLD" : "",
+  ].filter(Boolean);
+  const strongLevelEvidence = reversalEvidenceCodes.some((code) => /SUPPORT_HOLD|BREAKOUT_RECLAIM|RETEST_HOLD|EMA_RECLAIM/.test(code));
+  const reversalConfirmation: ReversalConfirmationProfile = {
+    hasBullishReversalEvidence: reversalEvidenceCodes.length >= 2 || (reversalEvidenceCodes.length >= 1 && strongLevelEvidence),
+    confirmationStrength:
+      reversalEvidenceCodes.length >= 3 && strongLevelEvidence
+        ? "strong"
+        : reversalEvidenceCodes.length >= 2
+          ? "moderate"
+          : reversalEvidenceCodes.length >= 1
+            ? "weak"
+            : "none",
+    evidenceCount: reversalEvidenceCodes.length,
+    evidenceCodes: Array.from(new Set(reversalEvidenceCodes)),
+  };
+  const bullishReversalAttempt =
+    nearBreakoutOrResistance &&
+    bullishReversalEvidence &&
+    reversalConfirmation.evidenceCount >= 2 &&
+    hasControlLevel &&
+    rsi !== null &&
+    rsi >= 55 &&
+    rsi <= 72;
+  const gapBreakoutAttempt =
+    nearBreakoutOrResistance &&
+    gapBreakoutEvidence &&
+    reversalConfirmation.evidenceCount >= 2 &&
+    hasControlLevel &&
+    (rsi === null || rsi < 78);
+  const deepPullbackAfterSurge =
+    (parabolicAdvance || firstPullbackAfterSurge || hasPattern(evidence, /급등 후|surge 이후|after surge|after rally/i)) &&
+    (sharpDrop || hasPattern(evidence, /깊은 조정|큰 조정|deep pullback|steep pullback/i));
+  const targetExtensionOnly = targetProfile?.targetQuality === "extended" && targetProfile.firstTarget === null;
   const referenceHigh = [context.resistance, context.target]
     .filter((value): value is number => value !== null && Number.isFinite(value))
     .sort((a, b) => b - a)[0] ?? null;
@@ -2637,7 +2748,7 @@ function deriveCandleRiskProfile(
     context.support !== null &&
     context.current !== null &&
     Math.abs((context.current - context.support) / Math.max(Math.abs(context.current), 1)) <= 0.035;
-  const explicitTrendDamage = hasPattern(evidence, /지지 이탈|추세 훼손|하락 전환|support breakdown|lost support|trend damage/i);
+  const explicitTrendDamage = hasPattern(evidence, /지지선 이탈 발생|지지 이탈 위험|주요 지지 붕괴|추세 훼손|하락 전환|support breakdown|lost support|trend damage/i);
   const supportIntactEvidence = hasPattern(evidence, /지지 유지|지지 방어|support holding|support intact|held support/i);
   const trendDamageRisk =
     context.chartRegime === "support_breakdown" ||
@@ -2655,6 +2766,11 @@ function deriveCandleRiskProfile(
     peakToCurrentDropRisk,
     parabolicAdvance,
     firstPullbackAfterSurge,
+    bullishReversalAttempt,
+    gapBreakoutAttempt,
+    deepPullbackAfterSurge,
+    targetExtensionOnly,
+    reversalConfirmation,
     trendDamageRisk,
   };
 }
@@ -2713,6 +2829,137 @@ function deriveTargetProfile(context: PriceContext, report: TradingReport): Targ
   };
 }
 
+function deriveTrendRegimeGate(
+  report: TradingReport,
+  context: PriceContext,
+  breakoutState: ReportDecisionBreakoutState,
+  instrumentRisk: InstrumentRiskProfile,
+  candleRisk: CandleRiskProfile,
+  targetProfile: TargetProfile,
+  indicators: IndicatorRow[] = [],
+): TrendRegimeGate {
+  const riskScore = safeScore(report.scoreSummary?.riskScore) ?? 50;
+  const evidence = `${reportEvidenceText(report)} ${indicators
+    .map((row) => `${row.name} ${row.value} ${row.signal} ${row.interpretation}`)
+    .join(" ")}`;
+  const supportPressure =
+    context.current !== null &&
+    context.support !== null &&
+    Math.abs((context.current - context.support) / Math.max(Math.abs(context.current), 1)) <= 0.035;
+  const supportPressureText = /지지 압박|지지 약화|지지 이탈 위험|failed bounce|support pressure|support weakening|breakdown pressure/i.test(evidence);
+  const supportHoldEvidence =
+    candleRisk.reversalConfirmation.evidenceCodes.includes("SUPPORT_HOLD") ||
+    (
+      /지지 유지|지지 확인|지지 반응|support holding|support hold|held support|support intact/i.test(evidence) &&
+      !supportPressureText &&
+      !candleRisk.largeBearishCandle &&
+      !candleRisk.highVolumeDrop
+    );
+  const reclaimEvidence =
+    candleRisk.reversalConfirmation.evidenceCodes.some((code) => /EMA_RECLAIM|BREAKOUT_RECLAIM|RETEST_HOLD/.test(code)) ||
+    /이평 회복|EMA reclaim|breakout reclaim|retest hold|안착|재지지/i.test(evidence);
+  const hasModerateReversal =
+    candleRisk.reversalConfirmation.confirmationStrength === "moderate" ||
+    candleRisk.reversalConfirmation.confirmationStrength === "strong";
+  const confirmedBreakout = breakoutState === "breakout_confirmed" || breakoutState === "breakout_retest_confirmed";
+  const supportBreakdown = context.chartRegime === "support_breakdown";
+  const damaged =
+    supportBreakdown ||
+    context.chartRegime === "downtrend" ||
+    candleRisk.trendDamageRisk === "high" ||
+    riskScore >= 75;
+  const bearish =
+    !damaged &&
+    (
+      context.chartRegime === "downtrend_rebound" ||
+      candleRisk.largeBearishCandle ||
+      candleRisk.sharpDrop ||
+      candleRisk.highVolumeDrop ||
+      candleRisk.peakToCurrentDropRisk === "high"
+    );
+  const bullish =
+    confirmedBreakout ||
+    context.chartRegime === "uptrend_pullback" ||
+    context.chartRegime === "uptrend_consolidation" ||
+    context.chartRegime === "healthy_pullback" ||
+    (hasModerateReversal && reclaimEvidence);
+
+  let trendBias: TrendRegimeGate["trendBias"] = "neutral";
+  if (bullish) trendBias = "bullish";
+  if (bearish) trendBias = "bearish";
+  if (damaged) trendBias = "damaged";
+
+  const reasonCodes: string[] = [];
+  if (damaged) reasonCodes.push("TREND_GATE_DAMAGED");
+  if (bearish) reasonCodes.push("TREND_GATE_BEARISH");
+  if (supportPressure) reasonCodes.push("SUPPORT_PRESSURE");
+  if (supportHoldEvidence) reasonCodes.push("SUPPORT_HOLD_EVIDENCE");
+  if (confirmedBreakout) reasonCodes.push("CONFIRMED_BREAKOUT_GATE");
+
+  const reversalAllowedByState =
+    hasModerateReversal &&
+    !damaged &&
+    (
+      confirmedBreakout ||
+      reclaimEvidence ||
+      candleRisk.bullishReversalAttempt ||
+      candleRisk.gapBreakoutAttempt ||
+      (supportHoldEvidence && trendBias !== "bearish")
+    );
+  if (reversalAllowedByState) reasonCodes.push("REVERSAL_CONFIRMATION_PRESENT");
+
+  let supportBonusAllowed =
+    confirmedBreakout ||
+    (trendBias === "bullish" && (supportHoldEvidence || context.support !== null)) ||
+    (trendBias === "neutral" && supportHoldEvidence && hasUsableDecisionStop(report, context)) ||
+    (reversalAllowedByState && supportHoldEvidence);
+  let reversalBonusAllowed = reversalAllowedByState;
+  let breakoutBonusAllowed =
+    confirmedBreakout ||
+    breakoutState === "breakout_attempt" ||
+    (candleRisk.gapBreakoutAttempt && reversalBonusAllowed) ||
+    (candleRisk.bullishReversalAttempt && reversalBonusAllowed);
+  let maxOverallByGate: number | undefined;
+  let maxCurrentEntryByGate: number | undefined;
+
+  if (!confirmedBreakout && (trendBias === "damaged" || trendBias === "bearish") && !reversalAllowedByState) {
+    supportBonusAllowed = false;
+    reversalBonusAllowed = false;
+    breakoutBonusAllowed = breakoutState === "breakout_attempt" && trendBias !== "damaged";
+    reasonCodes.push("SUPPORT_BONUS_BLOCKED_BY_TREND_GATE");
+    maxOverallByGate = instrumentRisk.isLeveraged ? 35 : trendBias === "damaged" ? 45 : 52;
+    maxCurrentEntryByGate = instrumentRisk.isLeveraged ? 25 : trendBias === "damaged" ? 28 : 35;
+  }
+
+  if (!confirmedBreakout && instrumentRisk.isLeveraged && (candleRisk.largeBearishCandle || candleRisk.highVolumeDrop || candleRisk.sharpDrop)) {
+    reasonCodes.push("LEVERAGED_SHARP_DROP_TREND_GATE");
+    maxOverallByGate = Math.min(maxOverallByGate ?? 50, reversalAllowedByState ? 58 : 45);
+    maxCurrentEntryByGate = Math.min(maxCurrentEntryByGate ?? 35, reversalAllowedByState ? 35 : 30);
+  }
+
+  if (!confirmedBreakout && targetProfile.targetQuality === "extended") {
+    reasonCodes.push("TARGET_EXTENSION_NOT_TREND_BONUS");
+    maxOverallByGate = Math.min(maxOverallByGate ?? 58, 58);
+  }
+
+  return {
+    trendBias,
+    trendStrength: confirmedBreakout
+      ? "strong"
+      : trendBias === "bullish"
+        ? "moderate"
+        : trendBias === "bearish" || trendBias === "damaged"
+          ? "moderate"
+          : "weak",
+    supportBonusAllowed,
+    reversalBonusAllowed,
+    breakoutBonusAllowed,
+    maxOverallByGate,
+    maxCurrentEntryByGate,
+    reasonCodes: Array.from(new Set(reasonCodes)),
+  };
+}
+
 function deriveRefinedRegime(
   report: TradingReport,
   context: PriceContext,
@@ -2720,6 +2967,7 @@ function deriveRefinedRegime(
   instrumentRisk: InstrumentRiskProfile,
   candleRisk: CandleRiskProfile,
   targetProfile: TargetProfile,
+  trendGate: TrendRegimeGate,
 ): ReportDecisionRefinedRegime {
   const riskScore = safeScore(report.scoreSummary?.riskScore) ?? 50;
   const evidence = reportEvidenceText(report);
@@ -2729,16 +2977,19 @@ function deriveRefinedRegime(
     context.support !== null &&
     Math.abs((context.current - context.support) / Math.max(Math.abs(context.current), 1)) <= 0.035;
 
-  if (context.chartRegime === "support_breakdown" || context.chartRegime === "downtrend" || riskScore >= 75) {
+  if (breakoutState === "breakout_confirmed" || breakoutState === "breakout_retest_confirmed") return "confirmed_breakout";
+  if (breakoutState === "failed_breakout") return "failed_breakout";
+  if (trendGate.trendBias === "damaged" || context.chartRegime === "support_breakdown" || context.chartRegime === "downtrend" || riskScore >= 75) {
     return "trend_damage_warning";
   }
-  if (breakoutState === "failed_breakout") return "failed_breakout";
-  if (breakoutState === "breakout_confirmed" || breakoutState === "breakout_retest_confirmed") return "confirmed_breakout";
   if (instrumentRisk.isLeveraged && (candleRisk.largeBearishCandle || candleRisk.sharpDrop || candleRisk.highVolumeDrop) && supportPressure) {
     return "support_shock_test";
   }
   if (candleRisk.largeBearishCandle || candleRisk.sharpDrop) return "sharp_pullback";
+  if (candleRisk.gapBreakoutAttempt && (trendGate.reversalBonusAllowed || trendGate.breakoutBonusAllowed)) return "gap_breakout_attempt";
+  if (candleRisk.bullishReversalAttempt && trendGate.reversalBonusAllowed) return "bullish_reversal_attempt";
   if (candleRisk.parabolicAdvance && targetProfile.targetQuality !== "clear") return "parabolic_risk";
+  if (candleRisk.targetExtensionOnly || (targetProfile.targetQuality === "extended" && targetProfile.firstTarget === null)) return "target_extension_only";
   if (candleRisk.parabolicAdvance || candleRisk.firstPullbackAfterSurge) return "overheated_pullback";
   if (
     (
@@ -2754,6 +3005,8 @@ function deriveRefinedRegime(
     return "healthy_uptrend_pullback";
   }
   if (breakoutState === "breakout_attempt" || context.chartRegime === "breakout_wait") return "normal_breakout_attempt";
+  if (trendGate.trendBias === "bearish" || candleRisk.trendDamageRisk === "medium") return "sharp_pullback";
+  if (targetProfile.targetQuality === "extended" && targetProfile.firstTarget === null) return "target_extension_only";
   return "existing_regime";
 }
 
@@ -3066,15 +3319,18 @@ type ScoreBand = {
 };
 
 const SCORE_BANDS: Record<ReportDecisionRefinedRegime, ScoreBand> = {
-  healthy_uptrend_pullback: { overall: [60, 72], current: [50, 62], pullback: [60, 75], breakout: [55, 70] },
-  overheated_pullback: { overall: [52, 65], current: [40, 55], pullback: [55, 68], breakout: [45, 62] },
-  sharp_pullback: { overall: [38, 55], current: [25, 42], pullback: [40, 58], breakout: [35, 52] },
-  trend_damage_warning: { overall: [25, 45], current: [10, 30], pullback: [25, 45], breakout: [20, 40] },
-  support_shock_test: { overall: [35, 52], current: [20, 38], pullback: [35, 55], breakout: [30, 50] },
-  parabolic_risk: { overall: [45, 62], current: [35, 50], pullback: [45, 62], breakout: [45, 60] },
-  normal_breakout_attempt: { overall: [52, 66], current: [40, 55], pullback: [48, 62], breakout: [58, 75] },
-  confirmed_breakout: { overall: [65, 80], current: [55, 72], pullback: [60, 78], breakout: [70, 88] },
-  failed_breakout: { overall: [30, 48], current: [15, 35], pullback: [25, 45], breakout: [20, 45] },
+  healthy_uptrend_pullback: { overall: [62, 74], current: [50, 64], pullback: [62, 76], breakout: [55, 70] },
+  bullish_reversal_attempt: { overall: [55, 68], current: [40, 58], pullback: [45, 62], breakout: [65, 78] },
+  gap_breakout_attempt: { overall: [56, 70], current: [42, 60], pullback: [45, 62], breakout: [66, 80] },
+  overheated_pullback: { overall: [50, 62], current: [35, 50], pullback: [52, 66], breakout: [42, 58] },
+  sharp_pullback: { overall: [35, 52], current: [20, 38], pullback: [35, 52], breakout: [30, 48] },
+  trend_damage_warning: { overall: [20, 45], current: [5, 28], pullback: [15, 42], breakout: [15, 38] },
+  support_shock_test: { overall: [25, 50], current: [10, 35], pullback: [25, 50], breakout: [25, 45] },
+  parabolic_risk: { overall: [45, 58], current: [30, 45], pullback: [42, 58], breakout: [40, 56] },
+  target_extension_only: { overall: [42, 58], current: [25, 42], pullback: [38, 55], breakout: [38, 56] },
+  normal_breakout_attempt: { overall: [52, 64], current: [38, 52], pullback: [45, 60], breakout: [60, 74] },
+  confirmed_breakout: { overall: [65, 82], current: [55, 74], pullback: [60, 78], breakout: [72, 90] },
+  failed_breakout: { overall: [20, 45], current: [5, 32], pullback: [15, 42], breakout: [15, 40] },
   existing_regime: { overall: [0, 100], current: [0, 100], pullback: [0, 100], breakout: [0, 100] },
 };
 
@@ -3101,17 +3357,28 @@ function refinedEvidenceModifier(
   instrumentRisk: InstrumentRiskProfile,
   candleRisk: CandleRiskProfile,
   targetProfile: TargetProfile,
+  trendGate: TrendRegimeGate,
 ) {
   let modifier = 0;
-  if (hasUsableDecisionStop(report, context) && context.support !== null) modifier += 4;
+  if (hasUsableDecisionStop(report, context) && context.support !== null && trendGate.supportBonusAllowed) {
+    modifier += trendGate.reasonCodes.includes("SUPPORT_HOLD_EVIDENCE") && trendGate.reversalBonusAllowed
+      ? 8
+      : trendGate.trendBias === "bullish"
+        ? 5
+        : 3;
+  }
   if (targetProfile.targetQuality === "clear") modifier += 4;
   if (breakoutState === "breakout_confirmed") modifier += 6;
   if (breakoutState === "breakout_retest_confirmed") modifier += 8;
   if ((volumeDisplayScore(report) ?? 0) >= 64) modifier += 3;
+  if (trendGate.reversalBonusAllowed && candleRisk.reversalConfirmation.evidenceCount >= 2) modifier += 2;
+  if (candleRisk.bullishReversalAttempt && trendGate.reversalBonusAllowed) modifier += 3;
+  if (candleRisk.gapBreakoutAttempt && trendGate.breakoutBonusAllowed) modifier += 4;
   if (instrumentRisk.isLeveraged && !candleRisk.sharpDrop && !candleRisk.largeBearishCandle) modifier -= 2;
   if (instrumentRisk.isLeveraged && (candleRisk.sharpDrop || candleRisk.largeBearishCandle || candleRisk.highVolumeDrop)) modifier -= 10;
   if (candleRisk.largeBearishCandle) modifier -= 7;
   if (candleRisk.highVolumeDrop) modifier -= 5;
+  if (candleRisk.deepPullbackAfterSurge) modifier -= 4;
   if (candleRisk.trendDamageRisk === "high") modifier -= 10;
   if (candleRisk.trendDamageRisk === "medium") modifier -= 4;
   modifier += targetQualityPenalty(targetProfile);
@@ -3127,6 +3394,30 @@ function refinedEntryLabels(regime: ReportDecisionRefinedRegime) {
         breakout: "돌파 확인",
         currentExplanation: "상승추세 눌림 구간이지만 지지 반응과 손절 기준 확인을 전제로 분할 접근만 검토합니다.",
         pullbackExplanation: "주요 지지 반응이 확인될 때 눌림목 진입 후보로 해석합니다.",
+      };
+    case "bullish_reversal_attempt":
+      return {
+        current: "조건부 접근",
+        pullback: "지지 확인",
+        breakout: "돌파 확인",
+        currentExplanation: "상승 전환 시도 구간이므로 현재가 접근은 소액/조건부로 제한하고, 저항 돌파와 재지지 확인을 우선합니다.",
+        pullbackExplanation: "주요 지지 반응이 유지될 때만 눌림목 관심 구간으로 봅니다.",
+      };
+    case "gap_breakout_attempt":
+      return {
+        current: "안착 확인",
+        pullback: "지지 확인",
+        breakout: "갭 돌파 확인",
+        currentExplanation: "갭 상승 또는 강한 돌파 시도 구간이므로 현재가 추격보다 안착과 재지지 확인이 우선입니다.",
+        pullbackExplanation: "갭 구간을 되돌릴 때 지지 여부를 확인한 뒤 조건부로 접근합니다.",
+      };
+    case "target_extension_only":
+      return {
+        current: "비중 제한",
+        pullback: "지지 확인",
+        breakout: "목표 재확인",
+        currentExplanation: "가까운 1차 목표보다 확장 목표 의존도가 높아 현재가 접근은 비중 제한과 추가 확인이 필요합니다.",
+        pullbackExplanation: "목표 여유가 명확하지 않으므로 지지 반응과 손절 기준을 먼저 확인합니다.",
       };
     case "overheated_pullback":
       return {
@@ -3198,10 +3489,11 @@ function calibrateScoresByRefinedRegime(
   instrumentRisk: InstrumentRiskProfile,
   candleRisk: CandleRiskProfile,
   targetProfile: TargetProfile,
+  trendGate: TrendRegimeGate,
 ): { entryStrategies: ReportDecision["entryStrategies"]; scoreWarnings: string[]; overallSeed: number | null } {
   const band = SCORE_BANDS[refinedRegime] ?? SCORE_BANDS.existing_regime;
   const warnings: string[] = refinedRegime === "existing_regime" ? [] : ["SCORE_BANDED_BY_REFINED_REGIME"];
-  const modifier = refinedEvidenceModifier(report, context, breakoutState, instrumentRisk, candleRisk, targetProfile);
+  const modifier = refinedEvidenceModifier(report, context, breakoutState, instrumentRisk, candleRisk, targetProfile, trendGate);
   const labels = refinedEntryLabels(refinedRegime);
   const targetText = targetProfile.targetQuality === "clear" && targetProfile.firstTarget !== null
     ? `${formatPrice(targetProfile.firstTarget)} 부근`
@@ -3220,12 +3512,63 @@ function calibrateScoresByRefinedRegime(
     ...(labels ? { label: labels.breakout, target: targetText } : {}),
   });
   let overallSeed = scoreInBand((safeScore(report.scoreSummary?.totalScore) ?? bandMidpoint(band.overall)) + modifier, band.overall);
+  warnings.push(...trendGate.reasonCodes);
+
+  if (trendGate.maxCurrentEntryByGate !== undefined) {
+    current = patchEntryStrategy(current, {
+      score: capDisplayScore(current.score, trendGate.maxCurrentEntryByGate),
+      label: trendGate.trendBias === "damaged" ? "위험 관리 우선" : "신규 진입 신중",
+      tone: trendGate.trendBias === "damaged" ? "risk" : "caution",
+      isFutureSetup: true,
+    });
+  }
+
+  if (trendGate.maxOverallByGate !== undefined) {
+    overallSeed = Math.min(overallSeed, trendGate.maxOverallByGate);
+  }
+
+  if (
+    instrumentRisk.isLeveraged &&
+    !trendGate.reversalBonusAllowed &&
+    (trendGate.trendBias === "bearish" || trendGate.trendBias === "damaged")
+  ) {
+    warnings.push("LEVERAGED_BEARISH_NO_CONFIRMATION_CAP");
+    current = patchEntryStrategy(current, {
+      score: capDisplayScore(current.score, trendGate.trendBias === "damaged" ? 20 : 25),
+      label: trendGate.trendBias === "damaged" ? "위험 관리 우선" : "신규 진입 신중",
+      tone: trendGate.trendBias === "damaged" ? "risk" : "caution",
+      isFutureSetup: true,
+    });
+    overallSeed = Math.min(overallSeed, 35);
+  }
+
+  if (refinedRegime === "bullish_reversal_attempt" || refinedRegime === "gap_breakout_attempt") {
+    warnings.push("BREAKOUT_ENTRY_PRIORITIZED_BY_ATTEMPT");
+    const minimumBreakoutScore = Math.min(band.breakout[1], (current.score ?? band.current[0]) + 8);
+    breakout = patchEntryStrategy(breakout, {
+      score: scoreInBand(Math.max(breakout.score ?? band.breakout[0], minimumBreakoutScore), band.breakout),
+      tone: "positive",
+      isFutureSetup: false,
+    });
+    current = patchEntryStrategy(current, {
+      score: scoreInBand(current.score, band.current),
+      tone: "caution",
+      isFutureSetup: true,
+    });
+  }
+
+  if (refinedRegime === "target_extension_only") {
+    warnings.push("TARGET_EXTENSION_NOT_SCORE_DRIVER");
+    current = patchEntryStrategy(current, { score: capDisplayScore(current.score, 42), tone: "caution", isFutureSetup: true });
+    breakout = patchEntryStrategy(breakout, { score: capDisplayScore(breakout.score, 56), tone: "caution" });
+    overallSeed = Math.min(overallSeed, 58);
+  }
 
   if (instrumentRisk.isLeveraged && (candleRisk.largeBearishCandle || candleRisk.highVolumeDrop)) {
     warnings.push("LEVERAGED_SHARP_DROP_CAP");
-    current = patchEntryStrategy(current, { score: capDisplayScore(current.score, 35), label: "신규 진입 신중", tone: "caution", isFutureSetup: true });
-    pullback = patchEntryStrategy(pullback, { score: capDisplayScore(pullback.score, 50), label: "반등 확인", tone: "caution" });
-    overallSeed = Math.min(overallSeed, 50);
+    current = patchEntryStrategy(current, { score: capDisplayScore(current.score, trendGate.reversalBonusAllowed ? 35 : 30), label: "신규 진입 신중", tone: "caution", isFutureSetup: true });
+    pullback = patchEntryStrategy(pullback, { score: capDisplayScore(pullback.score, trendGate.reversalBonusAllowed ? 50 : 45), label: "반등 확인", tone: "caution" });
+    overallSeed = Math.min(overallSeed, trendGate.reversalBonusAllowed ? 58 : 45);
   }
 
   if (instrumentRisk.isLeveraged && refinedRegime === "healthy_uptrend_pullback") {
@@ -3237,20 +3580,21 @@ function calibrateScoresByRefinedRegime(
 
   if (instrumentRisk.isLeveraged && refinedRegime === "support_shock_test") {
     warnings.push("SUPPORT_SHOCK_SCORE_CAP");
-    current = patchEntryStrategy(current, { score: capDisplayScore(current.score, 38), label: "지지 테스트", tone: "caution", isFutureSetup: true });
-    overallSeed = Math.min(overallSeed, 52);
+    current = patchEntryStrategy(current, { score: capDisplayScore(current.score, trendGate.reversalBonusAllowed ? 35 : 30), label: "지지 테스트", tone: "caution", isFutureSetup: true });
+    pullback = patchEntryStrategy(pullback, { score: capDisplayScore(pullback.score, trendGate.reversalBonusAllowed ? 50 : 45), label: "반등 확인", tone: "caution" });
+    overallSeed = Math.min(overallSeed, trendGate.reversalBonusAllowed ? 50 : 45);
   }
 
   if (instrumentRisk.isLeveraged && refinedRegime === "trend_damage_warning") {
     warnings.push("LEVERAGED_TREND_DAMAGE_CAP");
-    current = patchEntryStrategy(current, { score: capDisplayScore(current.score, 25), label: "신규 진입 보류", tone: "risk", isFutureSetup: true });
-    overallSeed = Math.min(overallSeed, 39);
+    current = patchEntryStrategy(current, { score: capDisplayScore(current.score, 25), label: "위험 관리 우선", tone: "risk", isFutureSetup: true });
+    overallSeed = Math.min(overallSeed, 35);
   }
 
   if (context.chartRegime === "support_breakdown") {
     warnings.push("SUPPORT_BREAKDOWN_CURRENT_CAP");
-    current = patchEntryStrategy(current, { score: capDisplayScore(current.score, 25), label: "신규 진입 보류", tone: "risk", isFutureSetup: true });
-    overallSeed = Math.min(overallSeed, 39);
+    current = patchEntryStrategy(current, { score: capDisplayScore(current.score, 25), label: "위험 관리 우선", tone: "risk", isFutureSetup: true });
+    overallSeed = Math.min(overallSeed, 35);
   }
 
   if (targetProfile.targetQuality === "extended") warnings.push("TARGET_EXTENSION_NOT_SCORE_DRIVER");
@@ -3357,6 +3701,7 @@ function entryDisplayScoreCap(
   tone: ReportDecisionTone,
   breakoutState: ReportDecisionBreakoutState,
   trendOpportunity: ReportDecisionTrendOpportunity,
+  trendGate: TrendRegimeGate,
   priceWarnings: string[],
   isComplete: boolean,
   lowConfidence: boolean,
@@ -3378,7 +3723,7 @@ function entryDisplayScoreCap(
     if (entry.mode === "pullback") cap = Math.min(cap, 60);
     if (entry.mode === "breakout") cap = Math.min(cap, 60);
   } else if (isUpperResistanceDecisionState(context) && breakoutState !== "breakout_confirmed" && breakoutState !== "breakout_retest_confirmed") {
-    if (entry.mode === "current") cap = Math.min(cap, context.chartRegime === "downtrend_rebound" ? 35 : 45);
+    if (entry.mode === "current") cap = Math.min(cap, context.chartRegime === "downtrend_rebound" && trendOpportunity !== "bullish_breakout_attempt" ? 35 : 45);
     if (entry.mode === "pullback") cap = Math.min(cap, 60);
     if (entry.mode === "breakout" && trendOpportunity !== "bullish_breakout_attempt") {
       cap = Math.min(cap, context.chartRegime === "downtrend_rebound" ? 55 : 70);
@@ -3396,6 +3741,18 @@ function entryDisplayScoreCap(
   }
   if (entry.mode === "current" && priceWarnings.some((warning) => /SUPPORT_ABOVE_CURRENT|INVALID_LONG_STOP|LONG_STOP_RECHECK_REQUIRED/.test(warning))) {
     cap = Math.min(cap, 30);
+  }
+  if (entry.mode === "current" && trendGate.maxCurrentEntryByGate !== undefined) {
+    cap = Math.min(cap, trendGate.maxCurrentEntryByGate);
+  }
+  if (entry.mode === "current" && trendGate.reasonCodes.includes("SUPPORT_BONUS_BLOCKED_BY_TREND_GATE")) {
+    cap = Math.min(cap, trendGate.trendBias === "damaged" ? 28 : 35);
+  }
+  if (entry.mode === "pullback" && trendGate.trendBias === "damaged") {
+    cap = Math.min(cap, 42);
+  }
+  if (entry.mode === "breakout" && trendGate.trendBias === "damaged" && !trendGate.breakoutBonusAllowed) {
+    cap = Math.min(cap, 38);
   }
   return cap;
 }
@@ -3422,6 +3779,7 @@ function normalizeDecisionEntryStrategies(
   priceWarnings: string[],
   breakoutState: ReportDecisionBreakoutState,
   trendOpportunity: ReportDecisionTrendOpportunity,
+  trendGate: TrendRegimeGate,
   tone: ReportDecisionTone,
 ): { entryStrategies: ReportDecision["entryStrategies"]; warnings: string[] } {
   const lowConfidence = hasLowDecisionConfidence(report, context);
@@ -3579,7 +3937,7 @@ function normalizeDecisionEntryStrategies(
       ...priceSpecificWarnings,
     ]));
     isComplete = !warnings.some((warning) => /SCENARIO_INCOMPLETE|MISSING_CONFIRMATION|MISSING_INVALIDATION|MISSING_TARGET|LOW_RR_ENTRY|INVALID_LONG_STOP|SUPPORT_ABOVE_CURRENT|LONG_STOP_RECHECK_REQUIRED/.test(warning));
-    const cap = entryDisplayScoreCap(entry, context, tone, breakoutState, trendOpportunity, priceWarnings, isComplete, lowConfidence);
+    const cap = entryDisplayScoreCap(entry, context, tone, breakoutState, trendOpportunity, trendGate, priceWarnings, isComplete, lowConfidence);
     let normalizedScore = capDisplayScore(entry.score, cap);
     const hasCurrentPricePressure = priceWarnings.some((warning) => /TARGET_TOO_CLOSE|TARGET_NOT_ABOVE_ENTRY|RESISTANCE_TOO_CLOSE/.test(warning));
     const hasUsableDisplayTarget = priceRoles.target?.value !== null && priceRoles.target?.value !== undefined;
@@ -3780,6 +4138,7 @@ function normalizeDecisionSignalSummary(
   instrumentRisk?: InstrumentRiskProfile,
   candleRisk?: CandleRiskProfile,
   targetProfile?: TargetProfile,
+  trendGate?: TrendRegimeGate,
   refinedScoreWarnings: string[] = [],
   refinedOverallSeed: number | null = null,
 ): ReportDecision["signalSummary"] {
@@ -3813,22 +4172,51 @@ function normalizeDecisionSignalSummary(
     overallScore = scoreInBand(refinedOverallSeed ?? rawOverall, refinedBand.overall);
     if (refinedRegime === "confirmed_breakout") trendScore = Math.max(trendScore, 76);
     if (refinedRegime === "healthy_uptrend_pullback") trendScore = Math.max(trendScore, 72);
-    if (refinedRegime === "overheated_pullback" || refinedRegime === "parabolic_risk") trendScore = Math.min(Math.max(trendScore, 55), 62);
+    if (refinedRegime === "bullish_reversal_attempt") trendScore = Math.min(Math.max(trendScore, 60), 68);
+    if (refinedRegime === "gap_breakout_attempt") trendScore = Math.min(Math.max(trendScore, 62), 70);
+    if (refinedRegime === "overheated_pullback" || refinedRegime === "parabolic_risk" || refinedRegime === "target_extension_only") trendScore = Math.min(Math.max(trendScore, 55), 62);
     if (refinedRegime === "sharp_pullback" || refinedRegime === "support_shock_test") trendScore = Math.min(trendScore, 45);
     if (refinedRegime === "trend_damage_warning" || refinedRegime === "failed_breakout") trendScore = Math.min(trendScore, 32);
   }
   warnings.push(...refinedScoreWarnings);
+  if (trendGate) {
+    warnings.push(...trendGate.reasonCodes);
+    if (trendGate.maxOverallByGate !== undefined) {
+      overallScore = capSignalScore(
+        overallScore,
+        trendGate.maxOverallByGate,
+        warnings,
+        trendGate.reasonCodes.includes("LEVERAGED_SHARP_DROP_TREND_GATE")
+          ? "LEVERAGED_BEARISH_NO_CONFIRMATION_CAP"
+          : "SUPPORT_BONUS_BLOCKED_BY_TREND_GATE",
+        overallReference,
+      );
+    }
+    if (
+      instrumentRisk?.isLeveraged &&
+      !trendGate.reversalBonusAllowed &&
+      (trendGate.trendBias === "bearish" || trendGate.trendBias === "damaged")
+    ) {
+      overallScore = capSignalScore(overallScore, 35, warnings, "LEVERAGED_BEARISH_NO_CONFIRMATION_CAP", overallReference);
+    }
+  }
   if (targetProfile?.targetQuality === "extended") {
     warnings.push("TARGET_EXTENSION_NOT_SCORE_DRIVER");
-    riskRewardScore = capSignalScore(riskRewardScore ?? 55, 55, warnings, "SCORE_CAPPED_BY_LOW_RR", overallReference);
-    overallScore = capSignalScore(overallScore, 62, warnings, "TARGET_EXTENSION_NOT_SCORE_DRIVER", overallReference);
+    const extensionOverallCap = refinedRegime === "parabolic_risk" || refinedRegime === "target_extension_only" ? 58 : 62;
+    const extensionRrCap = refinedRegime === "target_extension_only" ? 50 : 55;
+    riskRewardScore = capSignalScore(riskRewardScore ?? extensionRrCap, extensionRrCap, warnings, "SCORE_CAPPED_BY_LOW_RR", overallReference);
+    overallScore = capSignalScore(overallScore, extensionOverallCap, warnings, "TARGET_EXTENSION_NOT_SCORE_DRIVER", overallReference);
   } else if (targetProfile?.targetQuality === "uncertain") {
     warnings.push("TARGET_UNCERTAINTY_CAP");
     riskRewardScore = capSignalScore(riskRewardScore ?? 45, 45, warnings, "SCORE_CAPPED_BY_LOW_RR", overallReference);
-    overallScore = capSignalScore(overallScore, 58, warnings, "TARGET_UNCERTAINTY_CAP", overallReference);
+    const uncertaintyOverallCap = refinedRegime === "gap_breakout_attempt" ? 64 : refinedRegime === "bullish_reversal_attempt" ? 62 : 58;
+    overallScore = capSignalScore(overallScore, uncertaintyOverallCap, warnings, "TARGET_UNCERTAINTY_CAP", overallReference);
+  }
+  if ((refinedRegime === "parabolic_risk" || refinedRegime === "target_extension_only") && targetProfile?.targetQuality !== "clear") {
+    riskRewardScore = capSignalScore(riskRewardScore ?? 55, refinedRegime === "target_extension_only" ? 50 : 55, warnings, "SCORE_CAPPED_BY_LOW_RR", overallReference);
   }
   if (instrumentRisk?.isLeveraged && candleRisk && (candleRisk.largeBearishCandle || candleRisk.highVolumeDrop)) {
-    overallScore = capSignalScore(overallScore, 50, warnings, "LEVERAGED_SHARP_DROP_CAP", overallReference);
+    overallScore = capSignalScore(overallScore, trendGate?.reversalBonusAllowed ? 58 : 50, warnings, "LEVERAGED_SHARP_DROP_CAP", overallReference);
   }
   if (instrumentRisk?.isLeveraged && refinedRegime === "support_shock_test") {
     overallScore = capSignalScore(overallScore, 52, warnings, "SUPPORT_SHOCK_SCORE_CAP", overallReference);
@@ -3857,6 +4245,17 @@ function normalizeDecisionSignalSummary(
         : displayedEntry.mode === "breakout"
           ? entryStrategies.breakout.isComplete === false
           : false;
+  const isBullishAttemptRegime = refinedRegime === "bullish_reversal_attempt" || refinedRegime === "gap_breakout_attempt";
+  const constructiveAttemptEvidenceCount = [
+    context.support !== null,
+    hasUsableDecisionStop(report, context),
+    context.breakoutLevel !== null || context.pivot !== null,
+    (volumeDisplayScore(report) ?? 0) >= 64 || (rawMomentum ?? 0) >= 60 || Boolean(candleRisk?.bullishReversalAttempt || candleRisk?.gapBreakoutAttempt),
+  ].filter(Boolean).length;
+  const hasConstructiveAttemptEvidence =
+    isBullishAttemptRegime &&
+    constructiveAttemptEvidenceCount >= 2 &&
+    !isBearishOrRiskDecisionState(context, tone);
 
   if (hardPriceCollapse) {
     riskRewardScore = capSignalScore(riskRewardScore ?? 40, 40, warnings, "SCORE_CAPPED_BY_PRICE_COLLAPSE");
@@ -3865,7 +4264,7 @@ function normalizeDecisionSignalSummary(
 
   if ((riskRewardScore ?? 100) <= 40) {
     warnings.push("SCORE_CAPPED_BY_LOW_RR");
-    overallScore = capSignalScore(overallScore, 60, warnings, "SCORE_CAPPED_BY_LOW_RR", overallReference);
+    overallScore = capSignalScore(overallScore, refinedRegime === "parabolic_risk" || refinedRegime === "target_extension_only" ? 58 : 60, warnings, "SCORE_CAPPED_BY_LOW_RR", overallReference);
   }
 
   if (priceWarnings.includes("BREAKOUT_TARGET_OVERLAP")) {
@@ -3874,11 +4273,12 @@ function normalizeDecisionSignalSummary(
 
   if (priceWarnings.includes("RESISTANCE_TOO_CLOSE") && breakoutState !== "breakout_confirmed" && breakoutState !== "breakout_retest_confirmed") {
     warnings.push("CURRENT_ENTRY_SCORE_CAPPED");
-    overallScore = capSignalScore(overallScore, 64, warnings, "CURRENT_ENTRY_SCORE_CAPPED", overallReference);
+    overallScore = capSignalScore(overallScore, hasConstructiveAttemptEvidence ? refinedBand.overall[1] : 64, warnings, "CURRENT_ENTRY_SCORE_CAPPED", overallReference);
   }
 
   if (entryWarnings.some((warning) => /SCENARIO_INCOMPLETE|MISSING_CONFIRMATION|MISSING_INVALIDATION|MISSING_TARGET|LOW_RR_ENTRY/.test(warning)) || incompleteCount >= 2 || preferredIncomplete) {
-    overallScore = capSignalScore(overallScore, 60, warnings, "SCORE_CAPPED_BY_INCOMPLETE_SCENARIO", overallReference);
+    const incompleteCap = hasConstructiveAttemptEvidence ? (refinedRegime === "gap_breakout_attempt" ? 66 : 64) : 60;
+    overallScore = capSignalScore(overallScore, incompleteCap, warnings, "SCORE_CAPPED_BY_INCOMPLETE_SCENARIO", overallReference);
   }
 
   if (isBearishOrRiskDecisionState(context, tone)) {
@@ -3888,7 +4288,7 @@ function normalizeDecisionSignalSummary(
     breakoutState !== "breakout_confirmed" &&
     breakoutState !== "breakout_retest_confirmed"
   ) {
-    overallScore = capSignalScore(overallScore, 64, warnings, "SCORE_CAPPED_BY_STATE", overallReference);
+    overallScore = capSignalScore(overallScore, hasConstructiveAttemptEvidence ? refinedBand.overall[1] : 64, warnings, "SCORE_CAPPED_BY_STATE", overallReference);
   } else if (
     (context.chartRegime === "overheated_breakout" || context.chartRegime === "overextended_surge") &&
     breakoutState !== "breakout_retest_confirmed"
@@ -3898,7 +4298,8 @@ function normalizeDecisionSignalSummary(
 
   const lowDecisionConfidence = hasLowDecisionConfidence(report, context);
   if (lowDecisionConfidence) {
-    overallScore = capSignalScore(overallScore, 55, warnings, "SCORE_CAPPED_BY_CONFIDENCE", overallReference);
+    const confidenceCap = hasConstructiveAttemptEvidence && dataConfidenceScore >= 55 ? 60 : 55;
+    overallScore = capSignalScore(overallScore, confidenceCap, warnings, "SCORE_CAPPED_BY_CONFIDENCE", overallReference);
   }
 
   const hasInvalidLongRole = priceWarnings.some((warning) => /SUPPORT_ABOVE_CURRENT|INVALID_LONG_STOP|LONG_STOP_RECHECK_REQUIRED/.test(warning));
@@ -4182,7 +4583,25 @@ function buildDecisionPrimaryStrategy(
     breakoutState !== "breakout_retest_confirmed" &&
     breakoutState !== "failed_breakout";
   if (canUseRefinedPrimaryOverride) {
-    if (refinedRegime === "support_shock_test") {
+    if (refinedRegime === "gap_breakout_attempt") {
+      title = "갭 돌파 시도 / 안착 확인";
+      summary = "갭 상승 또는 강한 돌파 시도 구간입니다. 현재가 추격보다 돌파선 안착과 재지지 확인을 우선합니다.";
+      entryOverride = `${breakoutLevelText} 돌파 후 안착 확인`;
+      stopOverride = stopConditionFromZone(context.supportText, "갭 구간 이탈");
+      badgeOverrides.push("안착 확인", "비중 제한");
+    } else if (refinedRegime === "bullish_reversal_attempt") {
+      title = "상승 전환 시도 / 확인 필요";
+      summary = "하락 또는 횡보 이후 상승 전환을 시도하는 구간입니다. 신규 진입은 저항 돌파와 재지지 확인 이후 조건부로 봅니다.";
+      entryOverride = `${breakoutLevelText} 돌파 후 재지지 확인`;
+      stopOverride = stopConditionFromZone(context.supportText, "전환 시나리오 약화");
+      badgeOverrides.push("돌파 확인", "조건부 접근");
+    } else if (refinedRegime === "target_extension_only") {
+      title = "확장 목표 의존 / 1차 목표 확인";
+      summary = "가까운 1차 목표가 명확하지 않아 확장 목표만으로 점수를 높게 보기는 어렵습니다. 추가 목표와 지지 기준 확인이 필요합니다.";
+      entryOverride = `${breakoutLevelText} 또는 주요 지지 재확인`;
+      stopOverride = stopConditionFromZone(context.supportText, "지지 이탈");
+      badgeOverrides.push("목표 재확인", "비중 제한");
+    } else if (refinedRegime === "support_shock_test") {
       title = "급락 후 지지 테스트 / 반등 확인";
       summary = "고변동 상품의 급락 후 지지 테스트 구간입니다. 현재가 추격보다 지지 방어와 반등 지속 여부 확인이 우선입니다.";
       entryOverride = `${context.supportText} 지지 반응 확인 후 조건부 접근`;
@@ -4680,6 +5099,9 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
     !sameDisplayRoleZone(targetValue, resistanceValue) &&
     !sameDisplayRoleZone(targetValue, breakoutValue);
   const refinedRegime = decision.refinedRegime ?? "existing_regime";
+  const hasBullishAttemptEvidence = Boolean(decision.candleRiskProfile?.bullishReversalAttempt || decision.candleRiskProfile?.gapBreakoutAttempt);
+  const trendGate = decision.trendRegimeGate;
+  const reversalEvidenceCount = decision.candleRiskProfile?.reversalConfirmation.evidenceCount ?? 0;
 
   if (samePriceZone(currentValue, targetValue) && !hasDecisionWarning(decision, /TARGET_TOO_CLOSE|PRICE_ROLE_COLLAPSE/)) {
     warnings.push("TARGET_TOO_CLOSE: 현재가와 목표가가 같은 가격대로 표시될 수 있습니다.");
@@ -4785,6 +5207,56 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
     warnings.push("상승/모멘텀 기회가 감지됐지만 모든 진입 표시 점수가 45 미만입니다.");
   }
 
+  if (
+    trendGate?.reasonCodes.includes("SUPPORT_BONUS_BLOCKED_BY_TREND_GATE") &&
+    (
+      (trendGate.maxOverallByGate !== undefined && (overallScore ?? 0) > trendGate.maxOverallByGate) ||
+      (trendGate.maxCurrentEntryByGate !== undefined && (currentScore ?? 0) > trendGate.maxCurrentEntryByGate) ||
+      /상승 지속|매수 후보|분할진입 후보/i.test(finalText)
+    )
+  ) {
+    warnings.push("SUPPORT_BONUS_BLOCKED_BY_TREND_GATE: bearish/damaged trend support proximity is lifting the display too much.");
+  }
+
+  if (
+    decision.candleRiskProfile &&
+    (decision.candleRiskProfile.sharpDrop || decision.candleRiskProfile.largeBearishCandle || decision.candleRiskProfile.peakToCurrentDropRisk === "high") &&
+    reversalEvidenceCount < 2 &&
+    (/bullish_reversal_attempt|gap_breakout_attempt/.test(refinedRegime) || /상승 전환|갭 돌파|매수 후보/i.test(finalText))
+  ) {
+    warnings.push("OVERSOLD_WITHOUT_CONFIRMATION: oversold/large-decline evidence is being treated as reversal without confirmation.");
+  }
+
+  if (/bullish_reversal_attempt|gap_breakout_attempt/.test(refinedRegime) && reversalEvidenceCount < 2) {
+    warnings.push("REVERSAL_EVIDENCE_TOO_WEAK: reversal attempt needs at least two meaningful confirmation signals.");
+  }
+
+  if (
+    decision.instrumentRiskProfile?.isLeveraged &&
+    trendGate &&
+    !trendGate.reversalBonusAllowed &&
+    (trendGate.trendBias === "bearish" || trendGate.trendBias === "damaged") &&
+    (overallScore ?? 0) > 35
+  ) {
+    warnings.push("LEVERAGED_BEARISH_NO_CONFIRMATION_CAP: leveraged bearish setup without confirmation keeps overall score too high.");
+  }
+
+  if (refinedRegime === "support_shock_test" && /상승 지속|매수 후보|분할진입 후보/i.test(finalText)) {
+    warnings.push("SUPPORT_SHOCK_LABEL_CONFLICT: support shock should not show bullish continuation wording.");
+  }
+
+  if (
+    refinedRegime === "existing_regime" &&
+    (
+      Boolean(trendGate && trendGate.reasonCodes.some((code) => /TREND_GATE_BEARISH|TREND_GATE_DAMAGED|SUPPORT_BONUS_BLOCKED_BY_TREND_GATE|LEVERAGED_SHARP_DROP_TREND_GATE|TARGET_EXTENSION_NOT_TREND_BONUS/.test(code))) ||
+      Boolean(decision.instrumentRiskProfile?.isLeveraged) ||
+      Boolean(decision.candleRiskProfile && (decision.candleRiskProfile.largeBearishCandle || decision.candleRiskProfile.sharpDrop || decision.candleRiskProfile.parabolicAdvance || decision.candleRiskProfile.targetExtensionOnly)) ||
+      Boolean(decision.targetProfile && decision.targetProfile.targetQuality === "extended")
+    )
+  ) {
+    warnings.push("EXISTING_REGIME_WITH_MEANINGFUL_EVIDENCE: meaningful trend/candle/target evidence stayed in existing_regime.");
+  }
+
   if ((decision.finalActionTone === "risk" || decision.chartRegime === "support_breakdown" || decision.chartRegime === "downtrend") && (overallScore ?? 0) > 49 && !/SCORE_CAPPED_BY_STATE/.test(scoreWarningText)) {
     warnings.push("SCORE_CAPPED_BY_STATE: 위험/하락 상태인데 표시 종합 점수가 보수적으로 제한되지 않았습니다.");
   }
@@ -4819,6 +5291,42 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
 
   if (refinedRegime === "parabolic_risk" && decision.targetProfile?.targetQuality === "clear" && decision.targetProfile.extensionTarget === null) {
     warnings.push("PARABOLIC_TARGET_PROFILE_WEAK: parabolic risk should distinguish clear, extended, or uncertain targets.");
+  }
+
+  if (hasBullishAttemptEvidence && refinedRegime === "existing_regime") {
+    warnings.push("BULLISH_ATTEMPT_STILL_EXISTING_REGIME: bullish/gap attempt evidence was not segmented.");
+  }
+
+  if (refinedRegime === "bullish_reversal_attempt" && (breakoutScore ?? 0) <= (currentScore ?? 0)) {
+    warnings.push("BULLISH_REVERSAL_BREAKOUT_NOT_PRIORITIZED: breakout entry should outrank current entry in reversal attempts.");
+  }
+
+  if (refinedRegime === "gap_breakout_attempt" && (breakoutScore ?? 0) < 65) {
+    warnings.push("GAP_BREAKOUT_SCORE_TOO_LOW: gap breakout attempt needs breakout score >= 65.");
+  }
+
+  if ((refinedRegime === "parabolic_risk" || refinedRegime === "target_extension_only") && (riskRewardScore ?? 0) > 60) {
+    warnings.push("TARGET_EXTENSION_RR_TOO_HIGH: extension-only/parabolic target profile should not show high RR score.");
+  }
+
+  if (refinedRegime === "support_shock_test" && (overallScore ?? 0) > 52) {
+    warnings.push("SUPPORT_SHOCK_OVERALL_TOO_HIGH: support shock overall score should stay capped.");
+  }
+
+  if (
+    decision.instrumentRiskProfile?.isLeveraged &&
+    (decision.candleRiskProfile?.largeBearishCandle || decision.candleRiskProfile?.highVolumeDrop || decision.candleRiskProfile?.sharpDrop) &&
+    (currentScore ?? 0) > 35
+  ) {
+    warnings.push("LEVERAGED_SHARP_DROP_CURRENT_TOO_HIGH: leveraged sharp-drop current entry score should stay capped.");
+  }
+
+  if (
+    refinedRegime === "confirmed_breakout" &&
+    (overallScore ?? 0) < 65 &&
+    !/SCORE_CAPPED_BY_PRICE_COLLAPSE|SCORE_CAPPED_BY_LOW_RR|SCORE_CAPPED_BY_INCOMPLETE_SCENARIO|BREAKOUT_SCORE_CAPPED|TARGET_EXTENSION_NOT_SCORE_DRIVER|TARGET_UNCERTAINTY_CAP/.test(scoreWarningText)
+  ) {
+    warnings.push("CONFIRMED_BREAKOUT_OVERALL_TOO_LOW: confirmed breakout should keep constructive overall score.");
   }
 
   if ((decision.finalActionTone === "risk" || /위험 관리|신규 진입 보류/.test(finalText)) && (currentScore ?? 0) > 45) {
@@ -4963,9 +5471,10 @@ export function buildReportDecision(
   const tone = finalActionTone(report, context, finalAction, breakoutState, trendOpportunity);
   const normalizedPriceRoles = normalizeDecisionPriceRoles(report, rawReport, context, dataset);
   const instrumentRiskProfile = deriveInstrumentRiskProfile(rawReport, report);
-  const candleRiskProfile = deriveCandleRiskProfile(report, context, dataset.indicators);
   const targetProfile = deriveTargetProfile(context, report);
-  const refinedRegime = deriveRefinedRegime(report, context, breakoutState, instrumentRiskProfile, candleRiskProfile, targetProfile);
+  const candleRiskProfile = deriveCandleRiskProfile(report, context, dataset.indicators, rawReport, targetProfile);
+  const trendRegimeGate = deriveTrendRegimeGate(report, context, breakoutState, instrumentRiskProfile, candleRiskProfile, targetProfile, dataset.indicators);
+  const refinedRegime = deriveRefinedRegime(report, context, breakoutState, instrumentRiskProfile, candleRiskProfile, targetProfile, trendRegimeGate);
   const calibratedEntryStrategies = calibrateReportDecisionEntries(baseEntryStrategies, report, context, breakoutState, trendOpportunity, tone);
   const refinedEntryCalibration = calibrateScoresByRefinedRegime(
     calibratedEntryStrategies,
@@ -4976,6 +5485,7 @@ export function buildReportDecision(
     instrumentRiskProfile,
     candleRiskProfile,
     targetProfile,
+    trendRegimeGate,
   );
   const normalizedEntryStrategies = normalizeDecisionEntryStrategies(
     refinedEntryCalibration.entryStrategies,
@@ -4985,6 +5495,7 @@ export function buildReportDecision(
     normalizedPriceRoles.warnings,
     breakoutState,
     trendOpportunity,
+    trendRegimeGate,
     tone,
   );
   let entryStrategies = normalizedEntryStrategies.entryStrategies;
@@ -5037,6 +5548,7 @@ export function buildReportDecision(
     instrumentRiskProfile,
     candleRiskProfile,
     targetProfile,
+    trendRegimeGate,
     refinedEntryCalibration.scoreWarnings,
     refinedEntryCalibration.overallSeed,
   );
@@ -5048,6 +5560,7 @@ export function buildReportDecision(
     instrumentRiskProfile,
     candleRiskProfile,
     targetProfile,
+    trendRegimeGate,
     finalActionState: getActionState(report),
     finalActionLabel: primaryStrategy.title,
     finalActionTone: tone,

@@ -3,10 +3,39 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
+const guideTitle = "CHART VISION AI 사용 방법 | AI 주식 차트 분석 가이드";
+const guideDescription =
+  "차트 이미지를 업로드하고 AI가 생성한 주식 차트 분석 리포트를 확인하는 방법을 단계별로 안내합니다. RSI, MACD, 지지선, 저항선, 거래량을 참고하는 투자 참고용 분석 가이드입니다.";
+const guideUrl = "https://www.chartvisionai.site/guide";
+
 export const metadata: Metadata = {
-  title: "CHART VISION AI 사용 방법 | AI 주식 차트 분석 가이드",
-  description:
-    "차트 이미지를 업로드하고 AI가 생성한 주식 차트 분석 리포트를 확인하는 방법을 단계별로 안내합니다. RSI, MACD, 지지선, 저항선, 거래량을 참고하는 투자 참고용 분석 가이드입니다.",
+  title: guideTitle,
+  description: guideDescription,
+  alternates: {
+    canonical: "/guide",
+  },
+  openGraph: {
+    title: guideTitle,
+    description: guideDescription,
+    url: guideUrl,
+    siteName: "CHART VISION AI",
+    images: [
+      {
+        url: "https://www.chartvisionai.site/logo.png",
+        width: 1000,
+        height: 1000,
+        alt: "CHART VISION AI",
+      },
+    ],
+    type: "article",
+    locale: "ko_KR",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: guideTitle,
+    description: guideDescription,
+    images: ["https://www.chartvisionai.site/logo.png"],
+  },
 };
 
 const guideSteps = [

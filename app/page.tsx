@@ -146,6 +146,13 @@ const faqItems = [
   },
 ];
 
+const footerLinks = [
+  { href: "/guide", label: "사용 방법" },
+  { href: "/privacy", label: "개인정보처리방침" },
+  { href: "/terms", label: "이용약관" },
+  { href: "/disclaimer", label: "투자 유의사항" },
+];
+
 const allowedModesByPlan: Record<UserPlan, AnalysisMode[]> = {
   guest: ["fast"],
   free: ["fast"],
@@ -750,6 +757,17 @@ export default function Home() {
         ) : null}
 
         <HomepagePublisherContent />
+
+        <nav
+          aria-label="서비스 안내 링크"
+          className="flex flex-wrap gap-x-4 gap-y-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs font-semibold text-slate-500 shadow-soft"
+        >
+          {footerLinks.map((item) => (
+            <Link key={item.href} href={item.href} className="hover:text-blue-700">
+              {item.label}
+            </Link>
+          ))}
+        </nav>
 
         <p className="text-xs leading-6 text-slate-500">
           투자 판단은 본인의 책임입니다. 본 서비스는 차트 기반 기술적 분석 참고 자료를 제공하며, 매수·매도 추천이나 수익 보장을 의미하지 않습니다.

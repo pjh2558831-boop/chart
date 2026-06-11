@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import AdSenseScript from "../components/AdSenseScript";
 import { AuthProvider } from "../context/AuthContext";
 import "./globals.css";
 
@@ -15,11 +16,21 @@ const organizationJsonLd = {
   url: siteUrl,
   logo: `${siteUrl}/logo.png`,
 };
+const websiteJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "CHART VISION AI",
+  url: `${siteUrl}/`,
+  description: "차트 이미지를 기반으로 AI 주식 차트 분석 리포트를 제공하는 서비스입니다.",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: seoTitle,
   description: seoDescription,
+  alternates: {
+    canonical: "/",
+  },
   keywords: [
     "CHART VISION AI",
     "AI 주식 차트 분석",
@@ -74,17 +85,15 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko">
-      <head>
-        <script
-          async
-          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5178506221455818"
-          crossOrigin="anonymous"
-        />
-      </head>
       <body>
+        <AdSenseScript />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
         />
         <AuthProvider>{children}</AuthProvider>
       </body>

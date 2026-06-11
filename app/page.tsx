@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import AnalysisResult from "../components/AnalysisResult";
@@ -38,6 +38,122 @@ const analysisModeOptions: Array<{ value: AnalysisMode; label: string; descripti
     value: "precision",
     label: "정밀 분석",
     description: "보조지표와 중앙 차트 영역까지 더 자세히 확인합니다.",
+  },
+];
+
+const analysisProcessCards = [
+  {
+    title: "차트 이미지 업로드",
+    body: "사용자가 주식 차트 이미지를 업로드하면 AI가 이미지 안의 가격 흐름, 캔들 구조, 보조지표와 주요 가격 구간을 인식합니다.",
+  },
+  {
+    title: "추세와 흐름 파악",
+    body: "상승 추세, 하락 추세, 횡보 구간을 구분해 현재 차트가 어떤 방향성과 힘을 보이는지 정리합니다.",
+  },
+  {
+    title: "기술지표 해석",
+    body: "RSI, MACD, 이동평균선, 거래량처럼 이미지에서 확인 가능한 보조지표를 함께 참고해 분석 신뢰도를 높입니다.",
+  },
+  {
+    title: "지지선과 저항선 확인",
+    body: "가격이 반등하거나 막힐 가능성이 있는 주요 지지선과 저항선 후보를 찾아 대응 기준으로 정리합니다.",
+  },
+  {
+    title: "분석 리포트 생성",
+    body: "진입 후보, 손절 기준, 목표가 후보, 리스크 요인을 정리한 차트 기반 투자 참고 리포트를 생성합니다.",
+  },
+];
+
+const indicatorExplanationCards = [
+  {
+    title: "RSI",
+    body: "RSI는 가격이 단기간에 과하게 올랐는지, 또는 과하게 내려갔는지를 확인하는 모멘텀 지표입니다. 다만 RSI 하나만으로 매수·매도를 판단하기보다 추세, 거래량, 지지선과 함께 해석해야 합니다.",
+  },
+  {
+    title: "MACD",
+    body: "MACD는 단기 이동평균과 장기 이동평균의 차이를 활용해 추세 전환 가능성을 참고하는 지표입니다. MACD선과 신호선의 교차, 히스토그램 변화는 상승 또는 하락 흐름을 판단하는 보조 단서가 됩니다.",
+  },
+  {
+    title: "이동평균선",
+    body: "이동평균선은 일정 기간의 평균 가격을 연결한 선입니다. 가격이 이동평균선 위에 있는지, 아래에 있는지에 따라 추세의 방향과 강도를 참고할 수 있습니다.",
+  },
+  {
+    title: "거래량",
+    body: "거래량은 가격 움직임에 참여한 시장의 힘을 보여줍니다. 가격 상승과 함께 거래량이 증가하면 신뢰도가 높아질 수 있고, 거래량이 부족한 움직임은 되돌림 위험을 함께 고려해야 합니다.",
+  },
+  {
+    title: "지지선",
+    body: "지지선은 가격이 하락하다가 매수세가 들어올 가능성이 있는 구간입니다. 과거에 여러 번 반등한 가격대일수록 중요한 지지 구간으로 볼 수 있습니다.",
+  },
+  {
+    title: "저항선",
+    body: "저항선은 가격이 상승하다가 매도 압력이 강해질 수 있는 구간입니다. 과거에 여러 번 돌파에 실패한 가격대는 중요한 저항 구간이 될 수 있습니다.",
+  },
+  {
+    title: "추세선",
+    body: "추세선은 고점과 저점의 흐름을 연결해 가격의 방향성을 확인하는 기준입니다. 상승 추세선이 유지되는지, 추세가 훼손되는지는 리스크 관리에 중요한 참고 요소입니다.",
+  },
+];
+
+const serviceBenefitCards = [
+  {
+    title: "복잡한 설정 없이 사용",
+    body: "차트 이미지만 업로드하면 분석을 시작할 수 있어 기술적 분석에 익숙하지 않은 사용자도 쉽게 사용할 수 있습니다.",
+  },
+  {
+    title: "핵심 가격대 정리",
+    body: "지지선, 저항선, 손절 기준, 목표가 후보처럼 매매 판단에 필요한 가격 구간을 한눈에 확인할 수 있습니다.",
+  },
+  {
+    title: "감정적 매매 방지",
+    body: "급등 추격이나 불안한 손절처럼 감정에 흔들리는 판단을 줄이고, 차트 기준의 대응 계획을 세우는 데 도움을 줍니다.",
+  },
+  {
+    title: "기술적 분석 학습 보조",
+    body: "분석 결과를 보면서 RSI, MACD, 거래량, 지지선, 저항선이 실제 차트에서 어떻게 해석되는지 학습할 수 있습니다.",
+  },
+];
+
+const faqItems = [
+  {
+    question: "CHART VISION AI는 어떤 서비스인가요?",
+    answer: "CHART VISION AI는 사용자가 업로드한 주식 차트 이미지를 AI가 분석해 추세, 지지선, 저항선, 기술지표, 리스크 요인을 정리해주는 차트 분석 보조 서비스입니다.",
+  },
+  {
+    question: "AI 분석 결과는 투자 추천인가요?",
+    answer: "아닙니다. CHART VISION AI의 분석 결과는 투자 참고 정보입니다. 특정 종목의 매수·매도 추천이 아니며, 최종 투자 판단과 책임은 사용자 본인에게 있습니다.",
+  },
+  {
+    question: "어떤 차트를 분석할 수 있나요?",
+    answer: "국내 주식, 해외 주식, ETF 등 일반적인 캔들 차트 이미지를 분석할 수 있습니다. 다만 이미지가 흐리거나 가격축과 지표가 보이지 않는 경우 분석 정확도가 낮아질 수 있습니다.",
+  },
+  {
+    question: "RSI나 MACD가 없는 차트도 분석되나요?",
+    answer: "가능합니다. RSI나 MACD가 보이지 않는 경우에는 가격 흐름, 캔들 구조, 지지선, 저항선, 추세를 중심으로 분석합니다. 보조지표가 함께 보이면 더 풍부한 해석이 가능합니다.",
+  },
+  {
+    question: "분석 결과가 항상 맞나요?",
+    answer: "아닙니다. 기술적 분석은 확률적 판단 도구이며 미래 가격을 보장하지 않습니다. 시장 뉴스, 실적, 금리, 수급, 거래량 변화에 따라 결과는 달라질 수 있습니다.",
+  },
+  {
+    question: "초보 투자자도 사용할 수 있나요?",
+    answer: "네. 복잡한 차트 용어를 몰라도 핵심 가격대와 리스크 요인을 쉽게 확인할 수 있도록 구성되어 있습니다. 동시에 기술적 분석을 공부하는 보조 자료로도 활용할 수 있습니다.",
+  },
+  {
+    question: "회원가입 없이 사용할 수 있나요?",
+    answer: "일부 무료 체험은 로그인 없이 사용할 수 있습니다. 분석 기록 저장이나 확장 기능은 로그인 후 제공될 수 있으며, 실제 사용 가능 범위는 현재 서비스 정책을 기준으로 적용됩니다.",
+  },
+  {
+    question: "업로드한 이미지는 어떻게 사용되나요?",
+    answer: "업로드한 이미지는 차트 분석을 위해 사용됩니다. 개인정보와 데이터 보관 방식은 서비스의 개인정보 처리 기준에 따라 안내되어야 하며, 민감한 개인정보가 포함된 이미지는 업로드하지 않는 것이 좋습니다.",
+  },
+  {
+    question: "왜 지지선과 저항선이 중요한가요?",
+    answer: "지지선은 가격이 반등할 가능성이 있는 구간이고, 저항선은 가격 상승이 막힐 가능성이 있는 구간입니다. 두 가격대는 진입, 손절, 목표가를 계획하는 중요한 기준이 됩니다.",
+  },
+  {
+    question: "AI 차트 분석만 보고 매매해도 되나요?",
+    answer: "권장하지 않습니다. AI 분석은 참고 자료입니다. 실제 투자는 기업 실적, 시장 상황, 뉴스, 거래량, 본인의 투자 성향과 리스크 관리 기준을 함께 고려해야 합니다.",
   },
 ];
 
@@ -129,6 +245,95 @@ function LoadingAnalysisCard({ stepIndex }: { stepIndex: number }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function HomepageContentSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+      <div className="max-w-3xl">
+        <h2 className="text-2xl font-bold tracking-tight text-slate-950">{title}</h2>
+        {description ? <p className="mt-3 text-sm leading-7 text-slate-600">{description}</p> : null}
+      </div>
+      <div className="mt-6">{children}</div>
+    </section>
+  );
+}
+
+function HomepageInfoCard({ title, body }: { title: string; body: string }) {
+  return (
+    <article className="h-full rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <h3 className="text-base font-bold text-slate-950">{title}</h3>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
+    </article>
+  );
+}
+
+function HomepagePublisherContent() {
+  return (
+    <div className="space-y-6">
+      <HomepageContentSection
+        title="CHART VISION AI 분석 과정"
+        description="CHART VISION AI는 차트 이미지를 기반으로 가격 흐름, 기술적 지표, 주요 가격 구간을 단계적으로 해석하여 사용자가 참고할 수 있는 분석 리포트를 제공합니다."
+      >
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          {analysisProcessCards.map((card) => (
+            <HomepageInfoCard key={card.title} title={card.title} body={card.body} />
+          ))}
+        </div>
+      </HomepageContentSection>
+
+      <HomepageContentSection
+        title="AI가 참고하는 주요 기술지표"
+        description="기술적 분석은 하나의 지표만으로 판단하지 않고 여러 지표를 함께 확인해야 의미가 있습니다. CHART VISION AI는 차트 이미지에서 확인 가능한 요소를 종합적으로 해석합니다."
+      >
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {indicatorExplanationCards.map((card) => (
+            <HomepageInfoCard key={card.title} title={card.title} body={card.body} />
+          ))}
+        </div>
+      </HomepageContentSection>
+
+      <HomepageContentSection title="왜 CHART VISION AI를 사용하나요?">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {serviceBenefitCards.map((card) => (
+            <HomepageInfoCard key={card.title} title={card.title} body={card.body} />
+          ))}
+        </div>
+      </HomepageContentSection>
+
+      <HomepageContentSection title="자주 묻는 질문">
+        <div className="grid gap-3 md:grid-cols-2">
+          {faqItems.map((item) => (
+            <details key={item.question} className="group rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <summary className="cursor-pointer list-none text-sm font-bold text-slate-950">
+                {item.question}
+                <span className="ml-2 text-blue-600 group-open:hidden">+</span>
+                <span className="ml-2 hidden text-blue-600 group-open:inline">-</span>
+              </summary>
+              <p className="mt-3 text-sm leading-6 text-slate-600">{item.answer}</p>
+            </details>
+          ))}
+        </div>
+      </HomepageContentSection>
+
+      <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm leading-7 text-amber-900 shadow-soft sm:p-6">
+        <h2 className="text-xl font-bold text-amber-950">투자 유의사항</h2>
+        <p className="mt-3">
+          CHART VISION AI는 투자 참고 정보 제공 서비스입니다. 본 서비스에서 제공하는 분석 결과는 특정 종목의 매수, 매도,
+          보유를 권유하는 투자 자문이 아닙니다. 기술적 분석과 AI 분석은 미래 수익을 보장하지 않으며, 모든 투자 판단과 그
+          결과에 대한 책임은 사용자 본인에게 있습니다.
+        </p>
+      </section>
+    </div>
   );
 }
 
@@ -402,6 +607,8 @@ export default function Home() {
             </article>
           ))}
         </section>
+
+        <HomepagePublisherContent />
 
         <UsageStatusCard
           usageStatus={usageStatus}

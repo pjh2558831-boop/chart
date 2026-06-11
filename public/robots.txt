@@ -1,4 +1,8 @@
 User-agent: *
 Allow: /
+Allow: /favicon.ico
+Allow: /icon.png
+Allow: /apple-touch-icon.png
+Allow: /logo.png
 
 Sitemap: https://www.chartvisionai.site/sitemap.xml

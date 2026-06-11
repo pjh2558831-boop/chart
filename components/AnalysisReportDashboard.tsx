@@ -171,9 +171,18 @@ function heroTickerText(value: string | number | null | undefined) {
 }
 
 function getHeroTickerClassName(value: string | number | null | undefined) {
-  return isTickerFallback(value)
-    ? "max-w-full whitespace-normal text-[clamp(1.75rem,3vw,2.65rem)] font-extrabold leading-tight tracking-normal text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]"
-    : "max-w-full overflow-visible whitespace-nowrap text-[clamp(2.2rem,4.4vw,4.25rem)] font-extrabold leading-none tracking-normal text-slate-950 [text-overflow:clip]";
+  if (isTickerFallback(value)) {
+    return "block max-w-full min-w-0 whitespace-normal text-[clamp(1.55rem,2.6vw,2.2rem)] font-extrabold leading-tight tracking-normal text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]";
+  }
+
+  const length = safeValue(value, "").trim().length;
+  if (length <= 4) {
+    return "block max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(2.25rem,4.2vw,4rem)] font-extrabold leading-none tracking-normal text-slate-950 [text-overflow:clip]";
+  }
+  if (length <= 6) {
+    return "block max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(2rem,3.55vw,3.3rem)] font-extrabold leading-none tracking-normal text-slate-950 [text-overflow:clip]";
+  }
+  return "block max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(1.75rem,3vw,2.65rem)] font-extrabold leading-none tracking-normal text-slate-950 [text-overflow:clip]";
 }
 
 function isUnsafeHeroDisplayText(value: string | number | null | undefined) {
@@ -230,9 +239,21 @@ function heroPriceText(value: string | number | null | undefined) {
 }
 
 function getHeroPriceClassName(value: string | number | null | undefined) {
-  return isResolvedPriceText(value)
-    ? "max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(2.5rem,5vw,4.5rem)] font-extrabold leading-none tracking-[-0.02em] text-slate-950 [text-overflow:clip]"
-    : "max-w-full min-w-0 whitespace-normal text-[clamp(1.25rem,2vw,2rem)] font-extrabold leading-tight tracking-normal text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]";
+  if (!isResolvedPriceText(value)) {
+    return "block max-w-full min-w-0 whitespace-normal text-[clamp(1.25rem,2vw,2rem)] font-extrabold leading-tight tracking-normal text-slate-950 [overflow-wrap:break-word] [word-break:keep-all]";
+  }
+
+  const length = safeValue(value, "").replace(/\s+/g, "").length;
+  if (length <= 4) {
+    return "block max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(2.55rem,5vw,4.5rem)] font-extrabold leading-none tracking-[-0.02em] text-slate-950 [font-variant-numeric:tabular-nums] [text-overflow:clip]";
+  }
+  if (length <= 7) {
+    return "block max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(2.25rem,4.35vw,3.8rem)] font-extrabold leading-none tracking-[-0.02em] text-slate-950 [font-variant-numeric:tabular-nums] [text-overflow:clip]";
+  }
+  if (length <= 10) {
+    return "block max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(1.9rem,3.75vw,3.1rem)] font-extrabold leading-none tracking-[-0.02em] text-slate-950 [font-variant-numeric:tabular-nums] [text-overflow:clip]";
+  }
+  return "block max-w-full min-w-0 overflow-visible whitespace-nowrap text-[clamp(1.5rem,3vw,2.45rem)] font-extrabold leading-none tracking-[-0.01em] text-slate-950 [font-variant-numeric:tabular-nums] [text-overflow:clip]";
 }
 
 function scoreText(score: number | null | undefined) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import AnalysisResult from "../components/AnalysisResult";
@@ -623,6 +624,13 @@ export default function Home() {
               <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
             </article>
           ))}
+        </section>
+
+        <section className="flex flex-col gap-2 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900 sm:flex-row sm:items-center sm:justify-between">
+          <p className="font-semibold">처음 사용하시나요? 차트 업로드부터 리포트 확인까지 사용 방법을 볼 수 있습니다.</p>
+          <Link href="/guide" className="inline-flex shrink-0 font-bold text-blue-700 hover:text-blue-800">
+            사용 설명서 보기
+          </Link>
         </section>
 
         <UsageStatusCard

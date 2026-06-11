@@ -4,5 +4,6 @@ Allow: /favicon.ico
 Allow: /icon.png
 Allow: /apple-touch-icon.png
 Allow: /logo.png
+Disallow: /api/
 
 Sitemap: https://www.chartvisionai.site/sitemap.xml

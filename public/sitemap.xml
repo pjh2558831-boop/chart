@@ -2,7 +2,27 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://www.chartvisionai.site/</loc>
-    <lastmod>2026-05-10</lastmod>
+    <lastmod>2026-06-11</lastmod>
     <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://www.chartvisionai.site/guide</loc>
+    <lastmod>2026-06-11</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.chartvisionai.site/privacy</loc>
+    <lastmod>2026-06-11</lastmod>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://www.chartvisionai.site/terms</loc>
+    <lastmod>2026-06-11</lastmod>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://www.chartvisionai.site/disclaimer</loc>
+    <lastmod>2026-06-11</lastmod>
+    <priority>0.5</priority>
   </url>
 </urlset>

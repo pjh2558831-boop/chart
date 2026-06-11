@@ -43,24 +43,16 @@ const analysisModeOptions: Array<{ value: AnalysisMode; label: string; descripti
 
 const analysisProcessCards = [
   {
-    title: "차트 이미지 업로드",
-    body: "사용자가 주식 차트 이미지를 업로드하면 AI가 이미지 안의 가격 흐름, 캔들 구조, 보조지표와 주요 가격 구간을 인식합니다.",
+    title: "차트 업로드",
+    body: "분석할 주식 차트 이미지를 업로드합니다.",
   },
   {
-    title: "추세와 흐름 파악",
-    body: "상승 추세, 하락 추세, 횡보 구간을 구분해 현재 차트가 어떤 방향성과 힘을 보이는지 정리합니다.",
+    title: "AI 기술적 분석",
+    body: "AI가 추세, 거래량, 지지선, 저항선, RSI, MACD 등 확인 가능한 요소를 종합적으로 해석합니다.",
   },
   {
-    title: "기술지표 해석",
-    body: "RSI, MACD, 이동평균선, 거래량처럼 이미지에서 확인 가능한 보조지표를 함께 참고해 분석 신뢰도를 높입니다.",
-  },
-  {
-    title: "지지선과 저항선 확인",
-    body: "가격이 반등하거나 막힐 가능성이 있는 주요 지지선과 저항선 후보를 찾아 대응 기준으로 정리합니다.",
-  },
-  {
-    title: "분석 리포트 생성",
-    body: "진입 후보, 손절 기준, 목표가 후보, 리스크 요인을 정리한 차트 기반 투자 참고 리포트를 생성합니다.",
+    title: "리포트 확인",
+    body: "진입 후보, 핵심 가격대, 리스크 요인을 투자 참고용 리포트로 확인합니다.",
   },
 ];
 
@@ -98,19 +90,15 @@ const indicatorExplanationCards = [
 const serviceBenefitCards = [
   {
     title: "복잡한 설정 없이 사용",
-    body: "차트 이미지만 업로드하면 분석을 시작할 수 있어 기술적 분석에 익숙하지 않은 사용자도 쉽게 사용할 수 있습니다.",
+    body: "차트 이미지만 업로드하면 분석을 시작할 수 있습니다.",
   },
   {
     title: "핵심 가격대 정리",
-    body: "지지선, 저항선, 손절 기준, 목표가 후보처럼 매매 판단에 필요한 가격 구간을 한눈에 확인할 수 있습니다.",
+    body: "지지선, 저항선, 손절 기준, 목표가 후보처럼 중요한 가격 구간을 한눈에 확인할 수 있습니다.",
   },
   {
     title: "감정적 매매 방지",
-    body: "급등 추격이나 불안한 손절처럼 감정에 흔들리는 판단을 줄이고, 차트 기준의 대응 계획을 세우는 데 도움을 줍니다.",
-  },
-  {
-    title: "기술적 분석 학습 보조",
-    body: "분석 결과를 보면서 RSI, MACD, 거래량, 지지선, 저항선이 실제 차트에서 어떻게 해석되는지 학습할 수 있습니다.",
+    body: "급등 추격이나 불안한 손절을 줄이고 차트 기준의 대응 계획을 세우는 데 도움을 줍니다.",
   },
 ];
 
@@ -268,6 +256,40 @@ function HomepageContentSection({
   );
 }
 
+function HomepageExpandableSection({
+  title,
+  description,
+  openLabel,
+  closeLabel,
+  children,
+}: {
+  title: string;
+  description: string;
+  openLabel: string;
+  closeLabel: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="group rounded-lg border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+      <summary className="list-none">
+        <div className="flex cursor-pointer flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="max-w-3xl">
+            <h2 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{title}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+          </div>
+          <span className="inline-flex shrink-0 items-center justify-center rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 transition group-open:hidden">
+            {openLabel}
+          </span>
+          <span className="hidden shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-bold text-slate-700 transition group-open:inline-flex">
+            {closeLabel}
+          </span>
+        </div>
+      </summary>
+      <div className="mt-5">{children}</div>
+    </details>
+  );
+}
+
 function HomepageInfoCard({ title, body }: { title: string; body: string }) {
   return (
     <article className="h-full rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -281,49 +303,52 @@ function HomepagePublisherContent() {
   return (
     <div className="space-y-6">
       <HomepageContentSection
-        title="CHART VISION AI 분석 과정"
-        description="CHART VISION AI는 차트 이미지를 기반으로 가격 흐름, 기술적 지표, 주요 가격 구간을 단계적으로 해석하여 사용자가 참고할 수 있는 분석 리포트를 제공합니다."
+        title="CHART VISION AI 분석 흐름"
+        description="차트 이미지를 업로드하면 AI가 확인 가능한 기술적 요소를 정리하고, 투자 참고용 리포트로 요약합니다."
       >
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-3">
           {analysisProcessCards.map((card) => (
             <HomepageInfoCard key={card.title} title={card.title} body={card.body} />
           ))}
         </div>
       </HomepageContentSection>
 
-      <HomepageContentSection
+      <HomepageExpandableSection
         title="AI가 참고하는 주요 기술지표"
-        description="기술적 분석은 하나의 지표만으로 판단하지 않고 여러 지표를 함께 확인해야 의미가 있습니다. CHART VISION AI는 차트 이미지에서 확인 가능한 요소를 종합적으로 해석합니다."
+        description="RSI, MACD, 이동평균선, 거래량, 지지선, 저항선 등 차트 해석에 사용하는 주요 기준을 확인할 수 있습니다."
+        openLabel="기술지표 설명 보기"
+        closeLabel="기술지표 설명 접기"
       >
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {indicatorExplanationCards.map((card) => (
             <HomepageInfoCard key={card.title} title={card.title} body={card.body} />
           ))}
         </div>
-      </HomepageContentSection>
+      </HomepageExpandableSection>
 
       <HomepageContentSection title="왜 CHART VISION AI를 사용하나요?">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3">
           {serviceBenefitCards.map((card) => (
             <HomepageInfoCard key={card.title} title={card.title} body={card.body} />
           ))}
         </div>
       </HomepageContentSection>
 
-      <HomepageContentSection title="자주 묻는 질문">
+      <HomepageExpandableSection
+        title="자주 묻는 질문"
+        description="AI 분석 결과, 지원 차트, 투자 책임, 이미지 처리 방식 등 자주 묻는 내용을 확인할 수 있습니다."
+        openLabel="FAQ 전체 보기"
+        closeLabel="FAQ 접기"
+      >
         <div className="grid gap-3 md:grid-cols-2">
           {faqItems.map((item) => (
-            <details key={item.question} className="group rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <summary className="cursor-pointer list-none text-sm font-bold text-slate-950">
-                {item.question}
-                <span className="ml-2 text-blue-600 group-open:hidden">+</span>
-                <span className="ml-2 hidden text-blue-600 group-open:inline">-</span>
-              </summary>
+            <article key={item.question} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-sm font-bold text-slate-950">{item.question}</h3>
               <p className="mt-3 text-sm leading-6 text-slate-600">{item.answer}</p>
-            </details>
+            </article>
           ))}
         </div>
-      </HomepageContentSection>
+      </HomepageExpandableSection>
 
       <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm leading-7 text-amber-900 shadow-soft sm:p-6">
         <h2 className="text-xl font-bold text-amber-950">투자 유의사항</h2>
@@ -587,19 +612,11 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="rounded-lg border border-blue-100 bg-blue-50 px-5 py-4 text-sm leading-6 text-blue-900 shadow-soft">
-          <p className="font-semibold text-blue-950">이미지만 올리면 끝나는 차트 분석</p>
-          <p className="mt-2">
-            복잡한 설정 없이 차트 이미지만 업로드하세요. RSI, MACD, 이동평균선, 거래량, 지지선과 저항선을 종합해 현재 차트 흐름을 분석합니다.
-          </p>
-        </section>
-
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-3">
           {[
             ["AI 차트 이미지 분석", "업로드한 차트 이미지를 기반으로 현재 추세와 주요 가격 구간을 정리합니다."],
             ["지지선과 저항선 분석", "이미지에서 확인되는 지지 후보와 저항 후보를 분리해 대응 기준을 보여줍니다."],
             ["RSI, MACD 기반 기술적 분석", "보조지표가 보이는 경우 RSI, MACD, 이동평균선 등 기술적 분석 요소를 함께 해석합니다."],
-            ["투자 판단 보조용 분석 리포트", "매수·매도 추천이 아니라 차트 기반 참고 리포트로 진입, 손절, 목표 후보를 정리합니다."],
           ].map(([title, description]) => (
             <article key={title} className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
               <h2 className="text-base font-semibold text-slate-950">{title}</h2>
@@ -607,8 +624,6 @@ export default function Home() {
             </article>
           ))}
         </section>
-
-        <HomepagePublisherContent />
 
         <UsageStatusCard
           usageStatus={usageStatus}
@@ -725,6 +740,8 @@ export default function Home() {
             <AnalysisResult result={analysisResult} />
           </div>
         ) : null}
+
+        <HomepagePublisherContent />
 
         <p className="text-xs leading-6 text-slate-500">
           투자 판단은 본인의 책임입니다. 본 서비스는 차트 기반 기술적 분석 참고 자료를 제공하며, 매수·매도 추천이나 수익 보장을 의미하지 않습니다.

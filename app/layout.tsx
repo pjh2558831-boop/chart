@@ -32,8 +32,8 @@ export const metadata: Metadata = {
   ],
   icons: {
     icon: [
-      { url: "/favicon.ico" },
-      { url: "/icon.png", type: "image/png" },
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.png", sizes: "512x512", type: "image/png" },
     ],
     shortcut: "/favicon.ico",
     apple: "/apple-touch-icon.png",
@@ -46,8 +46,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: `${siteUrl}/logo.png`,
-        width: 1200,
-        height: 630,
+        width: 1000,
+        height: 1000,
         alt: "CHART VISION AI",
       },
     ],

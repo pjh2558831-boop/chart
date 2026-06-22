@@ -46,6 +46,7 @@ export async function generateMetadata({
         },
       ],
       type: "article",
+      publishedTime: report.uploadedAt,
       locale: "ko_KR",
     },
     twitter: {
@@ -89,6 +90,9 @@ export default async function ExampleDetailPage({
             <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
               {report.heading}
             </h1>
+            <p className="mt-2 text-sm font-medium text-slate-500">
+              업로드 날짜 <time dateTime={report.uploadedAt}>{report.uploadedAtLabel}</time>
+            </p>
             <p className="mt-4 text-base leading-7 text-slate-600">{report.intro}</p>
           </div>
         </header>

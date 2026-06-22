@@ -102,6 +102,9 @@ export default function ExamplesPage() {
                     {report.companyName} · {report.market}
                   </p>
                   <h3 className="mt-2 text-xl font-bold text-slate-950">{report.indexTitle}</h3>
+                  <p className="mt-2 text-xs font-medium text-slate-500">
+                    업로드 날짜 <time dateTime={report.uploadedAt}>{report.uploadedAtLabel}</time>
+                  </p>
                   <p className="mt-3 text-sm leading-6 text-slate-600">{report.indexDescription}</p>
                   <Link
                     href={`/examples/${report.slug}`}

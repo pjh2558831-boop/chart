@@ -18,6 +18,8 @@ export type ExampleReport = {
   symbol: string;
   companyName: string;
   market: string;
+  uploadedAt: string;
+  uploadedAtLabel: string;
   indexTitle: string;
   indexDescription: string;
   metadataTitle: string;
@@ -38,6 +40,8 @@ export const exampleReports: ExampleReport[] = [
     symbol: "SPY",
     companyName: "SPDR S&P 500 ETF Trust",
     market: "US",
+    uploadedAt: "2026-06-22",
+    uploadedAtLabel: "2026년 6월 22일",
     indexTitle: "SPY 차트 분석 예시",
     indexDescription:
       "S&P 500 ETF의 저항권 리테스트와 돌파 확인 대기 구간을 지지선, 모멘텀, 거래량 관점에서 정리한 예시입니다.",
@@ -121,6 +125,8 @@ export const exampleReports: ExampleReport[] = [
     symbol: "QQQ",
     companyName: "Invesco QQQ Trust",
     market: "US",
+    uploadedAt: "2026-06-22",
+    uploadedAtLabel: "2026년 6월 22일",
     indexTitle: "QQQ 차트 분석 예시",
     indexDescription:
       "나스닥 100 ETF의 저항선, 미래 눌림목 관심 구간과 돌파 기준을 정리한 투자 참고용 리포트 예시입니다.",
@@ -204,6 +210,8 @@ export const exampleReports: ExampleReport[] = [
     symbol: "NVDA",
     companyName: "NVIDIA",
     market: "US",
+    uploadedAt: "2026-06-22",
+    uploadedAtLabel: "2026년 6월 22일",
     indexTitle: "NVDA 차트 분석 예시",
     indexDescription:
       "NVIDIA 차트에서 위험 관리와 신규 진입 보류 관점을 지지·저항 및 모멘텀과 함께 정리한 예시입니다.",
@@ -287,6 +295,8 @@ export const exampleReports: ExampleReport[] = [
     symbol: "TSLA",
     companyName: "Tesla",
     market: "US",
+    uploadedAt: "2026-06-22",
+    uploadedAtLabel: "2026년 6월 22일",
     indexTitle: "TSLA 차트 분석 예시",
     indexDescription:
       "Tesla 차트의 저항권 테스트와 돌파 확인 조건을 RSI, MACD, 이동평균선 및 거래량과 함께 정리한 예시입니다.",

@@ -7,7 +7,15 @@ const ADSENSE_CLIENT_ID = "ca-pub-5178506221455818";
 
 function isAdsenseAllowedPath(pathname: string | null) {
   if (!pathname) return false;
-  return pathname === "/" || pathname === "/guide" || pathname === "/privacy" || pathname === "/terms" || pathname === "/disclaimer";
+  return (
+    pathname === "/" ||
+    pathname === "/guide" ||
+    pathname === "/privacy" ||
+    pathname === "/terms" ||
+    pathname === "/disclaimer" ||
+    pathname === "/examples" ||
+    pathname.startsWith("/examples/")
+  );
 }
 
 export default function AdSenseScript() {

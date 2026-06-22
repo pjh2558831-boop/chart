@@ -217,6 +217,18 @@ export default function GuidePage() {
           </ul>
         </GuideCard>
 
+        <section className="flex flex-col gap-3 rounded-lg border border-blue-200 bg-blue-50 p-5 shadow-soft sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-950">실제 분석 결과도 확인해 보세요</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              SPY, QQQ, NVDA, TSLA 차트로 생성한 공개 리포트 예시를 볼 수 있습니다.
+            </p>
+          </div>
+          <Link href="/examples" className="shrink-0 text-sm font-bold text-blue-700 hover:text-blue-800">
+            분석 결과 예시 보기 →
+          </Link>
+        </section>
+
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm leading-7 text-amber-900 shadow-soft sm:p-6">
           <h2 className="text-xl font-bold text-amber-950">투자 유의사항</h2>
           <p className="mt-3">

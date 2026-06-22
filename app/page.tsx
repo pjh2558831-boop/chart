@@ -147,10 +147,18 @@ const faqItems = [
 ];
 
 const footerLinks = [
+  { href: "/examples", label: "분석 예시" },
   { href: "/guide", label: "사용 방법" },
   { href: "/privacy", label: "개인정보처리방침" },
   { href: "/terms", label: "이용약관" },
   { href: "/disclaimer", label: "투자 유의사항" },
+];
+
+const exampleLinks = [
+  { href: "/examples/spy", label: "SPY 분석 예시" },
+  { href: "/examples/qqq", label: "QQQ 분석 예시" },
+  { href: "/examples/nvda", label: "NVDA 분석 예시" },
+  { href: "/examples/tsla", label: "TSLA 분석 예시" },
 ];
 
 const allowedModesByPlan: Record<UserPlan, AnalysisMode[]> = {
@@ -341,6 +349,31 @@ function HomepagePublisherContent() {
           ))}
         </div>
       </HomepageContentSection>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div className="max-w-2xl">
+            <h2 className="text-xl font-bold tracking-tight text-slate-950">실제 분석 예시</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              SPY, QQQ, NVDA, TSLA 차트 이미지를 기반으로 생성한 투자 참고용 AI 분석 예시를 확인할 수 있습니다.
+            </p>
+          </div>
+          <Link href="/examples" className="shrink-0 text-sm font-bold text-blue-700 hover:text-blue-800">
+            전체 예시 보기 →
+          </Link>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {exampleLinks.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      </section>
 
       <HomepageExpandableSection
         title="자주 묻는 질문"

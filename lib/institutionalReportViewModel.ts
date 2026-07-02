@@ -3,6 +3,7 @@ import type {
   AnalysisResponse,
   ChartRegime,
   Confidence,
+  PatternRiskProfile,
   RiskRewardDetail,
   TradingActionState,
   TradingReport,
@@ -147,6 +148,7 @@ export interface ReportDecision {
   candleRiskProfile?: CandleRiskProfile;
   trendRegimeGate?: TrendRegimeGate;
   targetProfile?: TargetProfile;
+  patternRiskProfile?: PatternRiskProfile | null;
   finalActionState: string;
   finalActionLabel: string;
   finalActionTone: ReportDecisionTone;
@@ -318,6 +320,12 @@ export interface InstitutionalReportViewModel {
     continuationProbability: string;
     metrics: Array<{ label: string; value: string }>;
     interpretation: string;
+    directionBias?: PatternRiskProfile["directionBias"];
+    stage?: PatternRiskProfile["stage"];
+    keyLevel?: string;
+    confirmationCondition?: string;
+    invalidationCondition?: string;
+    strategyImpact?: string;
   };
   insightNotes: string[];
   riskNotice: string[];
@@ -2103,7 +2111,12 @@ function noClearPatternStructure(context: PriceContext) {
   return "주요 가격대 확인 구조";
 }
 
-function buildPatternDisplay(rawReport: AnalysisResponse, report: TradingReport, context: PriceContext): InstitutionalReportViewModel["pattern"] {
+function buildPatternDisplay(
+  rawReport: AnalysisResponse,
+  report: TradingReport,
+  context: PriceContext,
+  patternRiskProfile: PatternRiskProfile | null = activePatternRiskProfile(report),
+): InstitutionalReportViewModel["pattern"] {
   const primary = report.patternAnalysis.primaryPattern;
   const primaryCandidate = rawReport.aiAnalysis?.patternCandidates?.[0];
   const category = derivePatternCategory(rawReport, report);
@@ -2111,6 +2124,37 @@ function buildPatternDisplay(rawReport: AnalysisResponse, report: TradingReport,
   const detectedStructure = category === "no_clear_pattern"
     ? "명확한 패턴 없음"
     : safeText(primary.name, "명확한 패턴 없음");
+
+  if (patternRiskProfile) {
+    const stageLabel: Record<PatternRiskProfile["stage"], string> = {
+      forming: "형성 중",
+      neckline_test: "넥라인 테스트",
+      breakout_test: "이탈 여부 확인",
+      confirmed: "패턴 확인",
+      failed: "돌파 실패",
+      invalidated: "패턴 위험 약화",
+      uncertain: "단계 확인 필요",
+    };
+    return {
+      category: "reversal",
+      confidence: `${patternRiskProfile.confidenceLabel} · ${patternRiskProfile.confidence} / 100`,
+      detectedStructure: patternRiskProfile.patternLabel,
+      continuationProbability: "해당 없음",
+      metrics: [
+        { label: "패턴 단계", value: stageLabel[patternRiskProfile.stage] },
+        { label: "핵심 가격대", value: safeText(patternRiskProfile.necklineLevel ?? patternRiskProfile.keyLevel, "확인 필요") },
+        { label: "확인 조건", value: safeText(patternRiskProfile.confirmationCondition, "추가 확인 필요") },
+        { label: "무효화 조건", value: safeText(patternRiskProfile.invalidationCondition, "추가 확인 필요") },
+      ],
+      interpretation: safeText(patternRiskProfile.explanation, patternRiskProfile.strategyImpact),
+      directionBias: patternRiskProfile.directionBias,
+      stage: patternRiskProfile.stage,
+      keyLevel: safeText(patternRiskProfile.keyLevel, "확인 필요"),
+      confirmationCondition: safeText(patternRiskProfile.confirmationCondition, "추가 확인 필요"),
+      invalidationCondition: safeText(patternRiskProfile.invalidationCondition, "추가 확인 필요"),
+      strategyImpact: patternRiskProfile.strategyImpact,
+    };
+  }
 
   if (category === "no_clear_pattern") {
     const structure = noClearPatternStructure(context);
@@ -5413,6 +5457,28 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
     warnings.push("목표가가 유효하지 않은데 정상 목표처럼 표시될 수 있습니다.");
   }
 
+  const patternRisk = decision.patternRiskProfile;
+  if (patternRisk?.shouldAffectDecision && patternRisk.scoreCaps) {
+    if ((decision.entryStrategies.current.score ?? 0) > (patternRisk.scoreCaps.currentEntryMax ?? 100)) {
+      warnings.push("PATTERN_RISK_CURRENT_ENTRY_CAP_MISSED");
+    }
+    if ((decision.entryStrategies.pullback.score ?? 0) > (patternRisk.scoreCaps.pullbackEntryMax ?? 100)) {
+      warnings.push("PATTERN_RISK_PULLBACK_ENTRY_CAP_MISSED");
+    }
+    if ((decision.entryStrategies.breakout.score ?? 0) > (patternRisk.scoreCaps.breakoutRetestMax ?? 100)) {
+      warnings.push("PATTERN_RISK_BREAKOUT_ENTRY_CAP_MISSED");
+    }
+    if ((decision.signalSummary.overallScore ?? 0) > (patternRisk.scoreCaps.totalSignalMax ?? 100)) {
+      warnings.push("PATTERN_RISK_TOTAL_SCORE_CAP_MISSED");
+    }
+    if ((decision.signalSummary.riskScore ?? 0) < (patternRisk.scoreCaps.riskScoreMin ?? 0)) {
+      warnings.push("PATTERN_RISK_MINIMUM_RISK_MISSED");
+    }
+    if (/재지지 진입 후보|눌림목 진입 우세|상승 지속 매수 후보/.test(finalText)) {
+      warnings.push("PATTERN_RISK_STRATEGY_CONFLICT");
+    }
+  }
+
   warnings.push(...validateReportDecisionDisplayValues(decision));
 
   return Array.from(new Set(warnings));
@@ -5421,6 +5487,88 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
 function warnReportDecisionInDevelopment(decision: ReportDecision) {
   if (process.env.NODE_ENV !== "development" || !decision.consistencyWarnings?.length) return;
   console.warn("[ReportDecision consistency]", decision.consistencyWarnings);
+}
+
+function activePatternRiskProfile(report: TradingReport) {
+  const profile = report.patternRiskProfile;
+  if (!profile || !profile.shouldAffectDecision || profile.directionBias !== "bearish" || profile.stage === "invalidated") return null;
+  return profile;
+}
+
+function capEntriesForPatternRisk(
+  entries: ReportDecision["entryStrategies"],
+  profile: PatternRiskProfile | null,
+) {
+  if (!profile?.scoreCaps) return entries;
+  const cap = (entry: EntryStrategyDecision, maximum: number | undefined, mode: "current" | "pullback" | "breakout") => {
+    if (maximum == null) return entry;
+    return patchEntryStrategy(entry, {
+      score: Math.min(entry.score ?? maximum, maximum),
+      label: mode === "current" ? "신규 진입 보류" : "패턴 확인 우선",
+      explanation: mode === "breakout"
+        ? "패턴 무효화 가격 회복과 재지지 전까지 돌파 진입을 제한합니다."
+        : "하락 반전 패턴 위험이 해소되기 전까지 확인을 우선합니다.",
+      shortExplanation: "패턴 위험 확인 필요",
+      tone: profile.confidence >= 71 || profile.stage === "confirmed" || profile.stage === "failed" ? "risk" : "caution",
+      isComplete: false,
+      completenessWarnings: Array.from(new Set([...(entry.completenessWarnings ?? []), "PATTERN_RISK_ACTIVE"])),
+    });
+  };
+  return {
+    current: cap(entries.current, profile.scoreCaps.currentEntryMax, "current"),
+    pullback: cap(entries.pullback, profile.scoreCaps.pullbackEntryMax, "pullback"),
+    breakout: cap(entries.breakout, profile.scoreCaps.breakoutRetestMax, "breakout"),
+  };
+}
+
+function patternRiskPrimaryStrategy(
+  profile: PatternRiskProfile | null,
+  fallback: ReportDecision["primaryStrategy"],
+): ReportDecision["primaryStrategy"] {
+  if (!profile) return fallback;
+  const strong = profile.confidence >= 71 || profile.stage === "confirmed" || profile.stage === "failed";
+  const isHeadAndShoulders = profile.primaryPattern === "head_and_shoulders";
+  const keyLevel = safeText(profile.necklineLevel ?? profile.keyLevel, "핵심 가격대 확인 필요");
+  const invalidation = safeText(profile.invalidationLevel, "패턴 무효화 가격 확인 필요");
+  return {
+    title: isHeadAndShoulders
+      ? strong ? "헤드앤숄더 확인 / 위험 관리 우선" : "헤드앤숄더 의심 / 넥라인 지지 확인"
+      : safeText(profile.strategyImpact, strong ? "하락 전환 위험 / 위험 관리" : "패턴 확인 대기"),
+    summary: strong
+      ? `${profile.patternLabel} 위험이 확인되어 신규 진입보다 핵심 가격 회복과 위험 관리가 우선입니다.`
+      : `${profile.patternLabel} 후보가 있어 ${keyLevel} 반응과 패턴 무효화 여부를 먼저 확인해야 합니다.`,
+    entry: strong ? "신규 진입 보류" : `${keyLevel} 지지 또는 회복 확인`,
+    stop: isHeadAndShoulders ? `${keyLevel} 이탈 시 하락 위험 강화` : safeText(profile.invalidationCondition, fallback.stop),
+    target: `${invalidation} 회복 시 패턴 위험 재평가`,
+    badges: strong ? ["위험 관리 우선", "신규 진입 보류"] : ["패턴 확인", "신규 진입 신중"],
+  };
+}
+
+function capSignalSummaryForPatternRisk(
+  summary: ReportDecision["signalSummary"],
+  profile: PatternRiskProfile | null,
+) {
+  if (!profile?.scoreCaps) return summary;
+  return {
+    ...summary,
+    overallScore: profile.scoreCaps.totalSignalMax == null
+      ? summary.overallScore
+      : Math.min(summary.overallScore ?? profile.scoreCaps.totalSignalMax, profile.scoreCaps.totalSignalMax),
+    breakoutScore: profile.scoreCaps.breakoutRetestMax == null
+      ? summary.breakoutScore
+      : Math.min(summary.breakoutScore ?? profile.scoreCaps.breakoutRetestMax, profile.scoreCaps.breakoutRetestMax),
+    breakoutReliabilityScore: profile.scoreCaps.breakoutRetestMax == null
+      ? summary.breakoutReliabilityScore
+      : Math.min(summary.breakoutReliabilityScore ?? profile.scoreCaps.breakoutRetestMax, profile.scoreCaps.breakoutRetestMax),
+    riskScore: profile.scoreCaps.riskScoreMin == null
+      ? summary.riskScore
+      : Math.max(summary.riskScore ?? profile.scoreCaps.riskScoreMin, profile.scoreCaps.riskScoreMin),
+    volatilityRiskScore: profile.scoreCaps.riskScoreMin == null
+      ? summary.volatilityRiskScore
+      : Math.max(summary.volatilityRiskScore ?? profile.scoreCaps.riskScoreMin, profile.scoreCaps.riskScoreMin),
+    entryPerspective: safeText(profile.strategyImpact, summary.entryPerspective),
+    scoreWarnings: Array.from(new Set([...(summary.scoreWarnings ?? []), "PATTERN_RISK_SCORE_CAPPED"])),
+  };
 }
 
 export function buildReportDecision(
@@ -5468,13 +5616,20 @@ export function buildReportDecision(
   ) {
     trendOpportunity = currentEntryScore >= 55 ? "uptrend_continuation" : "controlled_uptrend_entry";
   }
-  const tone = finalActionTone(report, context, finalAction, breakoutState, trendOpportunity);
+  let tone = finalActionTone(report, context, finalAction, breakoutState, trendOpportunity);
   const normalizedPriceRoles = normalizeDecisionPriceRoles(report, rawReport, context, dataset);
+  const patternRiskProfile = activePatternRiskProfile(report);
+  if (patternRiskProfile) {
+    tone = patternRiskProfile.confidence >= 71 || patternRiskProfile.stage === "confirmed" || patternRiskProfile.stage === "failed" ? "risk" : "caution";
+  }
   const instrumentRiskProfile = deriveInstrumentRiskProfile(rawReport, report);
   const targetProfile = deriveTargetProfile(context, report);
   const candleRiskProfile = deriveCandleRiskProfile(report, context, dataset.indicators, rawReport, targetProfile);
   const trendRegimeGate = deriveTrendRegimeGate(report, context, breakoutState, instrumentRiskProfile, candleRiskProfile, targetProfile, dataset.indicators);
-  const refinedRegime = deriveRefinedRegime(report, context, breakoutState, instrumentRiskProfile, candleRiskProfile, targetProfile, trendRegimeGate);
+  let refinedRegime = deriveRefinedRegime(report, context, breakoutState, instrumentRiskProfile, candleRiskProfile, targetProfile, trendRegimeGate);
+  if (patternRiskProfile) {
+    refinedRegime = patternRiskProfile.stage === "confirmed" || patternRiskProfile.stage === "failed" ? "failed_breakout" : "trend_damage_warning";
+  }
   const calibratedEntryStrategies = calibrateReportDecisionEntries(baseEntryStrategies, report, context, breakoutState, trendOpportunity, tone);
   const refinedEntryCalibration = calibrateScoresByRefinedRegime(
     calibratedEntryStrategies,
@@ -5498,7 +5653,7 @@ export function buildReportDecision(
     trendRegimeGate,
     tone,
   );
-  let entryStrategies = normalizedEntryStrategies.entryStrategies;
+  let entryStrategies = capEntriesForPatternRisk(normalizedEntryStrategies.entryStrategies, patternRiskProfile);
   const hasInvalidLongEntryWarning = normalizedPriceRoles.warnings.some((warning) => /SUPPORT_ABOVE_CURRENT|INVALID_LONG_STOP|LONG_STOP_RECHECK_REQUIRED/.test(warning));
   if (
     refinedRegime === "healthy_uptrend_pullback" &&
@@ -5516,7 +5671,16 @@ export function buildReportDecision(
     };
   }
   const normalizedDisplayedEntry = normalizeDecisionEntrySignal(displayedEntry, report, context, tone, breakoutState, trendOpportunity, entryStrategies);
-  const guardedDisplayedEntry = guardDisplayedEntrySignalForState(normalizedDisplayedEntry, context, tone);
+  let guardedDisplayedEntry = guardDisplayedEntrySignalForState(normalizedDisplayedEntry, context, tone);
+  if (patternRiskProfile?.scoreCaps) {
+    const displayCap = patternRiskProfile.scoreCaps.currentEntryMax ?? 35;
+    guardedDisplayedEntry = {
+      mode: tone === "risk" ? "risk" : "wait",
+      label: tone === "risk" ? "위험 관리 우선" : "넥라인 확인 / 신규 진입 보류",
+      score: Math.min(guardedDisplayedEntry.score ?? displayCap, displayCap),
+      explanation: safeText(patternRiskProfile.strategyImpact, "패턴 위험 확인이 우선입니다."),
+    };
+  }
   const targetCollapsed =
     context.targetRoleCollapsed ||
     samePriceZone(context.target, context.current) ||
@@ -5527,12 +5691,15 @@ export function buildReportDecision(
     : safeText(context.targetStatus || context.targetGapLabel, safeText(context.targetText, "추가 목표 확인 필요"));
   const rawPrimaryStrategy = buildDecisionPrimaryStrategy(report, context, finalAction, entryStrategies, guardedDisplayedEntry, tone, breakoutState, trendOpportunity, refinedRegime, targetProfile);
   const guardedPrimaryStrategy = guardPrimaryStrategyForState(rawPrimaryStrategy, report, context, tone);
+  const patternAlignedPrimaryStrategy = patternRiskPrimaryStrategy(patternRiskProfile, guardedPrimaryStrategy);
   const primaryStrategy = {
-    ...guardedPrimaryStrategy,
-    target: safeText(normalizedPriceRoles.priceRoles.target?.text ?? normalizedPriceRoles.priceRoles.targetStatus, guardedPrimaryStrategy.target),
+    ...patternAlignedPrimaryStrategy,
+    target: patternRiskProfile
+      ? patternAlignedPrimaryStrategy.target
+      : safeText(normalizedPriceRoles.priceRoles.target?.text ?? normalizedPriceRoles.priceRoles.targetStatus, guardedPrimaryStrategy.target),
   };
   const displayGuidance = buildDecisionDisplayGuidance(report, context, primaryStrategy, guardedDisplayedEntry, tone);
-  const signalSummary = normalizeDecisionSignalSummary(
+  let signalSummary = normalizeDecisionSignalSummary(
     rawReport,
     report,
     context,
@@ -5552,6 +5719,7 @@ export function buildReportDecision(
     refinedEntryCalibration.scoreWarnings,
     refinedEntryCalibration.overallSeed,
   );
+  signalSummary = capSignalSummaryForPatternRisk(signalSummary, patternRiskProfile);
   const decision: ReportDecision = {
     chartRegime: context.chartRegime,
     breakoutState,
@@ -5561,6 +5729,7 @@ export function buildReportDecision(
     candleRiskProfile,
     targetProfile,
     trendRegimeGate,
+    patternRiskProfile,
     finalActionState: getActionState(report),
     finalActionLabel: primaryStrategy.title,
     finalActionTone: tone,
@@ -5577,6 +5746,7 @@ export function buildReportDecision(
     ...refinedEntryCalibration.scoreWarnings,
     ...(signalSummary.scoreWarnings ?? []),
     ...buildDecisionWarnings(report, context, primaryStrategy, guardedDisplayedEntry, tone),
+    ...(patternRiskProfile ? ["PATTERN_RISK_DECISION_OVERRIDE"] : []),
     ...validateReportDecision(decision, dataset.indicators),
   ];
 
@@ -5600,7 +5770,16 @@ export function buildInstitutionalReportViewModel(rawReport: AnalysisResponse): 
   warnReportDecisionInDevelopment(reportDecision);
   const displayIdentity = buildDisplayIdentity(rawReport, normalizedReport, context);
   const priceUnit = displayIdentity.priceUnitNote;
-  const trendLabel = chartRegimeLabels[context.chartRegime] ?? chartRegimeLabels.unknown;
+  const patternStageLabels: Partial<Record<PatternRiskProfile["stage"], string>> = {
+    neckline_test: "넥라인 테스트",
+    breakout_test: "이탈 여부 확인",
+    confirmed: "패턴 확인",
+    failed: "돌파 실패",
+    forming: "형성 중",
+  };
+  const trendLabel = reportDecision.patternRiskProfile
+    ? `${reportDecision.patternRiskProfile.patternLabel} · ${patternStageLabels[reportDecision.patternRiskProfile.stage] ?? "확인 필요"}`
+    : chartRegimeLabels[context.chartRegime] ?? chartRegimeLabels.unknown;
   const trendDescription = firstText(
     [normalizedReport.chartRegime?.reasons?.[0], rawReport.aiAnalysis?.visualTrend, normalizedReport.finalSummary.reason],
     "차트 상태 확인이 필요합니다.",

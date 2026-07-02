@@ -6,6 +6,7 @@
   EntryModeScore,
   FinalAction,
   MarketContext,
+  PatternRiskProfile,
   PriceRoles,
   PriceLocation,
   RiskRewardDetail,
@@ -4085,6 +4086,151 @@ function sanitizeTradingReport(report: TradingReport) {
   return report;
 }
 
+const P0_BEARISH_PATTERNS = new Set([
+  "head_and_shoulders",
+  "double_top",
+  "descending_triangle",
+  "rising_wedge",
+  "failed_breakout",
+  "lower_high_reversal",
+  "breakdown_risk",
+]);
+
+function legacyPatternConfidence(candidate: AnalysisResponse["aiAnalysis"]["patternCandidates"][number]) {
+  if (typeof candidate.confidenceScore === "number" && Number.isFinite(candidate.confidenceScore)) {
+    const normalized = candidate.confidenceScore > 0 && candidate.confidenceScore <= 1
+      ? candidate.confidenceScore * 100
+      : candidate.confidenceScore;
+    return clamp(normalized, 30);
+  }
+  const confidence = String(candidate.confidence ?? "").toLowerCase();
+  return confidence === "high" ? 80 : confidence === "medium" ? 60 : 30;
+}
+
+function legacyPatternName(candidate: AnalysisResponse["aiAnalysis"]["patternCandidates"][number]) {
+  const name = String(candidate.name ?? "").toLowerCase();
+  if (name === "wedge" && candidate.breakoutDirection === "downside_candidate") return "rising_wedge";
+  if (P0_BEARISH_PATTERNS.has(name)) return name;
+  const evidence = (candidate.evidence ?? []).join(" ").toLowerCase();
+  if (/failed breakout|돌파 실패/.test(evidence)) return "failed_breakout";
+  if (/lower high|낮아지는 고점/.test(evidence)) return "lower_high_reversal";
+  return null;
+}
+
+function deriveLegacyPatternRiskProfile(raw: AnalysisResponse, report: TradingReport): PatternRiskProfile | null {
+  const ranked = (raw.aiAnalysis?.patternCandidates ?? [])
+    .map((candidate) => ({ candidate, name: legacyPatternName(candidate), confidence: legacyPatternConfidence(candidate) }))
+    .filter((item): item is typeof item & { name: string } => Boolean(item.name))
+    .sort((a, b) => b.confidence - a.confidence);
+  const selected = ranked[0];
+  if (!selected) return null;
+  const { candidate, name, confidence } = selected;
+  const current = priceFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone);
+  const candidateLevels = candidate.priceLevels ?? {};
+  const keyValue = candidateLevels.neckline
+    ?? candidateLevels.breakdownPrice
+    ?? candidateLevels.confirmationLevel
+    ?? candidateLevels.support
+    ?? priceFromText(report.priceRoles?.stopLoss?.shortTerm ?? report.keyLevels.supports?.[0]?.priceZone);
+  const invalidationValue = candidateLevels.invalidationLevel
+    ?? candidateLevels.resistance
+    ?? candidateLevels.patternHigh
+    ?? priceFromText(report.priceRoles?.pivot?.priceZone ?? report.keyLevels.resistances?.[0]?.priceZone);
+  let stage: PatternRiskProfile["stage"] = "forming";
+  if (current !== null && invalidationValue != null && current >= invalidationValue * 1.005) stage = "invalidated";
+  else if (name === "failed_breakout") stage = "failed";
+  else if (current !== null && keyValue != null && current < keyValue * 0.995) stage = "confirmed";
+  else if (current !== null && keyValue != null && Math.abs(current - keyValue) / Math.max(Math.abs(keyValue), 1) <= 0.015) {
+    stage = name === "head_and_shoulders" || name === "double_top" ? "neckline_test" : "breakout_test";
+  }
+  const labels: Record<string, string> = {
+    head_and_shoulders: "헤드앤숄더",
+    double_top: "이중천장",
+    descending_triangle: "하락 삼각형",
+    rising_wedge: "상승 쐐기",
+    failed_breakout: "돌파 실패",
+    lower_high_reversal: "낮아지는 고점 / 반등 둔화",
+    breakdown_risk: "지지 이탈 위험",
+  };
+  const active = confidence >= 51 && stage !== "invalidated";
+  const strong = active && (confidence >= 71 || stage === "confirmed" || stage === "failed");
+  const patternLabel = `${labels[name]}${strong ? " 확인" : " 의심"}`;
+  const keyText = keyValue != null ? formatPrice(keyValue) : "핵심 가격대 확인 필요";
+  const strategyImpact = name === "head_and_shoulders"
+    ? strong ? "하락 전환 위험 / 위험 관리" : "넥라인 확인 / 신규 진입 보류"
+    : name === "double_top" ? "저항 돌파 실패 / 지지 이탈 확인"
+    : name === "descending_triangle" ? "하단 지지 이탈 주의"
+    : name === "rising_wedge" ? "과열 상승 둔화 / 이탈 주의"
+    : name === "failed_breakout" ? "돌파 실패 / 재돌파 확인"
+    : "반등 둔화 / 저항 회복 확인";
+  return {
+    primaryPattern: name,
+    patternLabel,
+    directionBias: "bearish",
+    confidence,
+    confidenceLabel: confidence >= 71 ? "높음" : confidence >= 51 ? "보통" : "낮음",
+    stage,
+    keyLevel: keyText,
+    necklineLevel: name === "head_and_shoulders" || name === "double_top" ? keyText : null,
+    invalidationLevel: invalidationValue != null ? formatPrice(invalidationValue) : null,
+    confirmationCondition: candidate.confirmationCondition,
+    invalidationCondition: candidate.invalidationCondition,
+    strategyImpact,
+    riskImpact: active ? "entry_cap" : "none",
+    shouldAffectDecision: active,
+    scoreCaps: active ? {
+      currentEntryMax: strong ? 25 : 35,
+      pullbackEntryMax: strong ? 30 : 45,
+      breakoutRetestMax: strong ? 40 : 55,
+      totalSignalMax: strong ? 40 : 50,
+      riskScoreMin: strong ? 70 : 55,
+    } : null,
+    heroSummary: active ? `${patternLabel} · ${name === "head_and_shoulders" ? "넥라인" : "핵심 가격"} ${keyText}` : null,
+    explanation: candidate.tradingImplication ?? candidate.entryLogic,
+    source: candidate.source ?? "image",
+  };
+}
+
+function applyPatternRiskConsistency(report: TradingReport, raw: AnalysisResponse) {
+  const profile = report.patternRiskProfile ?? deriveLegacyPatternRiskProfile(raw, report);
+  report.patternRiskProfile = profile;
+  if (!profile?.shouldAffectDecision || !profile.scoreCaps) return report;
+  const caps = profile.scoreCaps;
+  const score = report.scoreSummary;
+  if (score) {
+    const entries = score.entryScores;
+    const capEntry = (key: keyof NonNullable<ScoreSummary["entryScores"]>, cap: number | undefined) => {
+      const entry = entries?.[key];
+      if (!entry || cap == null) return;
+      entry.score = Math.min(clamp(entry.score, 50), cap);
+      entry.label = key === "currentEntry" ? "신규 진입 보류" : "패턴 확인 우선";
+      entry.explanation = "하락 반전 패턴 위험이 해소되기 전까지 확인을 우선합니다.";
+    };
+    capEntry("currentEntry", caps.currentEntryMax);
+    capEntry("pullbackEntry", caps.pullbackEntryMax);
+    capEntry("breakoutEntry", caps.breakoutRetestMax);
+    if (caps.totalSignalMax != null) score.totalScore = Math.min(clamp(score.totalScore, 50), caps.totalSignalMax);
+    if (caps.riskScoreMin != null) score.riskScore = Math.max(clamp(score.riskScore, 50), caps.riskScoreMin);
+    score.totalLabel = scoreLabel(score.totalScore);
+    score.riskLabel = riskScoreLabel(score.riskScore);
+    score.scoreWarnings = Array.from(new Set([...(score.scoreWarnings ?? []), "PATTERN_RISK_SCORE_CAPPED"]));
+  }
+  const strong = profile.confidence >= 71 || profile.stage === "confirmed" || profile.stage === "failed";
+  report.finalSummary.finalAction = strong ? "SELL_RISK" : "BREAKOUT_WAIT";
+  report.finalSummary.actionState = strong ? "HIGH_RISK" : "BREAKOUT_WAIT";
+  report.finalSummary.title = profile.primaryPattern === "head_and_shoulders" && !strong
+    ? "넥라인 확인 / 신규 진입 보류"
+    : profile.strategyImpact;
+  report.finalSummary.oneLineConclusion = `${profile.patternLabel} 위험이 있어 확인 조건 충족 전까지 신규 진입은 신중해야 합니다.`;
+  report.userActionGuide.nonHolder = "패턴 위험이 약화되고 핵심 가격대가 확인되기 전까지 신규 진입을 보류합니다.";
+  report.userActionGuide.addBuyer = "패턴 무효화와 가격 회복 확인 후 분할 접근을 재검토합니다.";
+  report.userActionGuide.newEntryGuidance = profile.strategyImpact;
+  report.userActionGuide.mustConfirmCondition = profile.confirmationCondition ?? "패턴 확인 가격 회복";
+  report.userActionGuide.mustNotTradeReason = `${profile.patternLabel} 위험이 아직 무효화되지 않았습니다.`;
+  report.userActionGuide.nextReviewCondition = `${profile.keyLevel ?? "핵심 가격대"} 반응 확인`;
+  return report;
+}
+
 function normalizeExistingReport(report: TradingReport, raw: AnalysisResponse): TradingReport {
   const fallback = buildFallbackReport(raw);
   const merged: TradingReport = {
@@ -4152,7 +4298,7 @@ function normalizeExistingReport(report: TradingReport, raw: AnalysisResponse): 
     merged.patternAnalysis.secondaryPattern.name = ensureCandidateLabel(merged.patternAnalysis.secondaryPattern.name);
   }
   merged.disclaimer = DISCLAIMER;
-  return sanitizeTradingReport(merged);
+  return applyPatternRiskConsistency(sanitizeTradingReport(merged), raw);
 }
 
 function buildFallbackReport(raw: AnalysisResponse): TradingReport {

@@ -40,6 +40,7 @@ export interface PatternCandidate {
   stage?: PatternStage;
   confidence: Confidence | string;
   confidenceScore?: number | null;
+  source?: "image" | "live" | "mixed";
   baseReliability?: {
     score: number;
     reason: string;
@@ -53,6 +54,8 @@ export interface PatternCandidate {
     resistance?: number | null;
     breakoutPrice?: number | null;
     breakdownPrice?: number | null;
+    confirmationLevel?: number | null;
+    invalidationLevel?: number | null;
   };
   tradePlan?: {
     entryType?: PatternEntryType;
@@ -77,6 +80,43 @@ export interface PatternCandidate {
     formula: string;
     estimated: boolean;
   };
+}
+
+export interface PatternRiskProfile {
+  primaryPattern?: string | null;
+  patternLabel: string;
+  directionBias: "bullish" | "bearish" | "neutral" | "uncertain";
+  confidence: number;
+  confidenceLabel: "낮음" | "보통" | "높음";
+  stage: "forming" | "neckline_test" | "breakout_test" | "confirmed" | "failed" | "invalidated" | "uncertain";
+  keyLevel?: string | null;
+  necklineLevel?: string | null;
+  breakoutLevel?: string | null;
+  invalidationLevel?: string | null;
+  confirmationCondition?: string | null;
+  invalidationCondition?: string | null;
+  strategyImpact: string;
+  riskImpact: "none" | "risk_up" | "risk_down" | "entry_cap";
+  shouldAffectDecision: boolean;
+  scoreCaps?: {
+    currentEntryMax?: number;
+    pullbackEntryMax?: number;
+    breakoutRetestMax?: number;
+    totalSignalMax?: number;
+    riskScoreMin?: number;
+  } | null;
+  heroSummary?: string | null;
+  explanation?: string | null;
+  source?: "image" | "live" | "mixed" | null;
+}
+
+export interface DataProvenance {
+  priceSource: "image" | "live" | "mixed";
+  imagePrice?: number | null;
+  livePrice?: number | null;
+  hasPriceMismatch: boolean;
+  mismatchPercent?: number | null;
+  shouldMergeLiveLevels: boolean;
 }
 
 export interface PatternSummary {
@@ -578,6 +618,7 @@ export interface ScoreSummary {
     negative?: ScoreFactor[];
     risk?: ScoreFactor[];
   };
+  scoreWarnings?: string[];
 }
 
 export interface PriceRoles {
@@ -623,6 +664,8 @@ export interface EntryStopLoss {
 
 export interface TradingReport {
   analysisMeta?: AnalysisMeta;
+  dataProvenance?: DataProvenance | null;
+  patternRiskProfile?: PatternRiskProfile | null;
   marketContext?: MarketContext;
   chartRegime?: NormalizedChartRegime;
   normalizedFinalAction?: NormalizedFinalAction;
@@ -643,6 +686,11 @@ export interface TradingReport {
     shortTermTrader: string;
     addBuyer: string;
     stopLoss: string;
+    newEntryGuidance?: string | null;
+    holderGuidance?: string | null;
+    mustConfirmCondition?: string | null;
+    mustNotTradeReason?: string | null;
+    nextReviewCondition?: string | null;
   };
   tradePlan: {
     entry: {

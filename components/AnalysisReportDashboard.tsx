@@ -773,6 +773,11 @@ function SummaryHero({ vm }: { vm: InstitutionalReportViewModel }) {
               </div>
             ))}
           </div>
+          {decision.patternRiskProfile?.heroSummary ? (
+            <div className="mt-3 min-w-0 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-bold leading-5 text-rose-700 [overflow-wrap:break-word] [word-break:keep-all]">
+              AI 패턴 감지: {decision.patternRiskProfile.heroSummary}
+            </div>
+          ) : null}
         </HeroPanel>
 
         <HeroPanel className={`order-2 min-h-[21rem] lg:order-3 ${signalToneClass[finalTone]}`}>

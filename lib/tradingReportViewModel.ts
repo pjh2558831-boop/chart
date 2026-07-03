@@ -4109,6 +4109,8 @@ function legacyPatternConfidence(candidate: AnalysisResponse["aiAnalysis"]["patt
 
 function legacyPatternName(candidate: AnalysisResponse["aiAnalysis"]["patternCandidates"][number]) {
   const name = String(candidate.name ?? "").toLowerCase();
+  const label = String(candidate.label ?? "").toLowerCase().replace(/\s+/g, "");
+  if (/^(head[_ -]?and[_ -]?shoulders|h&s)$/.test(name) || /헤드앤숄더/.test(label)) return "head_and_shoulders";
   if (name === "wedge" && candidate.breakoutDirection === "downside_candidate") return "rising_wedge";
   if (P0_BEARISH_PATTERNS.has(name)) return name;
   const evidence = (candidate.evidence ?? []).join(" ").toLowerCase();
@@ -4117,32 +4119,195 @@ function legacyPatternName(candidate: AnalysisResponse["aiAnalysis"]["patternCan
   return null;
 }
 
+function legacyLineAnalysisLevel(raw: AnalysisResponse, lineType: string) {
+  const line = raw.aiAnalysis?.lineAnalysis?.find((item) => item.type === lineType);
+  if (!line) return null;
+  if (typeof line.price === "number" && Number.isFinite(line.price)) return line.price;
+  if (typeof line.priceLow === "number" && Number.isFinite(line.priceLow) && typeof line.priceHigh === "number" && Number.isFinite(line.priceHigh)) {
+    return (line.priceLow + line.priceHigh) / 2;
+  }
+  return priceFromText(line.priceZone);
+}
+
+type LegacyPatternCandidate = AnalysisResponse["aiAnalysis"]["patternCandidates"][number];
+
+interface LegacyPatternValidation {
+  validationLevel: "none" | "weak" | "watch" | "decision" | "strong";
+  decisionImpactLevel: "none" | "watch" | "decision" | "strong";
+  shouldAffectDecision: boolean;
+  shouldAffectScore: boolean;
+  validationReasons: string[];
+  missingRequirements: string[];
+  validationWarnings: string[];
+  falsePositiveRisk: "low" | "medium" | "high";
+  stage: PatternRiskProfile["stage"];
+  keyValue: number | null;
+  invalidationValue: number | null;
+}
+
+function legacyVisualRoleLevel(raw: AnalysisResponse, collection: "swingHighs" | "swingLows", role: string) {
+  const values = (raw.aiAnalysis?.visualStructure?.[collection] ?? [])
+    .filter((point) => point.role === role)
+    .map((point) => point.price)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return values.length ? values[values.length - 1] : null;
+}
+
+function legacyCandidateLevel(candidate: LegacyPatternCandidate, ...keys: string[]) {
+  const levels = candidate.priceLevels as Record<string, number | null | undefined> | undefined;
+  for (const key of keys) {
+    const value = levels?.[key];
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+function legacyResolvedPatternStage(
+  candidate: LegacyPatternCandidate,
+  name: string,
+  current: number | null,
+  keyValue: number | null,
+  invalidationValue: number | null,
+) {
+  const explicit = candidate.stage === "invalid" ? "invalidated"
+    : candidate.stage === "candidate" ? "forming"
+    : candidate.stage === "breakdown_attempt" ? "breakout_test"
+    : candidate.stage;
+  const allowed: PatternRiskProfile["stage"][] = ["forming", "neckline_test", "breakout_test", "confirmed", "failed", "invalidated", "uncertain"];
+  let stage: PatternRiskProfile["stage"] = allowed.includes(explicit as PatternRiskProfile["stage"])
+    ? explicit as PatternRiskProfile["stage"]
+    : "uncertain";
+  if (stage === "failed" && name !== "failed_breakout") return "invalidated";
+  if (stage === "invalidated") return "invalidated";
+  if (current !== null && invalidationValue !== null && current >= invalidationValue * 1.005) return "invalidated";
+  if (name === "failed_breakout") return "failed";
+  if (current !== null && keyValue !== null) {
+    if (current < keyValue * 0.995) return "confirmed";
+    if (Math.abs(current - keyValue) / Math.max(Math.abs(keyValue), 1) <= 0.015) {
+      return name === "head_and_shoulders" || name === "double_top" ? "neckline_test" : "breakout_test";
+    }
+    if (["confirmed", "neckline_test", "breakout_test"].includes(stage)) return "forming";
+  }
+  return stage;
+}
+
+function validateLegacyPatternCandidate(
+  raw: AnalysisResponse,
+  report: TradingReport,
+  candidate: LegacyPatternCandidate,
+  name: string,
+  confidence: number,
+): LegacyPatternValidation {
+  const current = priceFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone);
+  let keyValue = legacyCandidateLevel(candidate, "neckline", "breakdown", "breakdownPrice", "confirmationLevel", "support");
+  let invalidationValue = legacyCandidateLevel(candidate, "invalidationLevel", "rightShoulder", "resistance", "patternHigh", "breakout", "breakoutPrice");
+  const missing: string[] = [];
+  const reasons: string[] = [];
+  const warnings: string[] = [];
+
+  const evidence = (candidate.evidence ?? []).filter((item) => {
+    const text = String(item ?? "").trim().toLowerCase();
+    return text && !/구조 근거가 충분하지 않아|확인 필요|visual resemblance|looks like/.test(text);
+  });
+  if (confidence < 51) missing.push("CONFIDENCE_BELOW_51");
+  else reasons.push("CONFIDENCE_THRESHOLD_MET");
+  if (candidate.direction !== "bearish") missing.push("BEARISH_DIRECTION_MISSING");
+  else reasons.push("BEARISH_DIRECTION_CONFIRMED");
+  if (!evidence.length) missing.push("MEANINGFUL_EVIDENCE_MISSING");
+  else reasons.push("MEANINGFUL_EVIDENCE_PRESENT");
+
+  if (name === "head_and_shoulders") {
+    const left = legacyCandidateLevel(candidate, "leftShoulder") ?? legacyVisualRoleLevel(raw, "swingHighs", "left_shoulder");
+    const head = legacyCandidateLevel(candidate, "head") ?? legacyVisualRoleLevel(raw, "swingHighs", "head");
+    const right = legacyCandidateLevel(candidate, "rightShoulder") ?? legacyVisualRoleLevel(raw, "swingHighs", "right_shoulder");
+    keyValue = keyValue ?? legacyLineAnalysisLevel(raw, "neckline");
+    invalidationValue = invalidationValue ?? right;
+    if (left === null) missing.push("LEFT_SHOULDER_MISSING");
+    if (head === null) missing.push("HEAD_MISSING");
+    if (right === null) missing.push("RIGHT_SHOULDER_MISSING");
+    if (keyValue === null) {
+      missing.push("NECKLINE_MISSING");
+      warnings.push("PATTERN_HS_SCORE_WITHOUT_NECKLINE");
+    }
+    if (left !== null && head !== null && right !== null) {
+      if (head <= Math.max(left, right) * 1.005) missing.push("HEAD_NOT_CLEARLY_ABOVE_SHOULDERS");
+      else reasons.push("HEAD_ABOVE_BOTH_SHOULDERS");
+    }
+    if (["LEFT_SHOULDER_MISSING", "HEAD_MISSING", "RIGHT_SHOULDER_MISSING"].some((item) => missing.includes(item))) {
+      warnings.push("PATTERN_HS_INCOMPLETE_STRUCTURE");
+    }
+  } else {
+    if (name === "failed_breakout") {
+      keyValue = legacyCandidateLevel(candidate, "breakout", "breakoutPrice", "confirmationLevel", "resistance");
+    }
+    if (name === "double_top") keyValue = keyValue ?? legacyLineAnalysisLevel(raw, "neckline");
+    if (keyValue === null) missing.push("DECISION_KEY_LEVEL_MISSING");
+  }
+  if (invalidationValue === null) missing.push("INVALIDATION_LEVEL_MISSING");
+
+  const stage = legacyResolvedPatternStage(candidate, name, current, keyValue, invalidationValue);
+  if (stage === "uncertain") missing.push("MEANINGFUL_STAGE_MISSING");
+  else if (stage === "invalidated") reasons.push("PATTERN_INVALIDATED");
+  else reasons.push("STAGE_SUPPORTS_REVIEW");
+
+  const pivot = priceFromText(report.priceRoles?.pivot?.priceZone);
+  const breakoutConfirmed = Boolean(report.marketContext?.breakoutRetestConfirmed) || (
+    current !== null && pivot !== null && current >= pivot * 1.005
+  );
+  const completeBeforeBreakoutGuard = missing.length === 0;
+  const strongEvidence = completeBeforeBreakoutGuard && (confidence >= 71 || stage === "confirmed" || stage === "failed");
+  if (breakoutConfirmed && !strongEvidence) {
+    missing.push("CONFIRMED_BREAKOUT_PROTECTION");
+    warnings.push("WEAK_PATTERN_BLOCKED_BY_CONFIRMED_BREAKOUT");
+    reasons.push("CONFIRMED_BREAKOUT_PRESERVED");
+  }
+
+  const complete = missing.length === 0;
+  const shouldAffect = complete && stage !== "invalidated";
+  const validationLevel: LegacyPatternValidation["validationLevel"] = shouldAffect
+    ? strongEvidence ? "strong" : "decision"
+    : stage === "invalidated" ? "none"
+    : confidence >= 51 ? "watch"
+    : "weak";
+  if (shouldAffect) reasons.push("STRUCTURE_COMPLETE");
+  if (stage === "invalidated") warnings.push("INVALIDATED_PATTERN_SCORE_CAP_BLOCKED");
+  return {
+    validationLevel,
+    decisionImpactLevel: validationLevel === "strong" || validationLevel === "decision" ? validationLevel : validationLevel === "watch" ? "watch" : "none",
+    shouldAffectDecision: shouldAffect,
+    shouldAffectScore: shouldAffect,
+    validationReasons: Array.from(new Set(reasons)),
+    missingRequirements: Array.from(new Set(missing)),
+    validationWarnings: Array.from(new Set(warnings)),
+    falsePositiveRisk: shouldAffect || stage === "invalidated" ? "low" : name === "head_and_shoulders" ? "high" : "medium",
+    stage,
+    keyValue,
+    invalidationValue,
+  };
+}
+
 function deriveLegacyPatternRiskProfile(raw: AnalysisResponse, report: TradingReport): PatternRiskProfile | null {
   const ranked = (raw.aiAnalysis?.patternCandidates ?? [])
-    .map((candidate) => ({ candidate, name: legacyPatternName(candidate), confidence: legacyPatternConfidence(candidate) }))
+    .map((candidate) => {
+      const name = legacyPatternName(candidate);
+      const confidence = legacyPatternConfidence(candidate);
+      return {
+        candidate,
+        name,
+        confidence,
+        validation: name ? validateLegacyPatternCandidate(raw, report, candidate, name, confidence) : null,
+      };
+    })
     .filter((item): item is typeof item & { name: string } => Boolean(item.name))
-    .sort((a, b) => b.confidence - a.confidence);
+    .sort((a, b) => {
+      const rank = (level: PatternRiskProfile["validationLevel"]) => ({ none: 0, weak: 1, watch: 2, decision: 3, strong: 4 })[level ?? "none"];
+      const levelDifference = rank(b.validation?.validationLevel) - rank(a.validation?.validationLevel);
+      return levelDifference || b.confidence - a.confidence;
+    });
   const selected = ranked[0];
-  if (!selected) return null;
-  const { candidate, name, confidence } = selected;
-  const current = priceFromText(report.priceRoles?.current?.priceZone ?? report.analysisMeta?.currentPriceZone);
-  const candidateLevels = candidate.priceLevels ?? {};
-  const keyValue = candidateLevels.neckline
-    ?? candidateLevels.breakdownPrice
-    ?? candidateLevels.confirmationLevel
-    ?? candidateLevels.support
-    ?? priceFromText(report.priceRoles?.stopLoss?.shortTerm ?? report.keyLevels.supports?.[0]?.priceZone);
-  const invalidationValue = candidateLevels.invalidationLevel
-    ?? candidateLevels.resistance
-    ?? candidateLevels.patternHigh
-    ?? priceFromText(report.priceRoles?.pivot?.priceZone ?? report.keyLevels.resistances?.[0]?.priceZone);
-  let stage: PatternRiskProfile["stage"] = "forming";
-  if (current !== null && invalidationValue != null && current >= invalidationValue * 1.005) stage = "invalidated";
-  else if (name === "failed_breakout") stage = "failed";
-  else if (current !== null && keyValue != null && current < keyValue * 0.995) stage = "confirmed";
-  else if (current !== null && keyValue != null && Math.abs(current - keyValue) / Math.max(Math.abs(keyValue), 1) <= 0.015) {
-    stage = name === "head_and_shoulders" || name === "double_top" ? "neckline_test" : "breakout_test";
-  }
+  if (!selected?.validation) return null;
+  const { candidate, name, confidence, validation } = selected;
+  const { stage, keyValue, invalidationValue } = validation;
   const labels: Record<string, string> = {
     head_and_shoulders: "헤드앤숄더",
     double_top: "이중천장",
@@ -4152,8 +4317,8 @@ function deriveLegacyPatternRiskProfile(raw: AnalysisResponse, report: TradingRe
     lower_high_reversal: "낮아지는 고점 / 반등 둔화",
     breakdown_risk: "지지 이탈 위험",
   };
-  const active = confidence >= 51 && stage !== "invalidated";
-  const strong = active && (confidence >= 71 || stage === "confirmed" || stage === "failed");
+  const active = validation.shouldAffectDecision;
+  const strong = active && validation.validationLevel === "strong";
   const patternLabel = `${labels[name]}${strong ? " 확인" : " 의심"}`;
   const keyText = keyValue != null ? formatPrice(keyValue) : "핵심 가격대 확인 필요";
   const strategyImpact = name === "head_and_shoulders"
@@ -4178,6 +4343,13 @@ function deriveLegacyPatternRiskProfile(raw: AnalysisResponse, report: TradingRe
     strategyImpact,
     riskImpact: active ? "entry_cap" : "none",
     shouldAffectDecision: active,
+    shouldAffectScore: validation.shouldAffectScore,
+    validationLevel: validation.validationLevel,
+    decisionImpactLevel: validation.decisionImpactLevel,
+    validationReasons: validation.validationReasons,
+    missingRequirements: validation.missingRequirements,
+    validationWarnings: validation.validationWarnings,
+    falsePositiveRisk: validation.falsePositiveRisk,
     scoreCaps: active ? {
       currentEntryMax: strong ? 25 : 35,
       pullbackEntryMax: strong ? 30 : 45,
@@ -4186,7 +4358,9 @@ function deriveLegacyPatternRiskProfile(raw: AnalysisResponse, report: TradingRe
       riskScoreMin: strong ? 70 : 55,
     } : null,
     heroSummary: active ? `${patternLabel} · ${name === "head_and_shoulders" ? "넥라인" : "핵심 가격"} ${keyText}` : null,
-    explanation: candidate.tradingImplication ?? candidate.entryLogic,
+    explanation: candidate.conflictExplanation ?? candidate.tradingImplication ?? candidate.entryLogic,
+    conflictsWithMomentum: candidate.conflictsWithMomentum,
+    conflictExplanation: candidate.conflictExplanation,
     source: candidate.source ?? "image",
   };
 }
@@ -4194,7 +4368,7 @@ function deriveLegacyPatternRiskProfile(raw: AnalysisResponse, report: TradingRe
 function applyPatternRiskConsistency(report: TradingReport, raw: AnalysisResponse) {
   const profile = report.patternRiskProfile ?? deriveLegacyPatternRiskProfile(raw, report);
   report.patternRiskProfile = profile;
-  if (!profile?.shouldAffectDecision || !profile.scoreCaps) return report;
+  if (!profile?.shouldAffectDecision || profile.shouldAffectScore === false || !profile.scoreCaps) return report;
   const caps = profile.scoreCaps;
   const score = report.scoreSummary;
   if (score) {

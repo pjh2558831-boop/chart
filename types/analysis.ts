@@ -4,8 +4,8 @@ export type Confidence = "low" | "medium" | "high" | "unavailable";
 export type PatternCategory = "reversal" | "continuation" | "range" | "breakout" | "unknown" | string;
 export type BreakoutDirection = "upside_candidate" | "downside_candidate" | "neutral" | "unknown" | string;
 export type RiskLevel = "low" | "medium" | "high" | string;
-export type PatternDirection = "bullish" | "bearish" | "neutral" | "unknown" | string;
-export type PatternStage = "candidate" | "confirmed" | "failed" | "invalid" | string;
+export type PatternDirection = "bullish" | "bearish" | "neutral" | "uncertain" | "unknown" | string;
+export type PatternStage = "forming" | "neckline_test" | "breakout_test" | "confirmed" | "failed" | "invalidated" | "uncertain" | "candidate" | "invalid" | string;
 export type PatternEntryType = "aggressive" | "conservative" | "wait" | "none" | string;
 
 export type ActionParameter =
@@ -49,11 +49,16 @@ export interface PatternCandidate {
     currentPrice?: number | null;
     patternHigh?: number | null;
     patternLow?: number | null;
+    leftShoulder?: number | null;
+    head?: number | null;
+    rightShoulder?: number | null;
     neckline?: number | null;
     support?: number | null;
     resistance?: number | null;
     breakoutPrice?: number | null;
     breakdownPrice?: number | null;
+    breakout?: number | null;
+    breakdown?: number | null;
     confirmationLevel?: number | null;
     invalidationLevel?: number | null;
   };
@@ -72,6 +77,8 @@ export interface PatternCandidate {
   invalidationCondition: string;
   entryLogic: string;
   tradingImplication?: string | null;
+  conflictsWithMomentum?: boolean | null;
+  conflictExplanation?: string | null;
   exitLogic?: string;
   riskLevel: RiskLevel;
   warnings?: string[];
@@ -98,6 +105,13 @@ export interface PatternRiskProfile {
   strategyImpact: string;
   riskImpact: "none" | "risk_up" | "risk_down" | "entry_cap";
   shouldAffectDecision: boolean;
+  shouldAffectScore?: boolean;
+  validationLevel?: "none" | "weak" | "watch" | "decision" | "strong";
+  decisionImpactLevel?: "none" | "watch" | "decision" | "strong";
+  validationReasons?: string[];
+  missingRequirements?: string[];
+  validationWarnings?: string[];
+  falsePositiveRisk?: "low" | "medium" | "high";
   scoreCaps?: {
     currentEntryMax?: number;
     pullbackEntryMax?: number;
@@ -107,7 +121,56 @@ export interface PatternRiskProfile {
   } | null;
   heroSummary?: string | null;
   explanation?: string | null;
+  conflictsWithMomentum?: boolean | null;
+  conflictExplanation?: string | null;
   source?: "image" | "live" | "mixed" | null;
+}
+
+export type SwingHighRole = "left_shoulder" | "head" | "right_shoulder" | "lower_high" | "higher_high" | "resistance" | "breakout_failure" | "unknown";
+export type SwingLowRole = "neckline_touch" | "support" | "higher_low" | "lower_low" | "breakdown_level" | "range_low" | "unknown";
+export type LineAnalysisType = "support" | "resistance" | "neckline" | "uptrend_line" | "downtrend_line" | "channel_upper" | "channel_lower" | "breakout_line" | "breakdown_line" | "invalidation_line" | "decision_zone" | "unknown";
+
+export interface SwingPoint<Role extends string = string> {
+  order: number;
+  price?: number | null;
+  priceZone?: string | null;
+  role?: Role | null;
+  confidence?: Confidence | string | null;
+  evidence?: string | null;
+}
+
+export interface VisualStructure {
+  swingHighs?: SwingPoint<SwingHighRole>[];
+  swingLows?: SwingPoint<SwingLowRole>[];
+  structureSummary?: string | null;
+}
+
+export interface LineAnalysisItem {
+  type: LineAnalysisType | string;
+  price?: number | null;
+  priceLow?: number | null;
+  priceHigh?: number | null;
+  priceZone?: string | null;
+  confidence?: Confidence | string | null;
+  evidence?: string[];
+  roleInStrategy?: string | null;
+}
+
+export interface InterpretationLayers {
+  shortTermState?: string | null;
+  higherTimeframeStructure?: string | null;
+  structuralPatternRisk?: string | null;
+  momentumState?: string | null;
+  coexistenceSummary?: string | null;
+  finalBias?: "bullish" | "bearish" | "neutral" | "cautious" | "uncertain" | string | null;
+}
+
+export interface PatternMomentumConflict {
+  exists: boolean;
+  momentumBias?: "bullish" | "bearish" | "neutral" | "unknown" | string | null;
+  patternBias?: "bullish" | "bearish" | "neutral" | "unknown" | string | null;
+  resolutionRule?: string | null;
+  explanation?: string | null;
 }
 
 export interface DataProvenance {
@@ -213,6 +276,13 @@ export interface AIAnalysis {
   chartType: string;
   timeframeEstimate: string;
   visualTrend: string;
+  visualStructure?: VisualStructure | null;
+  lineAnalysis?: LineAnalysisItem[];
+  interpretationLayers?: InterpretationLayers | null;
+  patternMomentumConflict?: PatternMomentumConflict | null;
+  chartStateHint?: string | null;
+  setupTypeHint?: string | null;
+  timeframeAlignmentHint?: string | null;
   patternCandidates: PatternCandidate[];
   visibleIndicators: string[];
   visualSupportZones: VisualZone[];

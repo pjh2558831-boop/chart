@@ -5458,7 +5458,7 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
   }
 
   const patternRisk = decision.patternRiskProfile;
-  if (patternRisk?.shouldAffectDecision && patternRisk.scoreCaps) {
+  if (patternRisk?.shouldAffectDecision && patternRisk.shouldAffectScore !== false && patternRisk.scoreCaps) {
     if ((decision.entryStrategies.current.score ?? 0) > (patternRisk.scoreCaps.currentEntryMax ?? 100)) {
       warnings.push("PATTERN_RISK_CURRENT_ENTRY_CAP_MISSED");
     }
@@ -5478,6 +5478,19 @@ export function validateReportDecision(decision: ReportDecision, indicators: Ind
       warnings.push("PATTERN_RISK_STRATEGY_CONFLICT");
     }
   }
+  if (patternRisk?.shouldAffectScore && !patternRisk.validationReasons?.length && patternRisk.validationLevel) {
+    warnings.push("PATTERN_SCORE_WITHOUT_VALIDATION_REASONS");
+  }
+  if (patternRisk?.stage === "invalidated" && patternRisk.shouldAffectScore) {
+    warnings.push("INVALIDATED_PATTERN_SCORE_CAP");
+  }
+  if (
+    patternRisk?.primaryPattern === "head_and_shoulders" &&
+    patternRisk.shouldAffectScore &&
+    patternRisk.missingRequirements?.some((item) => /NECKLINE|SHOULDER|HEAD/.test(item))
+  ) {
+    warnings.push("PATTERN_HS_INCOMPLETE_STRUCTURE");
+  }
 
   warnings.push(...validateReportDecisionDisplayValues(decision));
 
@@ -5491,7 +5504,7 @@ function warnReportDecisionInDevelopment(decision: ReportDecision) {
 
 function activePatternRiskProfile(report: TradingReport) {
   const profile = report.patternRiskProfile;
-  if (!profile || !profile.shouldAffectDecision || profile.directionBias !== "bearish" || profile.stage === "invalidated") return null;
+  if (!profile || !profile.shouldAffectDecision || profile.shouldAffectScore === false || profile.directionBias !== "bearish" || profile.stage === "invalidated") return null;
   return profile;
 }
 

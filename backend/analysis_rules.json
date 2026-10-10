@@ -1,0 +1,4 @@
+{
+  "source": "../frontend/config/analysis-rules.json",
+  "note": "The canonical editable analysis rules JSON lives at frontend/config/analysis-rules.json for the Vercel API route. Keep this backend copy in sync if the legacy FastAPI service is used."
+}
